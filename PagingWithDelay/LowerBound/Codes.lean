@@ -1,0 +1,114 @@
+import PagingWithDelay.LowerBound.Construction
+
+/-!
+# Which page the `i`-th fetch of the adversarial instance carries
+
+FIFO pays for the pending requests in criticality order, so its `i`-th fetch
+carries the page whose criticality position is `i`.  This file gives that page
+code a name, `fetchedCode`, and proves the combinatorial heart of the lower
+bound: **any `k + 1` consecutive fetches are on distinct pages**
+(`fetchedCode_ne`), together with the one extra separation the transposed pair
+of a run needs (`fetchedCode_ne_gap`).
+
+Both are statements about `codeAt` and `swapBC` alone; the timing of the
+instance plays no part in them.
+-/
+
+namespace PagingWithDelay.LowerBound
+
+theorem runLength_pos (k : ℕ) : 0 < runLength k := by unfold runLength; omega
+
+/-- Page code fetched by the `i`-th threshold payment, counted from `1`. -/
+def fetchedCode (k i : ℕ) : ℕ :=
+  swapBC ((i - 1) / runLength k) (codeAt k ((i - 1) % runLength k + 1))
+
+theorem fetchedCode_lt (k i : ℕ) (hk : 0 < k) : fetchedCode k i < k + 2 := by
+  have hmod : (i - 1) % runLength k < 2 * k + 2 := Nat.mod_lt (i - 1) (runLength_pos k)
+  exact swapBC_lt k _ _ (codeAt_lt k _ hk (by omega) (by omega)) hk
+
+/-- Splitting the fetch index into run and criticality position. -/
+theorem fetchedCode_eq (k r j : ℕ) (hj1 : 1 ≤ j) (hj : j ≤ runLength k) :
+    fetchedCode k (runLength k * r + j) = swapBC r (codeAt k j) := by
+  have hL := runLength_pos k
+  have hsub : runLength k * r + j - 1 = runLength k * r + (j - 1) := by omega
+  have hlt : j - 1 < runLength k := by omega
+  unfold fetchedCode
+  rw [hsub, Nat.mul_add_div hL, Nat.mul_add_mod, Nat.div_eq_of_lt hlt,
+    Nat.mod_eq_of_lt hlt]
+  simp only [Nat.add_zero]
+  congr 2
+  omega
+
+/-! ## Distinctness -/
+
+/-- Inside one run, two criticality positions at distance at most `k` carry
+different pages. -/
+theorem codeAt_ne_of_close {k j j' : ℕ} (hk : 0 < k) (h1 : 1 ≤ j) (hlt : j < j')
+    (hle : j' ≤ j + k) (hj' : j' ≤ 2 * k + 2) : codeAt k j ≠ codeAt k j' := by
+  unfold codeAt
+  split_ifs <;> omega
+
+/-- The relabelling of one run, as a function of page codes. -/
+def swap12 (code : ℕ) : ℕ := if code = 1 then 2 else if code = 2 then 1 else code
+
+theorem swapBC_injective (r : ℕ) : Function.Injective (swapBC r) := by
+  intro x y h
+  unfold swapBC at h
+  split_ifs at h <;> omega
+
+theorem swapBC_succ (r code : ℕ) : swapBC (r + 1) code = swapBC r (swap12 code) := by
+  unfold swapBC swap12
+  split_ifs <;> omega
+
+/-- Across a run boundary the roles of `b` and `c` are exchanged, and the
+positions are at distance at least `k + 2` inside their runs. -/
+theorem codeAt_swap_ne {k r j j' : ℕ} (hk : 0 < k) (h1 : 1 ≤ j')
+    (hj : j ≤ 2 * k + 2) (hgap : j' + k + 2 ≤ j) :
+    swapBC r (codeAt k j) ≠ swapBC (r + 1) (codeAt k j') := by
+  have hjk : j' ≤ k := by omega
+  rw [swapBC_succ]
+  intro hcontra
+  have h := swapBC_injective r hcontra
+  have hjval : codeAt k j = 2 ∨ (k + 4 ≤ j ∧ codeAt k j = 2 * k + 5 - j) := by
+    unfold codeAt; split_ifs <;> omega
+  have hj'val : codeAt k j' = 2 ∨ codeAt k j' = 0 ∨ (3 ≤ j' ∧ codeAt k j' = k + 4 - j') := by
+    unfold codeAt; split_ifs <;> omega
+  rcases hjval with hv | ⟨hb, hv⟩ <;> rcases hj'val with hw | hw | ⟨hb', hw⟩ <;>
+    rw [hv, hw] at h <;> simp only [swap12] at h <;> split_ifs at h <;> omega
+
+/-- Every fetch index has a run and a criticality position inside it. -/
+theorem exists_run_pos (k i : ℕ) (hi : 1 ≤ i) :
+    ∃ r j, i = runLength k * r + j ∧ 1 ≤ j ∧ j ≤ runLength k := by
+  refine ⟨(i - 1) / runLength k, (i - 1) % runLength k + 1, ?_, by omega, ?_⟩
+  · have := Nat.div_add_mod (i - 1) (runLength k)
+    omega
+  · have := Nat.mod_lt (i - 1) (runLength_pos k)
+    omega
+
+/-- **Any `k + 1` consecutive fetches are on distinct pages.** -/
+theorem fetchedCode_ne {k : ℕ} (hk : 0 < k) {i i' : ℕ} (hi : 1 ≤ i) (hlt : i < i')
+    (hle : i' ≤ i + k) : fetchedCode k i ≠ fetchedCode k i' := by
+  obtain ⟨r, j, rfl, hj1, hj2⟩ := exists_run_pos k i hi
+  obtain ⟨r', j', rfl, hj1', hj2'⟩ := exists_run_pos k i' (by omega)
+  have hLk : runLength k = 2 * k + 2 := rfl
+  have e1 : runLength k * (r' + 1) = runLength k * r' + runLength k := by ring
+  have e2 : runLength k * (r + 2) = runLength k * r + 2 * runLength k := by ring
+  have e3 : runLength k * (r + 1) = runLength k * r + runLength k := by ring
+  have hcase : r' = r ∨ r' = r + 1 := by
+    rcases Nat.lt_or_ge r' r with h | h
+    · exfalso
+      have : runLength k * (r' + 1) ≤ runLength k * r := Nat.mul_le_mul_left _ h
+      omega
+    · rcases Nat.lt_or_ge r' (r + 2) with h2 | h2
+      · omega
+      · exfalso
+        have : runLength k * (r + 2) ≤ runLength k * r' := Nat.mul_le_mul_left _ h2
+        omega
+  rw [fetchedCode_eq k r j hj1 hj2, fetchedCode_eq k r' j' hj1' hj2']
+  rcases hcase with rfl | rfl
+  · intro hcontra
+    have hj : codeAt k j = codeAt k j' := swapBC_injective r' hcontra
+    exact codeAt_ne_of_close hk hj1 (by omega) (by omega) (by omega) hj
+  · exact codeAt_swap_ne hk hj1' (by omega) (by omega)
+
+end PagingWithDelay.LowerBound
