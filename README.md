@@ -1,6 +1,6 @@
 # Lean formalization for uniform paging with delay
 
-This repository formalizes the main results of [`fifo-upper-bound.tex`](fifo-upper-bound.tex)
+This repository formalizes results on uniform paging with delay
 in Lean 4. The central result is that threshold-one FIFO is an online, feasible,
 `(2k+2)`-competitive algorithm for paging with delay.
 
