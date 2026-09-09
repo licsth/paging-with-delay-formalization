@@ -1,5 +1,6 @@
 import PagingWithDelay.GeneralLowerBound.Comparators
 import PagingWithDelay.GeneralLowerBound.Phases
+import PagingWithDelay.PageUniverse
 
 /-!
 # The general lower bound
@@ -22,7 +23,7 @@ noncomputable section
 
 /-- Iterating the phase construction. -/
 theorem exists_run {algorithm : Algorithm Page} (online : algorithm.Online)
-    (feasible : ∀ input valid, (algorithm input valid).Feasible input)
+    (feasible : algorithm.Feasible)
     {k : ℕ} (hk : 0 < k) {pages : Finset Page} (hcard : pages.card = k + 1)
     {c ε : Cost} (hc : ε + 1 ≤ ε * c) (n : ℕ) :
     ∃ run : AdversaryRun algorithm k pages c ε, n ≤ run.input.requests.length := by
@@ -37,7 +38,7 @@ theorem exists_run {algorithm : Algorithm Page} (online : algorithm.Online)
 `k+1` pages, each one a miss, and a terminal delay close to the algorithm's
 own delay. -/
 theorem exists_adaptive_input {algorithm : Algorithm Page} (online : algorithm.Online)
-    (feasible : ∀ input valid, (algorithm input valid).Feasible input)
+    (feasible : algorithm.Feasible)
     {k : ℕ} (hk : 0 < k) {pages : Finset Page} (hcard : pages.card = k + 1)
     {ε : Cost} (hε : 0 < ε) (n : ℕ) :
     ∃ (input : Instance Page) (valid : input.Valid) (terminal : Time),
@@ -60,7 +61,7 @@ theorem exists_adaptive_input {algorithm : Algorithm Page} (online : algorithm.O
 delay is `(2k+1-ε)`-competitive, even on a universe of exactly `k+1` pages and
 with an arbitrary additive constant. -/
 theorem competitive_ratio_lower_bound {algorithm : Algorithm Page} (online : algorithm.Online)
-    (feasible : ∀ input valid, (algorithm input valid).Feasible input)
+    (feasible : algorithm.Feasible)
     {k : ℕ} (hk : 0 < k) (pages : Finset Page) (hcard : pages.card = k + 1)
     (ratio additive : Cost) (hratio : ratio < (2 * k + 1 : ℕ)) :
     ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
@@ -103,6 +104,26 @@ theorem competitive_ratio_lower_bound {algorithm : Algorithm Page} (online : alg
     rw [hsize, hcard]
     push_cast
     ring
+
+/-- The lower bound as the public theorem states it: the universe restriction
+is a bound on the page universe of the input the construction produces, and the
+`k+1` pages it requests come from the given embedding. -/
+theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
+    (online : algorithm.Online)
+    (feasible : algorithm.Feasible)
+    {k : ℕ} (hk : 0 < k) (pages : Fin (k + 1) ↪ Page)
+    (ratio additive : Cost) (hratio : ratio < (2 * k + 1 : ℕ)) :
+    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+      input.cacheSize = k ∧
+      input.pageUniverse.card ≤ k + 1 ∧
+      comparator.Feasible input ∧
+        ratio * comparator.totalCost input + additive <
+          (algorithm input valid).totalCost input := by
+  obtain ⟨input, valid, comparator, hsize, hrequests, hfeasible, hcost⟩ :=
+    competitive_ratio_lower_bound online feasible hk (Finset.univ.map pages) (by simp)
+      ratio additive hratio
+  exact ⟨input, valid, comparator, hsize,
+    (Instance.card_pageUniverse_le hrequests).trans_eq (by simp), hfeasible, hcost⟩
 
 end
 end PagingWithDelay.GeneralLowerBound

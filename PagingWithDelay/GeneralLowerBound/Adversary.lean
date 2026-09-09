@@ -24,7 +24,7 @@ noncomputable section
 The algorithm may prefetch, batch events, or leave cache slots unused. -/
 theorem exists_extension_more_fetches (algorithm : Algorithm Page)
     (online : algorithm.Online)
-    (feasible : ∀ input valid, (algorithm input valid).Feasible input)
+    (feasible : algorithm.Feasible)
     (input : Instance Page) (valid : input.Valid) (pages : Finset Page)
     (hcard : pages.card = input.cacheSize + 1) :
     ∃ (request : Request Page) (extendedValid : (input.appendRequest request).Valid),
@@ -46,7 +46,7 @@ theorem exists_extension_more_fetches (algorithm : Algorithm Page)
     exact Or.inr ⟨r, hr, rfl⟩
   let arrival : Time := cutoff + 1
   have htime : cutoff < arrival := lt_add_of_pos_right _ zero_lt_one
-  have hcapacity := old.cacheBefore_card_le input (feasible input valid) arrival
+  have hcapacity := old.cacheBefore_card_le input (feasible.scheduleFeasible input valid) arrival
   have hnsubset : ¬pages ⊆ old.cacheBefore arrival := by
     intro h
     have := (Finset.card_le_card h).trans hcapacity
@@ -59,7 +59,7 @@ theorem exists_extension_more_fetches (algorithm : Algorithm Page)
   have hmiss' : request.page ∉ extended.cacheBefore request.arrival := by
     rw [online.appendRequest_cacheBefore input valid request extendedValid]
     exact hmiss
-  have hserved := (feasible (input.appendRequest request) extendedValid).eventuallyServed
+  have hserved := (feasible.scheduleFeasible (input.appendRequest request) extendedValid).eventuallyServed
     request (by simp [Instance.appendRequest])
   obtain ⟨service, hservice⟩ := hserved
   change service ∈ extended.serviceCandidates request at hservice
@@ -82,7 +82,7 @@ theorem exists_extension_more_fetches (algorithm : Algorithm Page)
 /-- There are legal inputs over the chosen universe forcing any prescribed
 number of fetches. No assumption of a full initial cache is made. -/
 theorem exists_many_fetches (algorithm : Algorithm Page) (online : algorithm.Online)
-    (feasible : ∀ input valid, (algorithm input valid).Feasible input)
+    (feasible : algorithm.Feasible)
     {k : ℕ} (hk : 0 < k) (pages : Finset Page) (hcard : pages.card = k + 1)
     (n : ℕ) :
     ∃ (input : Instance Page) (valid : input.Valid),
@@ -107,7 +107,7 @@ theorem exists_many_fetches (algorithm : Algorithm Page) (online : algorithm.Onl
 /-- Consequently no fixed additive constant bounds the cost of a feasible
 online algorithm, even on a universe of exactly `k+1` pages. -/
 theorem exists_large_cost (algorithm : Algorithm Page) (online : algorithm.Online)
-    (feasible : ∀ input valid, (algorithm input valid).Feasible input)
+    (feasible : algorithm.Feasible)
     {k : ℕ} (hk : 0 < k) (pages : Finset Page) (hcard : pages.card = k + 1)
     (bound : Cost) :
     ∃ (input : Instance Page) (valid : input.Valid),

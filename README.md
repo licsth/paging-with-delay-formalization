@@ -100,9 +100,9 @@ payments occur on arrival and the construction no longer describes the run.
 ### The general lower bound
 
 `paging_with_delay_general_lower_bound` proves that for `k >= 1` and a universe
-of exactly `k+1` pages, *every* online algorithm that is feasible on every
-input fails every competitive claim below `2k+1`, with an arbitrary additive
-constant. The adversarial input is built adaptively from the algorithm's own
+of exactly `k+1` pages, *every* algorithm that is `Algorithm.Online` and
+`Algorithm.Feasible` fails every competitive claim below `2k+1`, with an
+arbitrary additive constant. The adversarial input is built adaptively from the algorithm's own
 run: each phase requests a page the algorithm does not currently hold and ends
 when the algorithm serves that request. The algorithm is then compared against
 the `k+1` static and `k` dynamic offline strategies of the write-up by
@@ -110,7 +110,8 @@ averaging. The implementation is in `PagingWithDelay/GeneralLowerBound/`; see
 the [README](PagingWithDelay/GeneralLowerBound/README.md) there.
 
 Together with the previous result this is tight: on `k+1` pages the competitive
-ratio of paging with delay is exactly `2k+1`.
+ratio of paging with delay is exactly `2k+1`: both statements restrict the
+input by the same condition `input.pageUniverse.card <= k + 1`.
 
 ### A universe of `k+1` pages
 
@@ -121,8 +122,12 @@ FIFO with threshold `(k+1)/k` satisfies
 ALG <= (2k+1) * cost(comparator) + (2k+1)^2/k
 ```
 
-for every feasible comparator when all requests are drawn from a designated
-set of exactly `k+1` pages. The write-up uses a common full initial cache and therefore has no
+for every feasible comparator on every input with
+`input.pageUniverse.card <= k + 1`, that is, using at most `k+1` distinct
+pages. `Instance.pageUniverse`, defined in `Model.lean`, is the finite set of
+requested pages; the embedding `Fin (k+1) ↪ Page` in the hypotheses only says
+that the page type has room for `k+1` pages, exactly as naming a set of that
+size did before. The write-up uses a common full initial cache and therefore has no
 additive term; `Model.lean` starts both schedules empty, producing the explicit
 constant above while leaving the asymptotic ratio unchanged. The proof is in
 `PagingWithDelay/KPlusOne/`, supported by generic potential and cache-trace
@@ -134,6 +139,7 @@ lemmas in `PagingWithDelay/Analysis/`.
 | ----------------------------------- | ----------------------------------------------- |
 | `PagingWithDelay.lean`              | Public theorem statements                       |
 | `PagingWithDelay/Model.lean`        | Problem and schedule semantics                  |
+| `PagingWithDelay/PageUniverse.lean` | Lemmas about `Instance.pageUniverse`            |
 | `PagingWithDelay/Algorithm.lean`    | Threshold-parameterized FIFO event loop         |
 | `PagingWithDelay/EventLoop/`        | Run invariants and service accounting           |
 | `PagingWithDelay/Competitive/`      | Charging proof of the main upper bound          |
@@ -151,4 +157,9 @@ For the four public results, `#print axioms` reports only the standard
 foundational dependencies `propext`, `Classical.choice`, and `Quot.sound`.
 
 Small examples in `OnlineExamples.lean` check that the definitions of
-feasibility and onlineness are neither vacuous nor trivial.
+feasibility and onlineness are neither vacuous nor trivial, and
+`StatementChecks.lean` derives the earlier phrasing of the two universe-
+restricted theorems from their current `pageUniverse` phrasing. Neither file is
+reachable from the library root, so `lake build` does not compile them; check
+them with `lake build PagingWithDelay.OnlineExamples` and
+`lake build PagingWithDelay.StatementChecks`.

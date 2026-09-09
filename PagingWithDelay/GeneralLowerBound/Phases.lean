@@ -102,7 +102,7 @@ def AdversaryRun.initial (algorithm : Algorithm Page) {k : ℕ} (hk : 0 < k)
 not hold just before the new arrival, so it is a miss and forces a fetch; the
 phase ends when that request is served. -/
 theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algorithm.Online)
-    (feasible : ∀ input valid, (algorithm input valid).Feasible input)
+    (feasible : algorithm.Feasible)
     {k : ℕ} {pages : Finset Page} (hcard : pages.card = k + 1)
     {c ε : Cost} (hc : ε + 1 ≤ ε * c) (run : AdversaryRun algorithm k pages c ε) :
     ∃ next : AdversaryRun algorithm k pages c ε,
@@ -128,7 +128,7 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
     · rw [← h, mul_zero] at hc
       simp at hc
   -- a page the algorithm does not hold just before the new arrival
-  have hcap := old.cacheBefore_card_le run.input (feasible _ _) arrival
+  have hcap := old.cacheBefore_card_le run.input (feasible.scheduleFeasible _ _) arrival
   have hnsub : ¬pages ⊆ old.cacheBefore arrival := by
     intro h
     have hle := (Finset.card_le_card h).trans hcap
@@ -151,7 +151,7 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
   -- the end of the new phase
   have hmem : request ∈ (run.input.appendRequest request).requests := by
     simp [Instance.appendRequest]
-  have hne := (feasible _ extendedValid).eventuallyServed request hmem
+  have hne := (feasible.scheduleFeasible _ extendedValid).eventuallyServed request hmem
   set s : Time := (new.serviceCandidates request).min' hne with hsdef
   have hsmem : s ∈ new.serviceCandidates request := Finset.min'_mem _ _
   have hservice : new.serviceTime request = some s :=

@@ -223,5 +223,10 @@ theorem schedule_feasible (δ : Cost) (input : Instance Page) (valid : input.Val
   capacity := schedule_capacity input valid
   eventuallyServed := schedule_eventuallyServed input valid
 
+theorem feasible (δ : Cost): Algorithm.Feasible (FIFO.schedule δ (Page := Page)) where
+  scheduleFeasible := schedule_feasible δ
+
 end
+
+
 end PagingWithDelay.FIFO

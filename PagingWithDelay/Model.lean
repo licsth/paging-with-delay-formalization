@@ -37,6 +37,12 @@ structure Valid {Page : Type*} (input : Instance Page) : Prop where
   chronological : input.Chronological
   positiveCapacity : 0 < input.cacheSize
 
+/-- The pages the input asks for.  Its cardinality is the size of the page
+universe an instance actually uses, which is how the results restricted to
+small universes state their hypothesis. -/
+def pageUniverse {Page : Type*} [DecidableEq Page] (input : Instance Page) : Finset Page :=
+  (input.requests.map Request.page).toFinset
+
 end Instance
 
 
@@ -152,6 +158,14 @@ structure Algorithm.Online (algorithm : Algorithm Page) : Prop where
     (hfirst : first.Valid) (hsecond : second.Valid) (t : Time),
     first.upTo t = second.upTo t →
     (algorithm first hfirst).upTo t = (algorithm second hsecond).upTo t
+
+/-- An algorithm is **feasible** when the schedule it produces is feasible for
+every legal instance.  This is `Schedule.Feasible` asked of the algorithm
+rather than of one of its runs. -/
+structure Algorithm.Feasible (algorithm : Algorithm Page) : Prop where
+  /-- Every legal instance receives a feasible schedule. -/
+  scheduleFeasible : ∀ (input : Instance Page) (valid : input.Valid),
+    (algorithm input valid).Feasible input
 
 end
 

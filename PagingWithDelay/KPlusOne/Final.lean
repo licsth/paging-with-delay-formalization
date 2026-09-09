@@ -1,5 +1,6 @@
 import PagingWithDelay.KPlusOne.Interval
 import PagingWithDelay.Competitive.AlgorithmCost
+import PagingWithDelay.PageUniverse
 
 /-!
 # Summation and the `(2k+1)` bound
@@ -143,5 +144,22 @@ theorem competitive (S : Setup Page) (comparator : Schedule Page)
         rw [div_mul_eq_mul_div]
 
 end
+
+/-- The `k+1`-page bound as the public theorem states it: the hypothesis is a
+bound on the input's own page universe, and the universe of exactly `k+1` pages
+required by `Setup` is recovered from it.  The embedding supplies the pages
+such a universe needs when the input uses fewer of them. -/
+theorem competitive_of_pageUniverse {k : ℕ} (hk : 0 < k) (pages : Fin (k + 1) ↪ Page)
+    (input : Instance Page) (valid : input.Valid) (hsize : input.cacheSize = k)
+    (huniverse : input.pageUniverse.card ≤ k + 1)
+    (comparator : Schedule Page) (feasible : comparator.Feasible input) :
+    (FIFO.schedule (((k : Cost) + 1) / (k : Cost)) input valid).totalCost input ≤
+      (2 * k + 1 : ℕ) * comparator.totalCost input +
+        ((2 * k + 1 : ℕ) * (2 * k + 1 : ℕ)) / (k : ℕ) := by
+  obtain ⟨cover, hcard, hrequests⟩ := input.exists_universe_card_eq pages huniverse
+  exact competitive
+    { cacheSize := k, positive := hk, pages := cover, card := hcard
+      input := input, valid := valid, size := hsize
+      requestPages := hrequests } comparator feasible
 
 end PagingWithDelay.KPlusOne
