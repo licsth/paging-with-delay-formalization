@@ -1,4 +1,4 @@
-# Lean formalization of `fifo-upper-bound.tex`
+# Lean formalization for uniform paging with delay
 
 Threshold-one FIFO is an online, feasible, `(2k+2)`-competitive algorithm for
 paging with delay, and no threshold does better. Build with `lake build`.
