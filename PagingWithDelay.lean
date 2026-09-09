@@ -5,6 +5,10 @@ import PagingWithDelay.FIFOFeasible
 import PagingWithDelay.Competitive.Final
 import PagingWithDelay.LowerBound.Final
 import PagingWithDelay.KPlusOne.Final
+import PagingWithDelay.GeneralLowerBound.Adversary
+import PagingWithDelay.GeneralLowerBound.Averaging
+import PagingWithDelay.GeneralLowerBound.Static
+import PagingWithDelay.GeneralLowerBound.Comparators
 
 /-!
 # Paging with delay: model and main result
