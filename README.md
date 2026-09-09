@@ -1,4 +1,4 @@
-# Paging with delay in Lean
+# Lean formalization for uniform paging with delay
 
 This repository formalizes the main results of [`fifo-upper-bound.tex`](fifo-upper-bound.tex)
 in Lean 4. The central result is that threshold-one FIFO is an online, feasible,
@@ -113,18 +113,18 @@ lemmas in `PagingWithDelay/Analysis/`.
 
 ## Repository layout
 
-| Path | Purpose |
-| --- | --- |
-| `PagingWithDelay.lean` | Public theorem statements |
-| `PagingWithDelay/Model.lean` | Problem and schedule semantics |
-| `PagingWithDelay/Algorithm.lean` | Threshold-parameterized FIFO event loop |
-| `PagingWithDelay/EventLoop/` | Run invariants and service accounting |
-| `PagingWithDelay/Competitive/` | Charging proof of the main upper bound |
-| `PagingWithDelay/FIFOFeasible.lean` | Feasibility of FIFO for every threshold |
-| `PagingWithDelay/FIFOOnline.lean` | Onlineness of FIFO for every threshold |
-| `PagingWithDelay/LowerBound/` | Tightness construction and comparator |
-| `PagingWithDelay/KPlusOne/` | Improved bound for `k+1` pages |
-| `PagingWithDelay/Analysis/` | Reusable potential, rank, and cache-trace tools |
+| Path                                | Purpose                                         |
+| ----------------------------------- | ----------------------------------------------- |
+| `PagingWithDelay.lean`              | Public theorem statements                       |
+| `PagingWithDelay/Model.lean`        | Problem and schedule semantics                  |
+| `PagingWithDelay/Algorithm.lean`    | Threshold-parameterized FIFO event loop         |
+| `PagingWithDelay/EventLoop/`        | Run invariants and service accounting           |
+| `PagingWithDelay/Competitive/`      | Charging proof of the main upper bound          |
+| `PagingWithDelay/FIFOFeasible.lean` | Feasibility of FIFO for every threshold         |
+| `PagingWithDelay/FIFOOnline.lean`   | Onlineness of FIFO for every threshold          |
+| `PagingWithDelay/LowerBound/`       | Tightness construction and comparator           |
+| `PagingWithDelay/KPlusOne/`         | Improved bound for `k+1` pages                  |
+| `PagingWithDelay/Analysis/`         | Reusable potential, rank, and cache-trace tools |
 
 ## Formalization status
 
