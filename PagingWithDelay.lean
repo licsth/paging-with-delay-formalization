@@ -32,7 +32,7 @@ theorem paging_with_delay_upper_bound {Page: Type*} [DecidableEq Page] : ∃ (al
 `k ≥ 1`, and every page type with at least `k + 2` pages, FIFO with threshold
 `δ` fails every competitive claim below `2k+2`, however large an additive
 constant it is granted. -/
-theorem paging_with_delay_lower_bound {Page : Type*} [DecidableEq Page]
+theorem FIFO_lower_bound {Page : Type*} [DecidableEq Page]
     {δ : Cost} (hδ : 0 < δ) {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page)
     (ratio additive : Cost) (hratio : ratio < (2 * k + 2 : ℕ)) :
     ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
