@@ -1,10 +1,14 @@
 # General lower bound: proof status
 
-The general `2k+1` lower bound is **not yet proved**. All Lean results in this
-directory are proved without `sorry` or additional axioms, but the conditional
-averaging reduction still needs its comparator-family hypothesis discharged.
+The general `2k+1` lower bound is **proved**. `PagingWithDelay.lean` states it
+as `paging_with_delay_general_lower_bound`; `#print axioms` reports only
+`propext`, `Classical.choice`, and `Quot.sound`. Nothing in this directory uses
+`sorry` or additional axioms, and the trusted files `Model.lean` and
+`Algorithm.lean` are unchanged.
 
-Completed components:
+## Components
+
+Supporting modules outside this directory:
 
 - `Analysis/Averaging.lean`: finite-family averaging, strict violations with an
   additive constant, and the asymptotic reduction for aggregate cost arbitrarily
@@ -13,62 +17,60 @@ Completed components:
   rate for every positive error tolerance, and the geometric phase estimate.
 - `Analysis/Adaptive.lean`: closed-prefix agreement determines the cache before
   an arrival; appending a request preserves that cache and all earlier events.
+- `Analysis/Preserve.lean`: appending a request also preserves the *service* of
+  every request already served before the new arrival, hence its delay cost.
 - `Analysis/CacheFill.lean`: feasible initial cache filling with one fetch per
   page, and concatenation of valid event traces.
+
+In this directory:
+
 - `Adversary.lean`: input extension against an arbitrary feasible online
   algorithm, forcing arbitrarily many fetches on a fixed `k+1`-page universe.
+  This is the unbounded-cost construction with long gaps; the tight argument in
+  `Phases.lean` uses short gaps instead.
 - `Static.lean`: the actual static comparator schedules, their feasibility from
   empty caches, and their summed cost bound by terminal delay plus `(k+1)^2`.
 - `Dynamic.lean`: `k` dynamic schedules with distinct holes; each request causes
   at most one movement in the family. The schedules are feasible, serve every
   request at arrival, and have aggregate cost at most `k^2 + requests.length`.
 - `Comparators.lean`: combines the static and dynamic schedules on the same
-  input into an actual `ComparisonFamily` indexed by `Fin (2*k+1)`. Also proves
-  the aggregate estimate from a request-count bound and a terminal-delay bound
-  on that input.
+  input into an actual `ComparisonFamily` indexed by `Fin (2*k+1)`, and proves
+  the aggregate estimate from a request-count bound and a terminal-delay bound.
 - `Averaging.lean`: the paging-specific reduction from a family of `2k+1`
-  feasible comparators to a strict violation of any smaller ratio, with any
-  additive constant. The required family is an explicit hypothesis.
+  feasible comparators to a strict violation of any smaller ratio.
+- `Phases.lean`: the adaptive request sequence itself.
+- `Final.lean`: iterates the phases and discharges the comparator hypotheses.
 
-## Remaining construction
+## The construction in `Phases.lean`
 
-The unbounded-cost inputs in `Adversary.lean` use long gaps (after every event
-of the preceding run). They establish unboundedness only; they do not satisfy
-the static delay estimate. It would be invalid to combine their unboundedness
-with a comparator bound proved on different inputs.
+`AdversaryRun` is the invariant carried from phase to phase. A phase issues one
+request, on a page the algorithm does not hold immediately before the arrival,
+and ends when the algorithm serves it. Recorded in the invariant:
 
-For the tight construction, maintain a prefix whose requests have all been
-served by a cutoff `t`. Append a request at `t + gap`, on a page absent from
-the old run's cache immediately before that arrival. Choose `gap > 0` small
-enough that the extra terminal delay of all older requests is bounded by a
-prescribed per-step error. `Online.appendRequest_cacheBefore` proves the new
-request is a miss, and `Online.appendRequest_prefix` preserves all earlier
-service events. Stop the next phase at the new request's earliest service
-time, then repeat. Use geometrically increasing slopes and bound the sum of
-gap errors uniformly (for example, by one).
+- every request so far is served by the current time `now`, and each phase has
+  forced one further fetch stamped no later than `now` (so the algorithm fetches
+  at least once per request);
+- delay rates grow geometrically, so all earlier rates together are at most `ε`
+  times the rate `nextSlope` of the next request;
+- holding *every* request until `now` — what the static strategies of
+  `Static.lean` do — costs at most `(1+ε)` times the algorithm's own delay plus
+  a spent budget `used`, which never exceeds `1`.
 
-The positive gaps are necessary: `Model.lean` processes arrivals before
-transitions at the same timestamp, so requesting a page exactly when it is
-evicted can give the online algorithm a cache hit.
+The gap between the end of a phase and the next arrival must be positive:
+`Model.lean` processes arrivals before transitions with the same timestamp, so
+requesting a page exactly when it is evicted can give the algorithm a cache hit.
+Each gap is chosen small enough to spend at most half of the remaining budget,
+which keeps the total perturbation below `1` for every number of phases.
 
-The dynamic family is now built from the request sequence alone, even if the
-online algorithm prefetches or leaves its cache partly empty. Maintain `k`
-distinct offline holes equal to all pages except the most recently requested
-page `p`. For the next requested page `q ≠ p`, the unique strategy whose hole
-is `q` fetches `q` and changes its hole to `p`; all others stay put. For `q = p`
-no strategy moves. With strictly increasing arrival times, every request is
-served at arrival. Thus the aggregate dynamic moving cost is at most the
-number of requests plus `k^2` for initial cache filling. The adaptive miss
-construction must show the online trace has at least one distinct fetch per
-request. The construction and all schedule obligations in this paragraph are
-proved in `Dynamic.lean`; only the online fetch-count comparison remains.
+Onlineness enters twice: `Online.appendRequest_cacheBefore` makes the new
+request a miss, and `Online.appendRequest_prefix` together with
+`Online.appendRequest_serviceTime` preserves the earlier fetches, service times,
+and delay costs, so the invariant of the previous phase still speaks about the
+extended run.
 
-`exists_comparisonFamily_of_delay_bound` now combines the comparator results:
-given one online fetch per request and the terminal-delay estimate, aggregate
-comparator cost is at most `(1+ε) ALG` plus a constant depending on `k` and the
-gap-error budget. Establish those two estimates and unbounded online cost
-for the short-gap inputs, then apply
-`competitive_ratio_lower_bound_of_families`. Only then add the unconditional
-general lower-bound theorem to `PagingWithDelay.lean`.
-
-The trusted files `Model.lean` and `Algorithm.lean` have not been changed.
+`Final.lean` runs the phases `n` times, feeds the resulting input to
+`exists_comparisonFamily_of_delay_bound`, and applies
+`competitive_ratio_lower_bound_of_families`. The additive overhead is
+`k² + (k+1)² + 1`, independent of the number of phases: `k²` for filling the
+dynamic caches, `(k+1)²` for the static ones, and `1` for all gap perturbations
+together.

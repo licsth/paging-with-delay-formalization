@@ -4,15 +4,17 @@ This repository formalizes results on uniform paging with delay
 in Lean 4. The central result is that threshold-one FIFO is an online, feasible,
 `(2k+2)`-competitive algorithm for paging with delay.
 
-The formalization also includes two refinements:
+The formalization also includes three refinements:
 
 - the analysis is tight for threshold FIFO on page universes of size at least
-  `k+2`; and
+  `k+2`;
 - on a universe of exactly `k+1` pages, FIFO with threshold `(k+1)/k` has
   competitive ratio `2k+1`, up to an additive constant caused by the model's
-  empty initial cache.
+  empty initial cache; and
+- that ratio is optimal: no deterministic online algorithm is better than
+  `(2k+1)`-competitive, already on `k+1` pages.
 
-All three results are stated in [`PagingWithDelay.lean`](PagingWithDelay.lean).
+All four results are stated in [`PagingWithDelay.lean`](PagingWithDelay.lean).
 Build the project with:
 
 ```sh
@@ -95,6 +97,21 @@ implementation is in `PagingWithDelay/LowerBound/`.
 The restriction to positive thresholds is intentional: at threshold zero,
 payments occur on arrival and the construction no longer describes the run.
 
+### The general lower bound
+
+`paging_with_delay_general_lower_bound` proves that for `k >= 1` and a universe
+of exactly `k+1` pages, *every* online algorithm that is feasible on every
+input fails every competitive claim below `2k+1`, with an arbitrary additive
+constant. The adversarial input is built adaptively from the algorithm's own
+run: each phase requests a page the algorithm does not currently hold and ends
+when the algorithm serves that request. The algorithm is then compared against
+the `k+1` static and `k` dynamic offline strategies of the write-up by
+averaging. The implementation is in `PagingWithDelay/GeneralLowerBound/`; see
+the [README](PagingWithDelay/GeneralLowerBound/README.md) there.
+
+Together with the previous result this is tight: on `k+1` pages the competitive
+ratio of paging with delay is exactly `2k+1`.
+
 ### A universe of `k+1` pages
 
 `paging_with_delay_upper_bound_k_plus_one_pages` proves that, for `k >= 1`,
@@ -123,13 +140,14 @@ lemmas in `PagingWithDelay/Analysis/`.
 | `PagingWithDelay/FIFOFeasible.lean` | Feasibility of FIFO for every threshold         |
 | `PagingWithDelay/FIFOOnline.lean`   | Onlineness of FIFO for every threshold          |
 | `PagingWithDelay/LowerBound/`       | Tightness construction and comparator           |
+| `PagingWithDelay/GeneralLowerBound/`| General `2k+1` lower bound for all algorithms   |
 | `PagingWithDelay/KPlusOne/`         | Improved bound for `k+1` pages                  |
 | `PagingWithDelay/Analysis/`         | Reusable potential, rank, and cache-trace tools |
 
 ## Formalization status
 
 The project builds without `sorry`, added axioms, `native_decide`, or `unsafe`.
-For the three public results, `#print axioms` reports only the standard
+For the four public results, `#print axioms` reports only the standard
 foundational dependencies `propext`, `Classical.choice`, and `Quot.sound`.
 
 Small examples in `OnlineExamples.lean` check that the definitions of
