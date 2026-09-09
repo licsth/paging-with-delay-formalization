@@ -31,18 +31,7 @@ theorem paging_with_delay_upper_bound {Page: Type*} [DecidableEq Page] : ∃ (al
 /-- **The analysis is tight.**  For every positive threshold `δ`, every cache size
 `k ≥ 1`, and every page type with at least `k + 2` pages, FIFO with threshold
 `δ` fails every competitive claim below `2k+2`, however large an additive
-constant it is granted: there is a legal instance of cache size `k` and a
-feasible schedule for it whose cost, scaled by the claimed ratio and padded by
-the claimed constant, still falls short of what FIFO pays.
-
-Exhibiting a *feasible* comparator is what makes this a statement about the
-optimum: its cost bounds the optimum from above, so FIFO also exceeds
-`ratio * OPT + additive`.
-
-The additive constant is what lets the comparator pay for reaching the initial
-position the paper assumes it starts in — the model starts every cache empty —
-and it is why the claim is asymptotic: `ratio` is beaten in the limit of many
-runs of the construction, not on one fixed instance. -/
+constant it is granted. -/
 theorem paging_with_delay_lower_bound {Page : Type*} [DecidableEq Page]
     {δ : Cost} (hδ : 0 < δ) {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page)
     (ratio additive : Cost) (hratio : ratio < (2 * k + 2 : ℕ)) :
@@ -53,39 +42,23 @@ theorem paging_with_delay_lower_bound {Page : Type*} [DecidableEq Page]
   LowerBound.competitive_ratio_lower_bound hδ hk pages ratio additive hratio
 
 /-- **`(2k+1)`-competitiveness on `k+1` pages.**  For `k ≥ 1`, a cache of size
-`k`, and requests drawn from a universe of exactly `k + 1` pages, FIFO with
-threshold `(k+1)/k` is online, feasible, and beats the general ratio `2k+2`:
+`k`, there exists an online algorithm that, for requests drawn from a universe
+of exactly `k + 1` pages, is feasible and beats the general ratio `2k+2`:
 its cost is at most `2k+1` times the cost of any feasible schedule, plus
-`(2k+1)²/k`.
-
-Exhibiting the bound against every *feasible* comparator makes this a statement
-about the optimum, whose cost the cheapest comparator bounds.
-
-This is Theorem 5.1 of `fifo-upper-bound.tex`, transferred to the model of
-`Model.lean`.  The write-up proves it under the convention that FIFO and the
-comparator both start from a common full cache, where the bound is
-`ALG ≤ (2k+1) OPT` with no additive term; here every cache starts *empty*, and
-the additive constant is exactly what that costs.  It is the `(1 + δ)`-image of
-`KPlusOne.count_le`, `M ≤ k · OPT + (2k+1)`, whose `2k+1` is the `k+1`
-payments made before FIFO's cache is full plus the `k` units of potential the
-argument starts with.  The competitive *ratio* — the asymptotic claim — is
-`2k+1` either way, which is what the write-up's remark on the two initial-cache
-conventions says.
-
-Unlike the `2k+2` bound above this names the algorithm outright, so reading it
-means reading `Algorithm.lean` as well as `Model.lean`. -/
+`(2k+1)²/k`. The proof uses FIFO with threshold `(k+1)/k` as its witness. -/
 theorem paging_with_delay_upper_bound_k_plus_one_pages {Page : Type*} [DecidableEq Page]
     {k : ℕ} (hk : 0 < k) :
-    Algorithm.Online (FIFO.schedule (Page := Page) (((k : Cost) + 1) / (k : Cost))) ∧
+    ∃ (algorithm : Algorithm Page), Algorithm.Online algorithm ∧
       ∀ (input : Instance Page) (valid : input.Valid) (pages : Finset Page),
         input.cacheSize = k → pages.card = k + 1 →
         (∀ request ∈ input.requests, request.page ∈ pages) →
-          (FIFO.schedule (((k : Cost) + 1) / (k : Cost)) input valid).Feasible input ∧
+          (algorithm input valid).Feasible input ∧
             ∀ comparator : Schedule Page, comparator.Feasible input →
-              (FIFO.schedule (((k : Cost) + 1) / (k : Cost)) input valid).totalCost input ≤
+              (algorithm input valid).totalCost input ≤
                 (2 * k + 1 : ℕ) * comparator.totalCost input +
                   ((2 * k + 1 : ℕ) * (2 * k + 1 : ℕ)) / (k : ℕ) :=
-  ⟨FIFO.schedule_online _, fun input valid pages hsize hcard hrequests =>
+  ⟨FIFO.schedule (((k : Cost) + 1) / (k : Cost)),
+    FIFO.schedule_online _, fun input valid pages hsize hcard hrequests =>
     ⟨FIFO.schedule_feasible _ input valid, fun comparator feasible =>
       KPlusOne.competitive
         { cacheSize := k, positive := hk, pages := pages, card := hcard
