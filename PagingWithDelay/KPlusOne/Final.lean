@@ -92,14 +92,21 @@ theorem count_le (feasible : comparator.Feasible S.input) :
         push_cast
         ring
 
-/-- **Theorem 5.1.**  On `k + 1` pages, FIFO with threshold `(k+1)/k` is
-`(2k+1)`-competitive up to an additive constant depending only on `k`. -/
+/-- **Theorem 5.1** in the empty-cache model.  On `k + 1` pages, FIFO with
+threshold `(k+1)/k` is `(2k+1)`-competitive, up to an additive constant that is
+exactly the price of starting from an empty cache: `count_le` loses `k+1`
+payments before the cache is full and `k` units of potential, and `1 + δ`
+turns that into `(2k+1)²/k`.
+
+Under the write-up's convention — FIFO and the comparator starting from a
+common full cache — the same summation has no loss to account for and gives
+`ALG ≤ (2k+1) OPT` outright.  That convention cannot be stated against
+`Model.lean`, whose caches all start empty. -/
 theorem competitive (S : Setup Page) (comparator : Schedule Page)
     (feasible : comparator.Feasible S.input) :
     (FIFO.schedule S.threshold S.input S.valid).totalCost S.input ≤
       (2 * S.cacheSize + 1 : ℕ) * comparator.totalCost S.input +
-        ((2 * S.cacheSize + 1 : ℕ) * (S.cacheSize + 1 : ℕ) * (S.cacheSize + 2 : ℕ)) /
-          (2 * S.cacheSize : ℕ) := by
+        ((2 * S.cacheSize + 1 : ℕ) * (2 * S.cacheSize + 1 : ℕ)) / (S.cacheSize : ℕ) := by
   have hk := S.positive
   have hn : (S.cacheSize : Cost) ≠ 0 := S.cacheSize_ne_zero
   have hcost : (FIFO.schedule S.threshold S.input S.valid).totalCost S.input =
@@ -108,6 +115,11 @@ theorem competitive (S : Setup Page) (comparator : Schedule Page)
     unfold FIFO.AlgorithmCostClaim FIFO.algorithmCost at this
     rw [this]
     rfl
+  have hthreshold : (1 : Cost) + S.threshold =
+      (2 * (S.cacheSize : Cost) + 1) / (S.cacheSize : Cost) := by
+    unfold Setup.threshold
+    field_simp
+    ring
   have hmul : (1 + S.threshold) * (S.cacheSize : Cost) = (2 * S.cacheSize + 1 : ℕ) := by
     have h := S.cacheSize_mul_threshold
     push_cast
@@ -124,40 +136,11 @@ theorem competitive (S : Setup Page) (comparator : Schedule Page)
         (1 + S.threshold) * (2 * S.cacheSize + 1 : ℕ) := by ring
     _ = (2 * S.cacheSize + 1 : ℕ) * comparator.totalCost S.input +
         (1 + S.threshold) * (2 * S.cacheSize + 1 : ℕ) := by rw [hmul]
-    _ ≤ (2 * S.cacheSize + 1 : ℕ) * comparator.totalCost S.input +
-        ((2 * S.cacheSize + 1 : ℕ) * (S.cacheSize + 1 : ℕ) * (S.cacheSize + 2 : ℕ)) /
-          (2 * S.cacheSize : ℕ) := by
-        refine add_le_add_right ?_ _
-        have hthreshold : (1 : Cost) + S.threshold =
-            (2 * (S.cacheSize : Cost) + 1) / (S.cacheSize : Cost) := by
-          unfold Setup.threshold
-          field_simp
-          ring
+    _ = (2 * S.cacheSize + 1 : ℕ) * comparator.totalCost S.input +
+        ((2 * S.cacheSize + 1 : ℕ) * (2 * S.cacheSize + 1 : ℕ)) / (S.cacheSize : ℕ) := by
         rw [hthreshold]
-        have hnum : ((2 * (S.cacheSize : Cost) + 1) * (2 * (S.cacheSize : Cost) + 1)) *
-            (2 * (S.cacheSize : Cost)) ≤
-            ((2 * (S.cacheSize : Cost) + 1) * ((S.cacheSize : Cost) + 1) *
-              ((S.cacheSize : Cost) + 2)) * (S.cacheSize : Cost) := by
-          have hnat : (2 * S.cacheSize + 1) * (2 * S.cacheSize + 1) * (2 * S.cacheSize) ≤
-              (2 * S.cacheSize + 1) * (S.cacheSize + 1) * (S.cacheSize + 2) * S.cacheSize := by
-            have hsq : S.cacheSize ≤ S.cacheSize * S.cacheSize :=
-              Nat.le_mul_of_pos_left _ hk
-            have hbase : 2 * (2 * S.cacheSize + 1) ≤
-                (S.cacheSize + 1) * (S.cacheSize + 2) := by nlinarith [hsq]
-            calc (2 * S.cacheSize + 1) * (2 * S.cacheSize + 1) * (2 * S.cacheSize)
-                = ((2 * S.cacheSize + 1) * S.cacheSize) * (2 * (2 * S.cacheSize + 1)) := by ring
-              _ ≤ ((2 * S.cacheSize + 1) * S.cacheSize) *
-                  ((S.cacheSize + 1) * (S.cacheSize + 2)) := Nat.mul_le_mul_left _ hbase
-              _ = (2 * S.cacheSize + 1) * (S.cacheSize + 1) * (S.cacheSize + 2) * S.cacheSize := by
-                  ring
-          have := Nat.cast_le (α := Cost).mpr hnat
-          push_cast at this ⊢
-          convert this using 1
-        have hpos1 : (0 : Cost) < (S.cacheSize : Cost) := lt_of_le_of_ne (zero_le _) (Ne.symm hn)
         push_cast
-        rw [div_mul_eq_mul_div, div_le_div_iff₀ hpos1 (by positivity)]
-        push_cast at hnum
-        exact hnum
+        rw [div_mul_eq_mul_div]
 
 end
 

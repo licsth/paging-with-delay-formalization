@@ -52,24 +52,28 @@ theorem paging_with_delay_lower_bound {Page : Type*} [DecidableEq Page]
           (FIFO.schedule δ input valid).totalCost input :=
   LowerBound.competitive_ratio_lower_bound hδ hk pages ratio additive hratio
 
-/-- **`(2k+1)`-competitiveness on `k+1` pages.**  For a cache of size `k ≥ 1`
-and a request sequence drawn from a universe of exactly `k + 1` pages, FIFO
-with threshold `(k+1)/k` is online, feasible, and beats the general ratio
-`2k+2`: its cost is at most `2k+1` times the cost of any feasible schedule,
-plus a constant depending only on `k`.
+/-- **`(2k+1)`-competitiveness on `k+1` pages.**  For `k ≥ 1`, a cache of size
+`k`, and requests drawn from a universe of exactly `k + 1` pages, FIFO with
+threshold `(k+1)/k` is online, feasible, and beats the general ratio `2k+2`:
+its cost is at most `2k+1` times the cost of any feasible schedule, plus
+`(2k+1)²/k`.
 
 Exhibiting the bound against every *feasible* comparator makes this a statement
 about the optimum, whose cost the cheapest comparator bounds.
 
-The additive constant is what this model, whose caches start empty, has to pay
-for: the first `k+1` payments happen before FIFO's cache is full, and the
-potential starts at its maximum.  The competitive ratio is the asymptotic
-claim `2k+1`; the paper's Remark after Theorem 5.1 notes that a common full
-initial cache removes the constant.
+This is Theorem 5.1 of `fifo-upper-bound.tex`, transferred to the model of
+`Model.lean`.  The write-up proves it under the convention that FIFO and the
+comparator both start from a common full cache, where the bound is
+`ALG ≤ (2k+1) OPT` with no additive term; here every cache starts *empty*, and
+the additive constant is exactly what that costs.  It is the `(1 + δ)`-image of
+`KPlusOne.count_le`, `M ≤ k · OPT + (2k+1)`, whose `2k+1` is the `k+1`
+payments made before FIFO's cache is full plus the `k` units of potential the
+argument starts with.  The competitive *ratio* — the asymptotic claim — is
+`2k+1` either way, which is what the write-up's remark on the two initial-cache
+conventions says.
 
-This is Theorem 5.1 of `fifo-upper-bound.tex`.  Unlike the `2k+2` bound above
-it names the algorithm outright, so reading it means reading `Algorithm.lean`
-as well as `Model.lean`. -/
+Unlike the `2k+2` bound above this names the algorithm outright, so reading it
+means reading `Algorithm.lean` as well as `Model.lean`. -/
 theorem paging_with_delay_upper_bound_k_plus_one_pages {Page : Type*} [DecidableEq Page]
     {k : ℕ} (hk : 0 < k) :
     Algorithm.Online (FIFO.schedule (Page := Page) (((k : Cost) + 1) / (k : Cost))) ∧
@@ -80,7 +84,7 @@ theorem paging_with_delay_upper_bound_k_plus_one_pages {Page : Type*} [Decidable
             ∀ comparator : Schedule Page, comparator.Feasible input →
               (FIFO.schedule (((k : Cost) + 1) / (k : Cost)) input valid).totalCost input ≤
                 (2 * k + 1 : ℕ) * comparator.totalCost input +
-                  ((2 * k + 1 : ℕ) * (k + 1 : ℕ) * (k + 2 : ℕ)) / (2 * k : ℕ) :=
+                  ((2 * k + 1 : ℕ) * (2 * k + 1 : ℕ)) / (k : ℕ) :=
   ⟨FIFO.schedule_online _, fun input valid pages hsize hcard hrequests =>
     ⟨FIFO.schedule_feasible _ input valid, fun comparator feasible =>
       KPlusOne.competitive
