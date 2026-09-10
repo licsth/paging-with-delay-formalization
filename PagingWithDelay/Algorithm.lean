@@ -14,6 +14,12 @@ Exact threshold crossings of arbitrary continuous curves are not computable, so
 the event loop is a `noncomputable` mathematical description rather than
 executable code.  The public schedule is obtained by erasing the internal
 payment log, so the two histories cannot disagree.
+
+The loop reads a request only through `pendingCost`, which evaluates its delay
+curve at the time it has already waited, so it never consults delay that has
+not been accrued: `PagingWithDelay/FIFONonclairvoyant.lean` proves it
+nonclairvoyant, and `PagingWithDelay/FIFOOnline.lean` proves the weaker
+statement that it is online.
 -/
 
 namespace PagingWithDelay

@@ -3,7 +3,7 @@ import Mathlib.Topology.Instances.NNReal.Lemmas
 /-!
 # The paging-with-delay model
 
-Every definition the main theorem mentions, and nothing else: requests and instances, schedules and the cost they incur, what makes a schedule feasible, and what makes an algorithm online.
+Every definition the main theorem mentions, and nothing else: requests and instances, schedules and the cost they incur, what makes a schedule feasible, and what makes an algorithm online and nonclairvoyant.
 -/
 
 namespace PagingWithDelay
@@ -123,10 +123,11 @@ structure Feasible (schedule : Schedule Page) (input : Instance Page) : Prop whe
 end
 end Schedule
 
-/-! ## Truncation and online algorithms
+/-! ## Truncation, online and nonclairvoyant algorithms
 
-The definitions below say what it means for an algorithm to be *online*:
-What it does up to a time `t` may depend only on the requests that have arrived by `t`.
+The definitions below say what it means for an algorithm to be *online* and *nonclairvoyant*.  The former is the usual definition:
+what it does up to a time `t` may depend only on the requests that have arrived by `t`.
+The latter is more: what it does up to `t` may depend only on the delay those requests have accumulated by `t`, not on the delay curves that produce it.
 -/
 
 noncomputable section
@@ -137,6 +138,22 @@ variable {Page : Type*}
 def Instance.upTo (input : Instance Page) (t : Time) : Instance Page where
   cacheSize := input.cacheSize
   requests := input.requests.filter fun request => decide (request.arrival ≤ t)
+
+/-- What a request has revealed by time `t`: the page it asks for, the time it
+arrived, and the stretch of its delay curve that has already been traversed. -/
+structure Request.AgreeUpTo (t : Time) (first second : Request Page) : Prop where
+  page : first.page = second.page
+  arrival : first.arrival = second.arrival
+  /-- The curves agree at every waiting time that can have elapsed by `t`. -/
+  delay : ∀ wait ≤ t - first.arrival, first.delay wait = second.delay wait
+
+/-- Two instances that have revealed the same thing by time `t`: the same cache
+size, and the requests that have arrived by `t` matched one for one, each pair
+agreeing on everything observable at `t`. -/
+structure Instance.AgreeUpTo (first second : Instance Page) (t : Time) : Prop where
+  cacheSize : first.cacheSize = second.cacheSize
+  requests : List.Forall₂ (Request.AgreeUpTo t)
+    (first.upTo t).requests (second.upTo t).requests
 
 variable [DecidableEq Page]
 
@@ -157,6 +174,16 @@ structure Algorithm.Online (algorithm : Algorithm Page) : Prop where
   prefixDetermined : ∀ (first second : Instance Page)
     (hfirst : first.Valid) (hsecond : second.Valid) (t : Time),
     first.upTo t = second.upTo t →
+    (algorithm first hfirst).upTo t = (algorithm second hsecond).upTo t
+
+/-- An algorithm is **nonclairvoyant** when its behaviour up to any time `t`
+depends only on what the input has revealed by `t`: which requests have
+arrived, and how much delay each of them has accumulated so far. -/
+structure Algorithm.Nonclairvoyant (algorithm : Algorithm Page) : Prop where
+  /-- Instances indistinguishable at time `t` receive schedules agreeing up to `t`. -/
+  observationDetermined : ∀ (first second : Instance Page)
+    (hfirst : first.Valid) (hsecond : second.Valid) (t : Time),
+    first.AgreeUpTo second t →
     (algorithm first hfirst).upTo t = (algorithm second hsecond).upTo t
 
 /-- An algorithm is **feasible** when the schedule it produces is feasible for

@@ -1,8 +1,8 @@
 # Lean formalization for uniform paging with delay
 
 This repository formalizes results on uniform paging with delay
-in Lean 4. The central result is that threshold-one FIFO is an online, feasible,
-`(2k+2)`-competitive algorithm for paging with delay.
+in Lean 4. The central result is that threshold-one FIFO is a nonclairvoyant,
+feasible, `(2k+2)`-competitive algorithm for paging with delay.
 
 The formalization also includes three refinements:
 
@@ -23,8 +23,9 @@ lake build
 
 ## Main result
 
-`paging_with_delay_upper_bound` constructs an algorithm that is online and
-feasible and proves, for every valid input and every feasible comparator,
+`paging_with_delay_upper_bound` constructs an algorithm that is nonclairvoyant,
+online and feasible and proves, for every valid input and every feasible
+comparator,
 
 ```text
 ALG <= (2k+2) * cost(comparator).
@@ -37,6 +38,7 @@ The witness is FIFO with threshold `1`. More generally, the implementation in
 ```text
 FIFO.schedule_feasible δ
 FIFO.schedule_online δ
+FIFO.schedule_nonclairvoyant δ
 FIFO.algorithmCostClaim δ : ALG = (1+δ) * number_of_payments
 ```
 
@@ -46,14 +48,24 @@ Only the charging argument establishing the `2k+2` ratio specializes to
 ## Model and scope
 
 The definitions in `Model.lean` describe request instances, schedules, cost,
-feasibility, and onlineness. Caches start empty, requests are presented in
-nondecreasing arrival order, and comparator evictions occur at fetch events.
-These choices match the proof development while preserving the competitive
-claims in the write-up.
+feasibility, onlineness, and nonclairvoyance. Caches start empty, requests are
+presented in nondecreasing arrival order, and comparator evictions occur at
+fetch events. These choices match the proof development while preserving the
+competitive claims in the write-up.
 
 The event loop resolves ties explicitly: arrivals at time `t` precede payments
 at `t`; pages reaching the threshold simultaneously are ordered by their first
 pending request; simultaneous arrivals retain list order.
+
+An algorithm is *online* when what it does up to a time `t` is determined by
+the requests that have arrived by `t`, and *nonclairvoyant* when it is
+determined by less: the delay those requests have accrued by `t`, rather than
+the delay curves producing it. `Algorithm.Nonclairvoyant` states this by
+comparing two instances that have revealed the same thing by `t`, so no
+continuation of a truncated delay curve has to be named or assumed to exist.
+Nonclairvoyance implies onlineness (`Algorithm.Nonclairvoyant.online`) and is
+strictly stronger; `OnlineExamples.lean` exhibits an algorithm separating
+them.
 
 For readers auditing the statement rather than the proof, the essential files
 are:
@@ -71,7 +83,8 @@ The remaining files are machine-checked proof implementation.
 
 The FIFO event loop records arrivals and threshold payments while maintaining
 the cache as the pages of the most recent payments. From the run invariants the
-formalization derives termination, feasibility, onlineness, and the identity
+formalization derives termination, feasibility, onlineness, nonclairvoyance,
+and the identity
 `ALG = (1+δ)M`, where `M` is the number of payments.
 
 For the main upper bound at `δ = 1`, payments are assigned to the charging
@@ -80,8 +93,8 @@ bound the contribution of each class by the comparator's fetch or delay cost.
 Combining the class bounds gives `ALG = 2M <= (2k+2) OPT`.
 
 No behavioral property of FIFO is assumed: the cache invariant, threshold
-attainment, service semantics, feasibility, and onlineness are all proved from
-the implementation in `Algorithm.lean`.
+attainment, service semantics, feasibility, onlineness, and nonclairvoyance are
+all proved from the implementation in `Algorithm.lean`.
 
 ## Additional results
 
@@ -135,20 +148,22 @@ input by the same condition `input.pageUniverse.card <= k + 1`.
 
 ## Repository layout
 
-| Path                                 | Purpose                                         |
-| ------------------------------------ | ----------------------------------------------- |
-| `PagingWithDelay.lean`               | Public theorem statements                       |
-| `PagingWithDelay/Model.lean`         | Problem and schedule semantics                  |
-| `PagingWithDelay/PageUniverse.lean`  | Lemmas about `Instance.pageUniverse`            |
-| `PagingWithDelay/Algorithm.lean`     | Threshold-parameterized FIFO event loop         |
-| `PagingWithDelay/EventLoop/`         | Run invariants and service accounting           |
-| `PagingWithDelay/Competitive/`       | Charging proof of the main upper bound          |
-| `PagingWithDelay/FIFOFeasible.lean`  | Feasibility of FIFO for every threshold         |
-| `PagingWithDelay/FIFOOnline.lean`    | Onlineness of FIFO for every threshold          |
-| `PagingWithDelay/LowerBound/`        | Tightness construction and comparator           |
-| `PagingWithDelay/GeneralLowerBound/` | General `2k+1` lower bound for all algorithms   |
-| `PagingWithDelay/KPlusOne/`          | Improved bound for `k+1` pages                  |
-| `PagingWithDelay/Analysis/`          | Reusable potential, rank, and cache-trace tools |
+| Path                                      | Purpose                                         |
+| ----------------------------------------- | ----------------------------------------------- |
+| `PagingWithDelay.lean`                    | Public theorem statements                       |
+| `PagingWithDelay/Model.lean`              | Problem and schedule semantics                  |
+| `PagingWithDelay/PageUniverse.lean`       | Lemmas about `Instance.pageUniverse`            |
+| `PagingWithDelay/Algorithm.lean`          | Threshold-parameterized FIFO event loop         |
+| `PagingWithDelay/EventLoop/`              | Run invariants and service accounting           |
+| `PagingWithDelay/Competitive/`            | Charging proof of the main upper bound          |
+| `PagingWithDelay/FIFOFeasible.lean`       | Feasibility of FIFO for every threshold         |
+| `PagingWithDelay/FIFOOnline.lean`         | Onlineness of FIFO for every threshold          |
+| `PagingWithDelay/Nonclairvoyant.lean`     | Nonclairvoyance and its relation to onlineness  |
+| `PagingWithDelay/FIFONonclairvoyant.lean` | Nonclairvoyance of FIFO for every threshold     |
+| `PagingWithDelay/LowerBound/`             | Tightness construction and comparator           |
+| `PagingWithDelay/GeneralLowerBound/`      | General `2k+1` lower bound for all algorithms   |
+| `PagingWithDelay/KPlusOne/`               | Improved bound for `k+1` pages                  |
+| `PagingWithDelay/Analysis/`               | Reusable potential, rank, and cache-trace tools |
 
 ## Formalization status
 
@@ -157,7 +172,8 @@ For the four public results, `#print axioms` reports only the standard
 foundational dependencies `propext`, `Classical.choice`, and `Quot.sound`.
 
 Small examples in `OnlineExamples.lean` check that the definitions of
-feasibility and onlineness are neither vacuous nor trivial, and
+onlineness and nonclairvoyance are neither vacuous nor trivial — including an
+algorithm that is online but clairvoyant, which separates the two — and
 `StatementChecks.lean` derives the earlier phrasing of the two universe-
 restricted theorems from their current `pageUniverse` phrasing. Neither file is
 reachable from the library root, so `lake build` does not compile them; check

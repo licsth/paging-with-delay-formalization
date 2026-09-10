@@ -1,7 +1,9 @@
 import PagingWithDelay.Model
 import PagingWithDelay.PageUniverse
 import PagingWithDelay.Online
+import PagingWithDelay.Nonclairvoyant
 import PagingWithDelay.FIFOOnline
+import PagingWithDelay.FIFONonclairvoyant
 import PagingWithDelay.FIFOFeasible
 import PagingWithDelay.Competitive.Final
 import PagingWithDelay.LowerBound.Final
@@ -15,7 +17,7 @@ import PagingWithDelay.GeneralLowerBound.Final
 /-!
 # Paging with delay: model and main result
 
-The imported model module contains the trusted definitions. The first theorem below summarizes the paper's claim: there is a feasible online algorithm for paging with delay that is (2k+2)-competitive compared against any feasible schedule, and this algorithm is FIFO with threshold 1.
+The imported model module contains the trusted definitions. The first theorem below summarizes the paper's claim: there is a feasible online algorithm for paging with delay that is (2k+2)-competitive compared against any feasible schedule, and this algorithm is FIFO with threshold 1. The algorithm is in fact nonclairvoyant, which is more than online: it never consults the delay a request has yet to accrue, only the delay accrued so far. That is stated as the first conjunct of the first and third theorems, and it implies onlineness (`Algorithm.Nonclairvoyant.online`), which the same theorems keep stating separately.
 
 The second theorem is the converse, "Tightness of the analysis": no threshold makes FIFO better than (2k+2)-competitive. Its proof is in `PagingWithDelay/LowerBound/`: the adversarial instance, the replay of FIFO on it, and the explicit comparator it is measured against. Like the upper bound, it stands on the Lean compiler alone.
 
@@ -27,13 +29,13 @@ The fourth theorem is the general lower bound of the original paper: on a univer
 namespace PagingWithDelay
 
 theorem paging_with_delay_upper_bound {Page: Type*} [DecidableEq Page] : ∃ (algorithm : Algorithm Page),
-  Algorithm.Online algorithm ∧ Algorithm.Feasible algorithm ∧
+  Algorithm.Nonclairvoyant algorithm ∧ Algorithm.Online algorithm ∧ Algorithm.Feasible algorithm ∧
     ∀ (input : Instance Page) (valid : input.Valid),
         ∀ comparator : Schedule Page, comparator.Feasible input →
           (algorithm input valid).totalCost input ≤
             (2 * input.cacheSize + 2 : ℕ) * comparator.totalCost input :=
-  ⟨FIFO.schedule 1, FIFO.schedule_online 1, FIFO.feasible 1,fun input valid =>
-    Competitive.competitiveRatio input valid⟩
+  ⟨FIFO.schedule 1, FIFO.schedule_nonclairvoyant 1, FIFO.schedule_online 1, FIFO.feasible 1,
+    fun input valid => Competitive.competitiveRatio input valid⟩
 
 /-- **The analysis is tight.**  For every positive threshold `δ`, every cache size
 `k ≥ 1`, and every page type with at least `k + 2` pages, FIFO with threshold
@@ -56,14 +58,15 @@ the cost of any feasible schedule, plus `(2k+1)²/k`. The proof uses FIFO with
 threshold `(k+1)/k` as its witness. -/
 theorem paging_with_delay_upper_bound_k_plus_one_pages {Page : Type*} [DecidableEq Page]
     {k : ℕ} (hk : 0 < k) :
-    ∃ (algorithm : Algorithm Page), Algorithm.Online algorithm ∧ Algorithm.Feasible algorithm ∧
+    ∃ (algorithm : Algorithm Page), Algorithm.Nonclairvoyant algorithm ∧
+      Algorithm.Online algorithm ∧ Algorithm.Feasible algorithm ∧
       ∀ (input : Instance Page) (valid : input.Valid), (Fin (k + 1) ↪ Page) →
         input.cacheSize = k → input.pageUniverse.card ≤ k + 1 →
           ∀ comparator : Schedule Page, comparator.Feasible input →
             (algorithm input valid).totalCost input ≤
               (2 * k + 1 : ℕ) * comparator.totalCost input +
                 ((2 * k + 1 : ℕ) * (2 * k + 1 : ℕ)) / (k : ℕ) :=
-  ⟨FIFO.schedule (((k : Cost) + 1) / (k : Cost)),
+  ⟨FIFO.schedule (((k : Cost) + 1) / (k : Cost)), FIFO.schedule_nonclairvoyant _,
     FIFO.schedule_online _, FIFO.feasible _, fun input valid pages hsize huniverse =>
     KPlusOne.competitive_of_pageUniverse hk pages input valid hsize huniverse⟩
 

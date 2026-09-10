@@ -31,12 +31,13 @@ example {Page : Type*} [DecidableEq Page] {k : ℕ} (hk : 0 < k) :
               (algorithm input valid).totalCost input ≤
                 (2 * k + 1 : ℕ) * comparator.totalCost input +
                   ((2 * k + 1 : ℕ) * (2 * k + 1 : ℕ)) / (k : ℕ) := by
-  obtain ⟨algorithm, online, competitive⟩ :=
+  obtain ⟨algorithm, _nonclairvoyant, online, feasible, competitive⟩ :=
     paging_with_delay_upper_bound_k_plus_one_pages (Page := Page) hk
   refine ⟨algorithm, online, fun input valid pages hsize hcard hrequests => ?_⟩
-  exact competitive input valid
-    (((pages.equivFinOfCardEq hcard).symm.toEmbedding).trans (Function.Embedding.subtype _))
-    hsize ((Instance.card_pageUniverse_le hrequests).trans_eq hcard)
+  exact ⟨feasible.scheduleFeasible input valid,
+    competitive input valid
+      (((pages.equivFinOfCardEq hcard).symm.toEmbedding).trans (Function.Embedding.subtype _))
+      hsize ((Instance.card_pageUniverse_le hrequests).trans_eq hcard)⟩
 
 /-- The general lower bound still applies to an algorithm whose feasibility is
 given input by input, and still produces an input drawn from a universe of
@@ -60,10 +61,27 @@ example {Page : Type*} [DecidableEq Page] {k : ℕ} (hk : 0 < k) (pages : Fin (k
     hfeasible, hcost⟩
 
 /-- The hypotheses the general lower bound puts on an algorithm are satisfiable:
-FIFO with threshold `1` is both online and feasible. -/
+FIFO with threshold `1` is both online and feasible, and indeed nonclairvoyant. -/
 example {Page : Type*} [DecidableEq Page] :
-    Algorithm.Online (FIFO.schedule (Page := Page) 1) ∧
+    Algorithm.Nonclairvoyant (FIFO.schedule (Page := Page) 1) ∧
+      Algorithm.Online (FIFO.schedule (Page := Page) 1) ∧
       Algorithm.Feasible (FIFO.schedule (Page := Page) 1) :=
-  ⟨FIFO.schedule_online 1, ⟨fun input valid => FIFO.schedule_feasible 1 input valid⟩⟩
+  ⟨FIFO.schedule_nonclairvoyant 1, FIFO.schedule_online 1,
+    ⟨fun input valid => FIFO.schedule_feasible 1 input valid⟩⟩
+
+/-- The general lower bound applies to nonclairvoyant algorithms as it stands:
+a nonclairvoyant algorithm is online. -/
+example {Page : Type*} [DecidableEq Page] {k : ℕ} (hk : 0 < k) (pages : Fin (k + 1) ↪ Page)
+    (algorithm : Algorithm Page) (nonclairvoyant : Algorithm.Nonclairvoyant algorithm)
+    (feasible : Algorithm.Feasible algorithm)
+    (ratio additive : Cost) (hratio : ratio < (2 * k + 1 : ℕ)) :
+    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+      input.cacheSize = k ∧
+      input.pageUniverse.card ≤ k + 1 ∧
+      comparator.Feasible input ∧
+        ratio * comparator.totalCost input + additive <
+          (algorithm input valid).totalCost input :=
+  paging_with_delay_general_lower_bound hk pages algorithm nonclairvoyant.online feasible
+    ratio additive hratio
 
 end PagingWithDelay
