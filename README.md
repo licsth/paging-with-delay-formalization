@@ -97,22 +97,6 @@ implementation is in `PagingWithDelay/LowerBound/`.
 The restriction to positive thresholds is intentional: at threshold zero,
 payments occur on arrival and the construction no longer describes the run.
 
-### The general lower bound
-
-`paging_with_delay_general_lower_bound` proves that for `k >= 1` and a universe
-of exactly `k+1` pages, *every* algorithm that is `Algorithm.Online` and
-`Algorithm.Feasible` fails every competitive claim below `2k+1`, with an
-arbitrary additive constant. The adversarial input is built adaptively from the algorithm's own
-run: each phase requests a page the algorithm does not currently hold and ends
-when the algorithm serves that request. The algorithm is then compared against
-the `k+1` static and `k` dynamic offline strategies of the write-up by
-averaging. The implementation is in `PagingWithDelay/GeneralLowerBound/`; see
-the [README](PagingWithDelay/GeneralLowerBound/README.md) there.
-
-Together with the previous result this is tight: on `k+1` pages the competitive
-ratio of paging with delay is exactly `2k+1`: both statements restrict the
-input by the same condition `input.pageUniverse.card <= k + 1`.
-
 ### A universe of `k+1` pages
 
 `paging_with_delay_upper_bound_k_plus_one_pages` proves that, for `k >= 1`,
@@ -133,22 +117,38 @@ constant above while leaving the asymptotic ratio unchanged. The proof is in
 `PagingWithDelay/KPlusOne/`, supported by generic potential and cache-trace
 lemmas in `PagingWithDelay/Analysis/`.
 
+### The general lower bound
+
+`paging_with_delay_general_lower_bound` proves that for `k >= 1` and a universe
+of exactly `k+1` pages, _every_ algorithm that is `Algorithm.Online` and
+`Algorithm.Feasible` fails every competitive claim below `2k+1`, with an
+arbitrary additive constant. The adversarial input is built adaptively from the algorithm's own
+run: each phase requests a page the algorithm does not currently hold and ends
+when the algorithm serves that request. The algorithm is then compared against
+the `k+1` static and `k` dynamic offline strategies of the write-up by
+averaging. The implementation is in `PagingWithDelay/GeneralLowerBound/`; see
+the [README](PagingWithDelay/GeneralLowerBound/README.md) there.
+
+Together with the previous result this is tight: on `k+1` pages the competitive
+ratio of paging with delay is exactly `2k+1`: both statements restrict the
+input by the same condition `input.pageUniverse.card <= k + 1`.
+
 ## Repository layout
 
-| Path                                | Purpose                                         |
-| ----------------------------------- | ----------------------------------------------- |
-| `PagingWithDelay.lean`              | Public theorem statements                       |
-| `PagingWithDelay/Model.lean`        | Problem and schedule semantics                  |
-| `PagingWithDelay/PageUniverse.lean` | Lemmas about `Instance.pageUniverse`            |
-| `PagingWithDelay/Algorithm.lean`    | Threshold-parameterized FIFO event loop         |
-| `PagingWithDelay/EventLoop/`        | Run invariants and service accounting           |
-| `PagingWithDelay/Competitive/`      | Charging proof of the main upper bound          |
-| `PagingWithDelay/FIFOFeasible.lean` | Feasibility of FIFO for every threshold         |
-| `PagingWithDelay/FIFOOnline.lean`   | Onlineness of FIFO for every threshold          |
-| `PagingWithDelay/LowerBound/`       | Tightness construction and comparator           |
-| `PagingWithDelay/GeneralLowerBound/`| General `2k+1` lower bound for all algorithms   |
-| `PagingWithDelay/KPlusOne/`         | Improved bound for `k+1` pages                  |
-| `PagingWithDelay/Analysis/`         | Reusable potential, rank, and cache-trace tools |
+| Path                                 | Purpose                                         |
+| ------------------------------------ | ----------------------------------------------- |
+| `PagingWithDelay.lean`               | Public theorem statements                       |
+| `PagingWithDelay/Model.lean`         | Problem and schedule semantics                  |
+| `PagingWithDelay/PageUniverse.lean`  | Lemmas about `Instance.pageUniverse`            |
+| `PagingWithDelay/Algorithm.lean`     | Threshold-parameterized FIFO event loop         |
+| `PagingWithDelay/EventLoop/`         | Run invariants and service accounting           |
+| `PagingWithDelay/Competitive/`       | Charging proof of the main upper bound          |
+| `PagingWithDelay/FIFOFeasible.lean`  | Feasibility of FIFO for every threshold         |
+| `PagingWithDelay/FIFOOnline.lean`    | Onlineness of FIFO for every threshold          |
+| `PagingWithDelay/LowerBound/`        | Tightness construction and comparator           |
+| `PagingWithDelay/GeneralLowerBound/` | General `2k+1` lower bound for all algorithms   |
+| `PagingWithDelay/KPlusOne/`          | Improved bound for `k+1` pages                  |
+| `PagingWithDelay/Analysis/`          | Reusable potential, rank, and cache-trace tools |
 
 ## Formalization status
 

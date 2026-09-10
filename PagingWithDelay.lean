@@ -56,18 +56,16 @@ the cost of any feasible schedule, plus `(2k+1)²/k`. The proof uses FIFO with
 threshold `(k+1)/k` as its witness. -/
 theorem paging_with_delay_upper_bound_k_plus_one_pages {Page : Type*} [DecidableEq Page]
     {k : ℕ} (hk : 0 < k) :
-    ∃ (algorithm : Algorithm Page), Algorithm.Online algorithm ∧
+    ∃ (algorithm : Algorithm Page), Algorithm.Online algorithm ∧ Algorithm.Feasible algorithm ∧
       ∀ (input : Instance Page) (valid : input.Valid), (Fin (k + 1) ↪ Page) →
         input.cacheSize = k → input.pageUniverse.card ≤ k + 1 →
-          (algorithm input valid).Feasible input ∧
-            ∀ comparator : Schedule Page, comparator.Feasible input →
-              (algorithm input valid).totalCost input ≤
-                (2 * k + 1 : ℕ) * comparator.totalCost input +
-                  ((2 * k + 1 : ℕ) * (2 * k + 1 : ℕ)) / (k : ℕ) :=
+          ∀ comparator : Schedule Page, comparator.Feasible input →
+            (algorithm input valid).totalCost input ≤
+              (2 * k + 1 : ℕ) * comparator.totalCost input +
+                ((2 * k + 1 : ℕ) * (2 * k + 1 : ℕ)) / (k : ℕ) :=
   ⟨FIFO.schedule (((k : Cost) + 1) / (k : Cost)),
-    FIFO.schedule_online _, fun input valid pages hsize huniverse =>
-    ⟨FIFO.schedule_feasible _ input valid,
-      KPlusOne.competitive_of_pageUniverse hk pages input valid hsize huniverse⟩⟩
+    FIFO.schedule_online _, FIFO.feasible _, fun input valid pages hsize huniverse =>
+    KPlusOne.competitive_of_pageUniverse hk pages input valid hsize huniverse⟩
 
 /-- **The general lower bound.**  For `k ≥ 1` and a page type with at least
 `k + 1` pages, every feasible online algorithm fails every competitive claim below
