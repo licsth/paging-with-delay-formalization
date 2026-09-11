@@ -46,6 +46,7 @@ theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
       (∀ request ∈ input.requests, IsDeadlineShaped request) ∧
       (∀ request ∈ input.requests, request.page ∈ V) ∧
       comparator.Feasible input ∧
+      (∀ request ∈ input.requests, comparator.requestCost request = 0) ∧
         ratio * comparator.totalCost input + additive <
           (algorithm input valid).totalCost input := by
   classical
@@ -67,7 +68,7 @@ theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
   obtain ⟨z, hz⟩ := run.cert.cheap_nonempty
   have hzV : z ∈ V := (run.cert.cheap_mem_V hz).1
   have hzc : z ≠ run.state.distinguished := (run.cert.cheap_mem_V hz).2
-  obtain ⟨comparator, hfeasible, hcost⟩ :=
+  obtain ⟨comparator, hfeasible, hcost, hcomparatorDelay⟩ :=
     certificate_totalCost_le run.cert hz
       (PhaseCount.refill_nonempty hcard hk run.cert.distinguished_mem hzV
         (fun heq => hzc heq.symm))
@@ -79,7 +80,8 @@ theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
     have hbound := run.potentialBound
     rw [hrunSteps] at hbound
     omega
-  refine ⟨run.input, run.valid, comparator, run.size, run.shaped, run.pages, hfeasible, ?_⟩
+  refine ⟨run.input, run.valid, comparator, run.size, run.shaped, run.pages, hfeasible,
+    hcomparatorDelay, ?_⟩
   · refine hsteps (run.state.budget : Cost) _ (comparator.totalCost run.input)
       (hlength.trans halg) ?_ ?_
     · exact_mod_cast hbudget
@@ -89,8 +91,15 @@ theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
 
 /-- The lower bound as the public theorem states it: the universe restriction is
 a bound on the page universe of the input the construction produces, the `k+2`
-pages it may request come from the given embedding, and the shape of the delay
-curves is spelled out in the vocabulary of `Model.lean`. -/
+pages it may request come from the given embedding, and the comparator serves
+every request at no delay cost.
+
+The last conjunct is what carries the deadline reading.  The construction's
+delay curves are zero inside a window and then grow, so a schedule with no delay
+cost is one that serves every request inside its window — a schedule that misses
+no deadline.  Stating that about the comparator, rather than stating the shape
+of the curves, keeps the theorem free of any interpretation of what a "deadline"
+is. -/
 theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
     (online : algorithm.Online) (feasible : algorithm.Feasible)
     {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page)
@@ -98,17 +107,15 @@ theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
     ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
       input.cacheSize = k ∧
       input.pageUniverse.card ≤ k + 2 ∧
-      (∀ request ∈ input.requests, ∃ window rate : Time, 0 < rate ∧
-        ∀ wait : Time, request.delay wait = rate * (wait - window)) ∧
       comparator.Feasible input ∧
+      (∀ request ∈ input.requests, comparator.requestCost request = 0) ∧
         ratio * comparator.totalCost input + additive <
           (algorithm input valid).totalCost input := by
-  obtain ⟨input, valid, comparator, hsize, hshaped, hpages, hfeasible, hcost⟩ :=
+  obtain ⟨input, valid, comparator, hsize, _, hpages, hfeasible, hdelay, hcost⟩ :=
     competitive_ratio_lower_bound algorithm online feasible hk
       (V := Finset.univ.map pages) (by simp) ratio additive hratio
   exact ⟨input, valid, comparator, hsize,
-    (Instance.card_pageUniverse_le hpages).trans_eq (by simp),
-    fun request hrequest => (hshaped request hrequest).exists_curve, hfeasible, hcost⟩
+    (Instance.card_pageUniverse_le hpages).trans_eq (by simp), hfeasible, hdelay, hcost⟩
 
 end
 end PagingWithDelay.DeadlineLowerBound

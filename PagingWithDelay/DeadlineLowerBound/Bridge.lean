@@ -419,7 +419,8 @@ theorem serves_buildSchedule {start : Finset Page} {moves : List (Move Page)}
 /-- **The certificate's schedules are `Model.lean` schedules.**  A valid move
 list whose moves all happen after time `0`, serving every request of `input`
 inside its window, becomes a feasible schedule of cost exactly
-`cacheSize + (number of moves)`. -/
+`cacheSize + (number of moves)`, which serves every request at *no delay cost*:
+it is inside its window every time. -/
 theorem feasible_buildSchedule {k : ℕ} {start : Finset Page} {moves : List (Move Page)}
     {input : Instance Page} (hsize : input.cacheSize = k) (hcard : start.card = k)
     (hstart : start.Nonempty) (hvalid : ValidMoves start moves)
@@ -431,7 +432,8 @@ theorem feasible_buildSchedule {k : ℕ} {start : Finset Page} {moves : List (Mo
     (hserves : ∀ request ∈ input.requests,
       Serves start moves ⟨request.page, request.arrival, deadline request⟩) :
     (buildSchedule start moves).Feasible input ∧
-      (buildSchedule start moves).totalCost input = ((k + moves.length : ℕ) : Cost) := by
+      (buildSchedule start moves).totalCost input = ((k + moves.length : ℕ) : Cost) ∧
+      ∀ request ∈ input.requests, (buildSchedule start moves).requestCost request = 0 := by
   have hfill : fillCache start.toList ∅ = start := fillCache_toList start
   have hservice : ∀ request ∈ input.requests,
       ((buildSchedule start moves).serviceCandidates request).Nonempty ∧
@@ -439,7 +441,8 @@ theorem feasible_buildSchedule {k : ℕ} {start : Finset Page} {moves : List (Mo
     intro request hrequest
     exact serves_buildSchedule hstart hchrono request (harrival request hrequest)
       (hzero request hrequest) (hserves request hrequest)
-  refine ⟨⟨?_, ?_, ?_, fun request hrequest => (hservice request hrequest).1⟩, ?_⟩
+  refine ⟨⟨?_, ?_, ?_, fun request hrequest => (hservice request hrequest).1⟩, ?_,
+    fun request hrequest => (hservice request hrequest).2⟩
   · -- chronological
     rw [buildSchedule]
     refine List.pairwise_append.mpr ⟨pairwise_fillEvents _ _, pairwise_moveEvents _ _ hchrono, ?_⟩
@@ -528,6 +531,10 @@ any checkpoint, the certificate yields a schedule that `Model.lean` calls
 feasible for the instance it has served, of total cost at most
 `cacheSize + m + 1`.
 
+The schedule serves every request at no delay cost, which is what makes the
+bound transfer to the hard-deadline reading of the instance: the comparator
+never buys its way out of a deadline.
+
 This is the drafts' `OPT ≤ m_T + 1`, plus the `cacheSize` that `Model.lean`'s
 empty initial cache costs any schedule.  The hypotheses are: the instance's
 cache has the size of the certificate's configurations (`hsize`, `hcard`), every
@@ -547,13 +554,14 @@ theorem certificate_totalCost_le {k : ℕ} {V start : Finset Page}
     (hmem : ∀ request ∈ input.requests,
       (⟨request.page, request.arrival, deadline request⟩ : Window Page) ∈ alpha :: processed) :
     ∃ schedule : Schedule Page, schedule.Feasible input ∧
-      schedule.totalCost input ≤ ((k + (m + 1) : ℕ) : Cost) := by
+      schedule.totalCost input ≤ ((k + (m + 1) : ℕ) : Cost) ∧
+      ∀ request ∈ input.requests, schedule.requestCost request = 0 := by
   obtain ⟨t, cfg, moves, hvalid, hchrono, _, hlength, hserves, _⟩ :=
     hcert.exists_final_schedule hz hne
-  obtain ⟨hfeasible, hcost⟩ :=
+  obtain ⟨hfeasible, hcost, hdelay⟩ :=
     feasible_buildSchedule hsize hcard hstart hvalid hchrono deadline harrival hzero
       (fun request hrequest => hserves _ (hmem request hrequest))
-  refine ⟨buildSchedule start moves, hfeasible, ?_⟩
+  refine ⟨buildSchedule start moves, hfeasible, ?_, hdelay⟩
   rw [hcost]
   exact_mod_cast Nat.add_le_add_left hlength k
 
@@ -561,12 +569,15 @@ theorem certificate_totalCost_le {k : ℕ} {V start : Finset Page}
 
 Every hypothesis of `feasible_buildSchedule` holds at once for a one-page
 cache serving one deadline-shaped request, and the cost is the promised one:
-`1` for filling the empty cache, and no delay. -/
+`1` for filling the empty cache, and no delay — the request is served by a
+cache hit at its arrival. -/
 
 example :
     (buildSchedule ({0} : Finset ℕ) []).Feasible ⟨1, [deadlineRequest 0 1 1 1 zero_lt_one]⟩ ∧
       (buildSchedule ({0} : Finset ℕ) []).totalCost ⟨1, [deadlineRequest 0 1 1 1 zero_lt_one]⟩
-        = ((1 + 0 : ℕ) : Cost) := by
+        = ((1 + 0 : ℕ) : Cost) ∧
+      ∀ request ∈ (⟨1, [deadlineRequest 0 1 1 1 zero_lt_one]⟩ : Instance ℕ).requests,
+        (buildSchedule ({0} : Finset ℕ) []).requestCost request = 0 := by
   refine feasible_buildSchedule (k := 1) rfl (by simp) ⟨0, by simp⟩ trivial
     List.Pairwise.nil (fun request => request.arrival + 1) ?_ ?_ ?_
   · intro request hrequest

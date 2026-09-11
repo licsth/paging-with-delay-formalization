@@ -178,7 +178,8 @@ structure Algorithm.Online (algorithm : Algorithm Page) : Prop where
 
 /-- An algorithm is **nonclairvoyant** when its behaviour up to any time `t`
 depends only on what the input has revealed by `t`: which requests have
-arrived, and how much delay each of them has accumulated so far. -/
+arrived, and how much delay each of them has accumulated so far.
+`PagingWithDelay/OnlineExamples.lean` contains provable example of clairvoyant and nonclairvoyant algorithms by this definition. -/
 structure Algorithm.Nonclairvoyant (algorithm : Algorithm Page) : Prop where
   /-- Instances indistinguishable at time `t` receive schedules agreeing up to `t`. -/
   observationDetermined : ∀ (first second : Instance Page)

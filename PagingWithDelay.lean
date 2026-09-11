@@ -26,7 +26,7 @@ The third theorem is the refinement of the first theorem: on a universe of exact
 
 The fourth theorem is the general lower bound of the original paper: on a universe of `k+1` pages, *no* feasible online algorithm is `(2k+1-ε)`-competitive. Its proof is in `PagingWithDelay/GeneralLowerBound/`, and it is unconditional in the algorithm: the request sequence is built adaptively from the algorithm's own behaviour. Together with the third theorem, the ratio `2k+1` on `k+1` pages is tight.
 
-The fifth theorem restricts the *delay curves* rather than shrinking the page universe: on at most `k+2` distinct pages, and already when every delay curve is of deadline form — zero until a deadline, then growing at a fixed rate — no feasible online algorithm is `(k+1/2-ε)`-competitive. Its proof is in `PagingWithDelay/DeadlineLowerBound/`, and it is again unconditional in the algorithm. It is a different restriction from the fourth theorem, and neither implies the other: there the curves are arbitrary and the universe has `k+1` pages, here the curves are deadlines and the universe has `k+2`.
+The fifth theorem restricts the *delay curves* rather than shrinking the page universe: on at most `k+2` distinct pages, no feasible online algorithm is `(k+1/2-ε)`-competitive against a comparator that serves every request at zero delay cost. The construction's curves are of deadline form — zero until a deadline, then growing — so a comparator of zero delay cost is one that misses no deadline, and the statement specialises to the hard-deadline problem. Its proof is in `PagingWithDelay/DeadlineLowerBound/`, and it is again unconditional in the algorithm. It is a different restriction from the fourth theorem, and neither implies the other: there the curves are arbitrary and the universe has `k+1` pages, here the curves are deadlines and the universe has `k+2`.
 -/
 
 namespace PagingWithDelay
@@ -91,14 +91,18 @@ theorem paging_with_delay_general_lower_bound {Page : Type*} [DecidableEq Page]
   GeneralLowerBound.competitive_ratio_lower_bound_pageUniverse online feasible hk pages
     ratio additive hratio
 
-/-- **The `k+1/2` lower bound for deadline-shaped delays.**  For `k ≥ 1` and a
-page type with at least `k+2` pages, every feasible online algorithm fails every
-competitive claim below `k+1/2`, however large an additive constant it is
-granted — and already on inputs that request at most `k+2` distinct pages and
-whose delay curves are all of *deadline form*: zero until a deadline, then
-growing at a fixed positive rate.  The embedding `pages` only supplies the `k+2`
-pages the construction may request.  The hypothesis `2 * ratio < 2 * k + 1` says
-`ratio < k + 1/2` without dividing. -/
+/-- **The `k+1/2` lower bound for deadline delays.**  For `k ≥ 1` and a page type
+with at least `k+2` pages, every feasible online algorithm fails every competitive
+claim below `k+1/2`, however large an additive constant it is granted,
+on an input requesting at most `k+2` distinct pages. The embedding `pages` only supplies the
+`k+2` pages the construction may request. The hypothesis `2 * ratio < 2 * k + 1`
+says `ratio < k + 1/2` without dividing.
+
+The theorem is about deadlines in the sense that it certifies that the comparator pays
+*no delay cost at all*. The theorem therefore says that even an algorithm allowed to buy
+its way out of deadlines cannot beat `k+1/2` against a comparator that never does,
+which implies the corresponding bound for the hard-deadline problem.  `StatementChecks.lean`
+derives that specialisation. -/
 theorem paging_with_delay_deadline_lower_bound {Page : Type*} [DecidableEq Page]
     {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page)
     (algorithm : Algorithm Page)
@@ -107,9 +111,8 @@ theorem paging_with_delay_deadline_lower_bound {Page : Type*} [DecidableEq Page]
     ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
       input.cacheSize = k ∧
       input.pageUniverse.card ≤ k + 2 ∧
-      (∀ request ∈ input.requests, ∃ window rate : Time, 0 < rate ∧
-        ∀ wait : Time, request.delay wait = rate * (wait - window)) ∧
       comparator.Feasible input ∧
+      (∀ request ∈ input.requests, comparator.requestCost request = 0) ∧
         ratio * comparator.totalCost input + additive <
           (algorithm input valid).totalCost input :=
   DeadlineLowerBound.competitive_ratio_lower_bound_pageUniverse online feasible hk pages

@@ -12,7 +12,9 @@ written out over all inputs.
 
 The examples below derive the earlier phrasings from the current ones, so both
 changes are changes of phrasing only, and check that the hypotheses on an
-algorithm are satisfiable at all. Like `OnlineExamples.lean`, this file is a
+algorithm are satisfiable at all.  The last example specialises the deadline
+lower bound to algorithms that never miss a deadline, where both costs are
+fetch counts. Like `OnlineExamples.lean`, this file is a
 check on the statements rather than part of the development; build it with
 `lake build PagingWithDelay.StatementChecks`.
 -/
@@ -83,5 +85,45 @@ example {Page : Type*} [DecidableEq Page] {k : ℕ} (hk : 0 < k) (pages : Fin (k
           (algorithm input valid).totalCost input :=
   paging_with_delay_general_lower_bound hk pages algorithm nonclairvoyant.online feasible
     ratio additive hratio
+
+/-- **The `k+1/2` bound covers the hard-deadline problem.**  An algorithm that
+never misses a deadline is one whose schedules accrue no delay cost; its cost is
+then exactly its number of fetches, and the comparator the bound produces has
+the same property.  So the fifth theorem specialises to a statement about fetch
+counts alone, which is what "`(k+1/2)`-competitive for paging with deadlines"
+means.
+
+The theorem it is derived from is the stronger one: there the algorithm is under
+no such restriction and may miss a deadline and pay for it, while the comparator
+never does. -/
+example {Page : Type*} [DecidableEq Page] {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page)
+    (algorithm : Algorithm Page) (online : Algorithm.Online algorithm)
+    (feasible : Algorithm.Feasible algorithm)
+    (respectsDeadlines : ∀ (input : Instance Page) (valid : input.Valid),
+      ∀ request ∈ input.requests, (algorithm input valid).requestCost request = 0)
+    (ratio additive : Cost) (hratio : 2 * ratio < 2 * (k : Cost) + 1) :
+    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+      input.cacheSize = k ∧
+      input.pageUniverse.card ≤ k + 2 ∧
+      comparator.Feasible input ∧
+        ratio * (comparator.fetchCount : Cost) + additive <
+          ((algorithm input valid).fetchCount : Cost) := by
+  obtain ⟨input, valid, comparator, hsize, huniverse, hfeasible, hdelay, hcost⟩ :=
+    paging_with_delay_deadline_lower_bound hk pages algorithm online feasible ratio additive
+      hratio
+  have hfetches : ∀ schedule : Schedule Page,
+      (∀ request ∈ input.requests, schedule.requestCost request = 0) →
+        schedule.totalCost input = (schedule.fetchCount : Cost) := by
+    intro schedule hzero
+    have hsum : schedule.totalDelay input = 0 := by
+      refine List.sum_eq_zero ?_
+      intro cost hmem
+      obtain ⟨request, hrequest, rfl⟩ := List.mem_map.mp hmem
+      exact hzero request hrequest
+    rw [Schedule.totalCost, hsum, add_zero]
+  refine ⟨input, valid, comparator, hsize, huniverse, hfeasible, ?_⟩
+  rw [← hfetches comparator hdelay,
+    ← hfetches _ (fun request hrequest => respectsDeadlines input valid request hrequest)]
+  exact hcost
 
 end PagingWithDelay
