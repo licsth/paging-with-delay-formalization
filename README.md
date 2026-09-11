@@ -13,10 +13,9 @@ The formalization also includes four refinements:
   empty initial cache; and
 - that ratio is optimal: no deterministic online algorithm is better than
   `(2k+1)`-competitive, already on `k+1` pages; and
-- restricting the delay curves instead of the page universe, no deterministic
-  online algorithm is better than `(k+1/2)`-competitive on `k+2` pages, already
-  when every delay curve is a *deadline*: zero until a fixed time, then growing
-  at a fixed rate.
+- on `k+2` pages, no deterministic online algorithm is better than
+  `(k+1/2)`-competitive against a comparator that serves every request at zero
+  delay cost — the bound for paging with *deadlines*.
 
 All five results are stated in [`PagingWithDelay.lean`](PagingWithDelay.lean).
 Build the project with:
@@ -152,17 +151,28 @@ input by the same condition `input.pageUniverse.card <= k + 1`.
 
 ### A lower bound for deadline delays
 
-`paging_with_delay_deadline_lower_bound` restricts the delay curves rather than
-shrinking the page universe. For `k >= 1` and a page type with at least `k+2`
-pages, _every_ algorithm that is `Algorithm.Online` and `Algorithm.Feasible`
-fails every competitive claim below `k+1/2`, with an arbitrary additive constant
-— and already on inputs with `input.pageUniverse.card <= k + 2` whose delay
-curves are all of the form `delay w = rate * (w - window)`, zero inside a window
-and then growing. The bound on the universe is `<=` and not `=` because the
-adversary is not obliged to touch every page it may use: which pages it requests
-is decided by the algorithm's own evictions. Neither this result nor the general
-lower bound implies the other: there the curves are arbitrary and the universe
-has `k+1` pages, here the curves are deadlines and the universe has `k+2`.
+`paging_with_delay_deadline_lower_bound` is the bound for deadlines. For
+`k >= 1` and a page type with at least `k+2` pages, _every_ algorithm that is
+`Algorithm.Online` and `Algorithm.Feasible` fails every competitive claim below
+`k+1/2`, with an arbitrary additive constant, on an input with
+`input.pageUniverse.card <= k + 2` — and against a comparator that serves every
+request at *zero delay cost*.
+
+That last property is what makes it a statement about deadlines, and it
+strengthens the claim on both sides. The construction's delay curves are zero
+inside a window and grow afterwards, so a schedule of zero delay cost is one
+that serves every request inside its window: the comparator misses no deadline.
+The algorithm is under no such restriction — it may miss a deadline and pay for
+it, which a hard-deadline algorithm cannot do. So even an algorithm allowed to
+buy its way out of deadlines cannot beat `k+1/2` against a comparator that never
+does. `StatementChecks.lean` derives the specialisation to algorithms that never
+miss a deadline, where both costs are simply fetch counts.
+
+The bound on the universe is `<=` and not `=` because the adversary is not
+obliged to touch every page it may use: which pages it requests is decided by
+the algorithm's own evictions. Neither this result nor the general lower bound
+implies the other: there the curves are arbitrary and the universe has `k+1`
+pages, here the curves are deadlines and the universe has `k+2`.
 
 The adversary keeps an offline *certificate* — a distinguished node, a set of
 cheap candidate configurations, a mark, and a budget — alongside the input it
