@@ -3,7 +3,7 @@ import Mathlib.Topology.Instances.NNReal.Lemmas
 /-!
 # The paging-with-delay model
 
-Every definition the main theorem mentions, and nothing else: requests and instances, schedules and the cost they incur, what makes a schedule feasible, and what makes an algorithm online and nonclairvoyant.
+Every definition the main theorems mention, and nothing else: requests and instances, schedules and the cost they incur, what makes a schedule feasible, and what makes an algorithm online and nonclairvoyant.
 -/
 
 namespace PagingWithDelay
