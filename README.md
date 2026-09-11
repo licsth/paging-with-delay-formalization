@@ -4,7 +4,7 @@ This repository formalizes results on uniform paging with delay
 in Lean 4. The central result is that threshold-one FIFO is a nonclairvoyant,
 feasible, `(2k+2)`-competitive algorithm for paging with delay.
 
-The formalization also includes three refinements:
+The formalization also includes four refinements:
 
 - the analysis is tight for threshold FIFO on page universes of size at least
   `k+2`;
@@ -12,9 +12,13 @@ The formalization also includes three refinements:
   competitive ratio `2k+1`, up to an additive constant caused by the model's
   empty initial cache; and
 - that ratio is optimal: no deterministic online algorithm is better than
-  `(2k+1)`-competitive, already on `k+1` pages.
+  `(2k+1)`-competitive, already on `k+1` pages; and
+- restricting the delay curves instead of the page universe, no deterministic
+  online algorithm is better than `(k+1/2)`-competitive on `k+2` pages, already
+  when every delay curve is a *deadline*: zero until a fixed time, then growing
+  at a fixed rate.
 
-All four results are stated in [`PagingWithDelay.lean`](PagingWithDelay.lean).
+All five results are stated in [`PagingWithDelay.lean`](PagingWithDelay.lean).
 Build the project with:
 
 ```sh
@@ -146,6 +150,31 @@ Together with the previous result this is tight: on `k+1` pages the competitive
 ratio of paging with delay is exactly `2k+1`: both statements restrict the
 input by the same condition `input.pageUniverse.card <= k + 1`.
 
+### A lower bound for deadline delays
+
+`paging_with_delay_deadline_lower_bound` restricts the delay curves rather than
+shrinking the page universe. For `k >= 1` and a page type with at least `k+2`
+pages, _every_ algorithm that is `Algorithm.Online` and `Algorithm.Feasible`
+fails every competitive claim below `k+1/2`, with an arbitrary additive constant
+— and already on inputs with `input.pageUniverse.card <= k + 2` whose delay
+curves are all of the form `delay w = rate * (w - window)`, zero inside a window
+and then growing. The bound on the universe is `<=` and not `=` because the
+adversary is not obliged to touch every page it may use: which pages it requests
+is decided by the algorithm's own evictions. Neither this result nor the general
+lower bound implies the other: there the curves are arbitrary and the universe
+has `k+1` pages, here the curves are deadlines and the universe has `k+2`.
+
+The adversary keeps an offline *certificate* — a distinguished node, a set of
+cheap candidate configurations, a mark, and a budget — alongside the input it
+builds. Each operation releases one request on a page the algorithm does not
+hold, which costs the algorithm a fetch or a unit of delay; the certificate
+either processes it for free or pays one unit and refills its candidate set. A
+payment out of a marked candidate refills `k` candidates and clears the mark, an
+unmarked one refills `k+1` and sets it, so two short phases cannot be
+consecutive and phases average `k+1/2` operations per payment. The
+implementation is in `PagingWithDelay/DeadlineLowerBound/`; see the
+[README](PagingWithDelay/DeadlineLowerBound/README.md) there.
+
 ## Repository layout
 
 | Path                                      | Purpose                                         |
@@ -162,13 +191,14 @@ input by the same condition `input.pageUniverse.card <= k + 1`.
 | `PagingWithDelay/FIFONonclairvoyant.lean` | Nonclairvoyance of FIFO for every threshold     |
 | `PagingWithDelay/LowerBound/`             | Tightness construction and comparator           |
 | `PagingWithDelay/GeneralLowerBound/`      | General `2k+1` lower bound for all algorithms   |
+| `PagingWithDelay/DeadlineLowerBound/`     | `k+1/2` lower bound for deadline delays         |
 | `PagingWithDelay/KPlusOne/`               | Improved bound for `k+1` pages                  |
 | `PagingWithDelay/Analysis/`               | Reusable potential, rank, and cache-trace tools |
 
 ## Formalization status
 
 The project builds without `sorry`, added axioms, `native_decide`, or `unsafe`.
-For the four public results, `#print axioms` reports only the standard
+For the five public results, `#print axioms` reports only the standard
 foundational dependencies `propext`, `Classical.choice`, and `Quot.sound`.
 
 Small examples in `OnlineExamples.lean` check that the definitions of

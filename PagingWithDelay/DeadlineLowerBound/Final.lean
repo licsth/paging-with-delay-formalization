@@ -1,0 +1,114 @@
+import PagingWithDelay.DeadlineLowerBound.Loop
+import PagingWithDelay.PageUniverse
+
+/-!
+# The `k + 1/2` lower bound for deadline-shaped delays
+
+Everything comes together here.  For a page set of size `k + 2` and any
+feasible online algorithm, `Loop.exists_run` builds an input on which
+
+* the algorithm pays at least one unit per request (`Online.length_le_totalCost`,
+  through the misses and the separation the run maintains);
+* the certificate supplies a feasible comparator of cost at most
+  `k + m + 1` (`Bridge.certificate_totalCost_le`); and
+* the certificate's budget obeys `(2k+1) m ≤ 2T + 2k` (`PhaseCount`, through
+  the potential the run maintains).
+
+`PhaseCount.no_ratio_below_k_add_half` turns those three into the statement
+that no ratio below `k + 1/2` survives.
+
+`competitive_ratio_lower_bound_pageUniverse` is the form the public theorem
+quotes: the page restriction is a bound on `Instance.pageUniverse` of the input
+produced, and the delay curves are written out rather than named.  The bound is
+`≤ k + 2` and not `= k + 2` because the adversary is not obliged to touch every
+page it is allowed: which pages it asks for is decided by the algorithm's own
+evictions.
+-/
+
+namespace PagingWithDelay.DeadlineLowerBound
+
+open Finset
+
+noncomputable section
+
+variable {Page : Type*} [DecidableEq Page]
+
+/-- **The lower bound.**  Every feasible online algorithm on `k + 2` pages
+fails every competitive claim below `k + 1/2`, already on inputs whose delay
+curves are of deadline form.  The hypothesis `2 * ratio < 2 * k + 1` says
+`ratio < k + 1/2` without dividing. -/
+theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
+    (online : algorithm.Online) (feasible : algorithm.Feasible)
+    {k : ℕ} (hk : 1 ≤ k) {V : Finset Page} (hcard : V.card = k + 2)
+    (ratio additive : Cost) (hratio : 2 * ratio < 2 * (k : Cost) + 1) :
+    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+      input.cacheSize = k ∧
+      (∀ request ∈ input.requests, IsDeadlineShaped request) ∧
+      (∀ request ∈ input.requests, request.page ∈ V) ∧
+      comparator.Feasible input ∧
+        ratio * comparator.totalCost input + additive <
+          (algorithm input valid).totalCost input := by
+  classical
+  obtain ⟨steps, hsteps⟩ :=
+    PhaseCount.no_ratio_below_k_add_half k ratio additive ((k : Cost) + 1) hratio
+  obtain ⟨c, d, hc, hd, hcd, run, hrunSteps⟩ :=
+    exists_run algorithm online feasible hk hcard steps
+  -- the algorithm pays at least one unit for every request
+  have halg : ((run.input.requests.length : ℕ) : Cost) ≤
+      (algorithm run.input run.valid).totalCost run.input :=
+    length_le_totalCost _ (feasible.scheduleFeasible _ _) run.chargeWindow run.penalty
+      run.misses run.ordered
+  have hlength : (steps : Cost) ≤ ((run.input.requests.length : ℕ) : Cost) := by
+    have : steps ≤ run.input.requests.length := by
+      rw [run.lengthEq, hrunSteps]
+      omega
+    exact_mod_cast this
+  -- the certificate supplies the comparator
+  obtain ⟨z, hz⟩ := run.cert.cheap_nonempty
+  have hzV : z ∈ V := (run.cert.cheap_mem_V hz).1
+  have hzc : z ≠ run.state.distinguished := (run.cert.cheap_mem_V hz).2
+  obtain ⟨comparator, hfeasible, hcost⟩ :=
+    certificate_totalCost_le run.cert hz
+      (PhaseCount.refill_nonempty hcard hk run.cert.distinguished_mem hzV
+        (fun heq => hzc heq.symm))
+      run.size (PhaseCount.card_refill hcard hc hd hcd)
+      (PhaseCount.refill_nonempty hcard hk hc hd hcd) run.deadline run.positive run.free run.link
+  -- the certificate's budget is small
+  have hbudget : (2 * k + 1) * run.state.budget ≤ 2 * steps + 2 * k := by
+    have hpotential := run.stateValid.potential_le
+    have hbound := run.potentialBound
+    rw [hrunSteps] at hbound
+    omega
+  refine ⟨run.input, run.valid, comparator, run.size, run.shaped, run.pages, hfeasible, ?_⟩
+  · refine hsteps (run.state.budget : Cost) _ (comparator.totalCost run.input)
+      (hlength.trans halg) ?_ ?_
+    · exact_mod_cast hbudget
+    · refine hcost.trans (le_of_eq ?_)
+      push_cast
+      ring
+
+/-- The lower bound as the public theorem states it: the universe restriction is
+a bound on the page universe of the input the construction produces, the `k+2`
+pages it may request come from the given embedding, and the shape of the delay
+curves is spelled out in the vocabulary of `Model.lean`. -/
+theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
+    (online : algorithm.Online) (feasible : algorithm.Feasible)
+    {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page)
+    (ratio additive : Cost) (hratio : 2 * ratio < 2 * (k : Cost) + 1) :
+    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+      input.cacheSize = k ∧
+      input.pageUniverse.card ≤ k + 2 ∧
+      (∀ request ∈ input.requests, ∃ window rate : Time, 0 < rate ∧
+        ∀ wait : Time, request.delay wait = rate * (wait - window)) ∧
+      comparator.Feasible input ∧
+        ratio * comparator.totalCost input + additive <
+          (algorithm input valid).totalCost input := by
+  obtain ⟨input, valid, comparator, hsize, hshaped, hpages, hfeasible, hcost⟩ :=
+    competitive_ratio_lower_bound algorithm online feasible hk
+      (V := Finset.univ.map pages) (by simp) ratio additive hratio
+  exact ⟨input, valid, comparator, hsize,
+    (Instance.card_pageUniverse_le hpages).trans_eq (by simp),
+    fun request hrequest => (hshaped request hrequest).exists_curve, hfeasible, hcost⟩
+
+end
+end PagingWithDelay.DeadlineLowerBound
