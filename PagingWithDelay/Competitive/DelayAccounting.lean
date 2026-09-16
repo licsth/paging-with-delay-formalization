@@ -1,10 +1,11 @@
-import PagingWithDelay.Competitive.Core
+import PagingWithDelay.Algorithm
 
 /-!
 # Finite delay accounting
 
-Generic weighted-disjointness lemmas for the class-D charging argument.  The
-semantic proof only needs to assign request identifiers to class-D payments.
+Generic weighted-disjointness lemmas for charging a comparator's delay cost:
+request identifiers are assigned to payments, and disjoint assignments never
+charge a request twice.
 -/
 
 namespace PagingWithDelay.Competitive

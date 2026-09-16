@@ -5,8 +5,8 @@ import PagingWithDelay
 
 Two of the public theorems restrict the page universe. They state that
 restriction as a bound on `Instance.pageUniverse`, the set of pages an input
-actually requests, where earlier they carried a `Finset Page` of size `k + 1`
-together with the hypothesis that every request lies in it. The general lower
+initially caches or requests, where earlier they carried a `Finset Page` of
+size `k + 1` together with the hypothesis that every request lies in it. The general lower
 bound also asks for `Algorithm.Feasible` in place of a feasibility hypothesis
 written out over all inputs.
 
@@ -22,24 +22,24 @@ check on the statements rather than part of the development; build it with
 namespace PagingWithDelay
 
 /-- The `k+1`-page upper bound still covers every input drawn from a named
-universe of exactly `k + 1` pages. -/
+universe of exactly `k + 1` pages — initial cache and requests alike. -/
 example {Page : Type*} [DecidableEq Page] {k : ℕ} (hk : 0 < k) :
     ∃ (algorithm : Algorithm Page), Algorithm.Online algorithm ∧
       ∀ (input : Instance Page) (valid : input.Valid) (pages : Finset Page),
         input.cacheSize = k → pages.card = k + 1 →
+        (∀ page ∈ input.initialCache, page ∈ pages) →
         (∀ request ∈ input.requests, request.page ∈ pages) →
           (algorithm input valid).Feasible input ∧
             ∀ comparator : Schedule Page, comparator.Feasible input →
               (algorithm input valid).totalCost input ≤
-                (2 * k + 1 : ℕ) * comparator.totalCost input +
-                  ((2 * k + 1 : ℕ) * (2 * k + 1 : ℕ)) / (k : ℕ) := by
+                (2 * k + 1 : ℕ) * comparator.totalCost input := by
   obtain ⟨algorithm, _nonclairvoyant, online, feasible, competitive⟩ :=
     paging_with_delay_upper_bound_k_plus_one_pages (Page := Page) hk
-  refine ⟨algorithm, online, fun input valid pages hsize hcard hrequests => ?_⟩
+  refine ⟨algorithm, online, fun input valid pages hsize hcard hinitial hrequests => ?_⟩
   exact ⟨feasible.scheduleFeasible input valid,
     competitive input valid
       (((pages.equivFinOfCardEq hcard).symm.toEmbedding).trans (Function.Embedding.subtype _))
-      hsize ((Instance.card_pageUniverse_le hrequests).trans_eq hcard)⟩
+      hsize ((Instance.card_pageUniverse_le hinitial hrequests).trans_eq hcard)⟩
 
 /-- The general lower bound still applies to an algorithm whose feasibility is
 given input by input, and still produces an input drawn from a universe of
@@ -52,6 +52,7 @@ example {Page : Type*} [DecidableEq Page] {k : ℕ} (hk : 0 < k) (pages : Fin (k
     ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
       input.cacheSize = k ∧
       (∃ cover : Finset Page, cover.card = k + 1 ∧
+        (∀ page ∈ input.initialCache, page ∈ cover) ∧
         ∀ request ∈ input.requests, request.page ∈ cover) ∧
       comparator.Feasible input ∧
         ratio * comparator.totalCost input + additive <

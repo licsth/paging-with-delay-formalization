@@ -93,10 +93,17 @@ formalization derives termination, feasibility, onlineness, nonclairvoyance,
 and the identity
 `ALG = (1+δ)M`, where `M` is the number of payments.
 
-For the main upper bound at `δ = 1`, payments are assigned to the charging
-classes used in the write-up. Payment windows and the FIFO eviction invariant
-bound the contribution of each class by the comparator's fetch or delay cost.
-Combining the class bounds gives `ALG = 2M <= (2k+2) OPT`.
+For the main upper bound, the write-up's rank potential
+`Φ = Σ_{q ∈ C_ALG ∩ C_OPT} rank(q)` is run against the comparator, read through
+a *lazy cache* that evicts a page only when its slot is needed (the write-up's
+"we may assume that OPT evicts a page only when fetching"; `Schedule.Feasible`
+itself allows an event to evict several pages). Payment windows, the potential
+changes at online payments and offline fetches, and the three charging cases
+give the payment accounting `M <= (k+1) S + ((k+1)/δ) D + Φ_final - Φ_0` for
+every positive threshold, and at `δ = 1`, `ALG = 2M <= (2k+2) OPT`. The
+implementation is in `PagingWithDelay/RankPotential/`; see the
+[README](PagingWithDelay/RankPotential/README.md) there for the correspondence
+with the write-up's lemmas.
 
 No behavioral property of FIFO is assumed: the cache invariant, threshold
 attainment, service semantics, feasibility, onlineness, and nonclairvoyance are
@@ -199,7 +206,8 @@ implementation is in `PagingWithDelay/DeadlineLowerBound/`; see the
 | `PagingWithDelay/PageUniverse.lean`       | Lemmas about `Instance.pageUniverse`            |
 | `PagingWithDelay/Algorithm.lean`          | Threshold-parameterized FIFO event loop         |
 | `PagingWithDelay/EventLoop/`              | Run invariants and service accounting           |
-| `PagingWithDelay/Competitive/`            | Charging proof of the main upper bound          |
+| `PagingWithDelay/Competitive/`            | `ALG = (1+δ)M` and delay bookkeeping            |
+| `PagingWithDelay/RankPotential/`          | Rank-potential proof of the main upper bound    |
 | `PagingWithDelay/FIFOFeasible.lean`       | Feasibility of FIFO for every threshold         |
 | `PagingWithDelay/FIFOOnline.lean`         | Onlineness of FIFO for every threshold          |
 | `PagingWithDelay/Nonclairvoyant.lean`     | Nonclairvoyance and its relation to onlineness  |

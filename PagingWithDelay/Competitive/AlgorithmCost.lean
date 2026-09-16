@@ -1,5 +1,4 @@
 import PagingWithDelay.Competitive.CostDefs
-import PagingWithDelay.Competitive.PaymentWindows
 import PagingWithDelay.Competitive.DelayAccounting
 import PagingWithDelay.EventLoop.ServiceSemantics
 

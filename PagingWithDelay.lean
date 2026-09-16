@@ -5,7 +5,7 @@ import PagingWithDelay.Nonclairvoyant
 import PagingWithDelay.FIFOOnline
 import PagingWithDelay.FIFONonclairvoyant
 import PagingWithDelay.FIFOFeasible
-import PagingWithDelay.Competitive.Final
+import PagingWithDelay.RankPotential.Final
 import PagingWithDelay.LowerBound.Final
 import PagingWithDelay.KPlusOne.Final
 import PagingWithDelay.GeneralLowerBound.Adversary
@@ -38,7 +38,7 @@ theorem paging_with_delay_upper_bound {Page: Type*} [DecidableEq Page] : ∃ (al
           (algorithm input valid).totalCost input ≤
             (2 * input.cacheSize + 2 : ℕ) * comparator.totalCost input :=
   ⟨FIFO.schedule 1, FIFO.schedule_nonclairvoyant 1, FIFO.schedule_online 1, FIFO.feasible 1,
-    fun input valid => Competitive.competitiveRatio input valid⟩
+    fun input valid => RankPotential.competitiveRatio input valid⟩
 
 /-- **The analysis is tight.**  For every positive threshold `δ`, every cache size
 `k ≥ 1`, and every page type with at least `k + 2` pages, FIFO with threshold
