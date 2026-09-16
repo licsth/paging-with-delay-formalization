@@ -165,7 +165,8 @@ theorem Online.appendRequest_mem_events {algorithm : Algorithm Page}
 
 /-- A request already served before the new arrival keeps its service time. -/
 theorem Online.appendRequest_serviceTime {algorithm : Algorithm Page}
-    (online : Online algorithm) (input : Instance Page) (valid : input.Valid)
+    (online : Online algorithm) (feasible : Feasible algorithm)
+    (input : Instance Page) (valid : input.Valid)
     (request : Request Page) (extendedValid : (input.appendRequest request).Valid)
     (earlier : Request Page) (harrival : earlier.arrival < request.arrival)
     {time : Time} (htime : time < request.arrival)
@@ -174,7 +175,7 @@ theorem Online.appendRequest_serviceTime {algorithm : Algorithm Page}
   set old := algorithm input valid with hold
   set new := algorithm (input.appendRequest request) extendedValid with hnew
   have hcache : new.cacheBefore earlier.arrival = old.cacheBefore earlier.arrival := by
-    apply online.cacheBefore_eq
+    apply online.cacheBefore_eq feasible _ _ _ _ (by rfl)
     intro s hs
     exact input.appendRequest_upTo request (hs.trans harrival)
   have hevents : ∀ e : FetchEvent Page, e.time < request.arrival →
@@ -192,7 +193,8 @@ theorem Online.appendRequest_serviceTime {algorithm : Algorithm Page}
 
 /-- Consequently the delay cost of every earlier served request is unchanged. -/
 theorem Online.appendRequest_requestCost {algorithm : Algorithm Page}
-    (online : Online algorithm) (input : Instance Page) (valid : input.Valid)
+    (online : Online algorithm) (feasible : Feasible algorithm)
+    (input : Instance Page) (valid : input.Valid)
     (request : Request Page) (extendedValid : (input.appendRequest request).Valid)
     (earlier : Request Page) (harrival : earlier.arrival < request.arrival)
     {time : Time} (htime : time < request.arrival)
@@ -200,8 +202,8 @@ theorem Online.appendRequest_requestCost {algorithm : Algorithm Page}
     (algorithm (input.appendRequest request) extendedValid).requestCost earlier =
       (algorithm input valid).requestCost earlier := by
   rw [Schedule.requestCost_of_serviceTime _ _ _
-      (online.appendRequest_serviceTime input valid request extendedValid earlier harrival
-        htime hservice),
+      (online.appendRequest_serviceTime feasible input valid request extendedValid earlier
+        harrival htime hservice),
     Schedule.requestCost_of_serviceTime _ _ _ hservice]
 
 end

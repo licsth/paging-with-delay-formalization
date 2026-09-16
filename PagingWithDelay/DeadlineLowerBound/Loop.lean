@@ -124,6 +124,8 @@ structure Run (algorithm : Algorithm Page) (k : ℕ) (V start : Finset Page) whe
   clockPos : 0 < clock
   checkpointLe : checkpoint ≤ clock
   alphaLate : clock < alpha.deadline
+  /-- The initial cache is drawn from the universe. -/
+  initialPages : ∀ page ∈ input.initialCache, page ∈ V
   positive : ∀ request ∈ input.requests, 0 < request.arrival
   arrivals : ∀ request ∈ input.requests, request.arrival ≤ clock
   /-- Every request was a miss when it arrived. -/
@@ -159,11 +161,15 @@ theorem exists_initial (algorithm : Algorithm Page) (online : algorithm.Online)
     ∃ (c d : Page), c ∈ V ∧ d ∈ V ∧ c ≠ d ∧
       ∃ run : Run algorithm k V (V \ {c, d}), run.steps = 0 := by
   classical
-  set empty : Instance Page := ⟨k, []⟩ with hempty
-  have emptyValid : empty.Valid := ⟨List.Pairwise.nil, hk⟩
+  -- the initial cache: any `k` pages of the universe
+  set empty : Instance Page := ⟨k, V.toList.take k, []⟩ with hempty
+  have emptyValid : empty.Valid := ⟨List.Pairwise.nil, hk,
+    (Finset.nodup_toList V).sublist (List.take_sublist _ _), by simp [hempty, hcard]⟩
+  have hinitial : ∀ page ∈ empty.initialCache, page ∈ V :=
+    fun page hpage => Finset.mem_toList.mp (List.mem_of_mem_take hpage)
   -- two pages the algorithm does not hold just before time 1
   obtain ⟨c, hcmem, d, hdmem, hcd⟩ :=
-    Finset.one_lt_card.mp (two_le_card_uncovered (algorithm empty emptyValid)
+    Finset.one_lt_card.mp (two_le_card_uncovered emptyValid (algorithm empty emptyValid)
       (feasible.scheduleFeasible empty emptyValid) (show empty.cacheSize = k from rfl) hcard.ge 1)
   obtain ⟨hcV, hcmiss⟩ := Finset.mem_sdiff.mp hcmem
   obtain ⟨hdV, _⟩ := Finset.mem_sdiff.mp hdmem
@@ -176,7 +182,7 @@ theorem exists_initial (algorithm : Algorithm Page) (online : algorithm.Online)
   have hmiss : alphaRequest.page ∉
       (algorithm (empty.appendRequest alphaRequest) extendedValid).cacheBefore
         alphaRequest.arrival := by
-    rw [online.appendRequest_cacheBefore empty emptyValid alphaRequest extendedValid]
+    rw [online.appendRequest_cacheBefore feasible empty emptyValid alphaRequest extendedValid]
     exact hcmiss
   have hsingle : ∀ {motive : Request Page → Prop},
       motive alphaRequest → ∀ request ∈ (empty.appendRequest alphaRequest).requests,
@@ -201,6 +207,7 @@ theorem exists_initial (algorithm : Algorithm Page) (online : algorithm.Online)
       clockPos := by norm_num
       checkpointLe := by norm_num
       alphaLate := by norm_num
+      initialPages := hinitial
       positive := hsingle (by simp [halphaRequest])
       arrivals := hsingle (by simp [halphaRequest])
       shaped := hsingle (by
@@ -309,6 +316,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       clockPos := lt_of_lt_of_le (run.clockPos.trans run.alphaLate) le_self_add
       checkpointLe := le_self_add
       alphaLate := show D + 1 < D + 2 from add_lt_add_of_le_of_lt le_rfl one_lt_two
+      initialPages := run.initialPages
       positive := ?_
       arrivals := ?_
       shaped := ?_
@@ -343,7 +351,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       · exact run.pages request hrequest
       · rw [List.mem_singleton.mp hrequest]
         exact hdV
-    · exact appendRequest_misses online run.input run.valid beta extendedValid hearlier
+    · exact appendRequest_misses online feasible run.input run.valid beta extendedValid hearlier
         run.misses hmissNew
     · intro request hrequest
       rcases List.mem_append.mp hrequest with hrequest | hrequest
@@ -405,7 +413,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       simp [run.lengthEq]
   · -- an auxiliary request: the algorithm still holds the last cheap candidate
     push_neg at hpay
-    obtain ⟨x, hxV, hxc, hxmiss⟩ := exists_uncovered_ne (algorithm run.input run.valid)
+    obtain ⟨x, hxV, hxc, hxmiss⟩ := exists_uncovered_ne run.valid (algorithm run.input run.valid)
       (feasible.scheduleFeasible run.input run.valid) run.size hcard.ge a run.state.distinguished
     have hnonempty : (run.state.cheap.erase x).Nonempty := by
       by_cases hsingleton : ∃ y, run.state.cheap = {y}
@@ -473,6 +481,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       clockPos := hapos.trans_le hae
       checkpointLe := le_rfl
       alphaLate := heD
+      initialPages := run.initialPages
       positive := ?_
       arrivals := ?_
       shaped := ?_
@@ -507,7 +516,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       · exact run.pages request hrequest
       · rw [List.mem_singleton.mp hrequest]
         exact hxV
-    · exact appendRequest_misses online run.input run.valid gamma extendedValid hearlier
+    · exact appendRequest_misses online feasible run.input run.valid gamma extendedValid hearlier
         run.misses hxmiss
     · intro request hrequest
       rcases List.mem_append.mp hrequest with hrequest | hrequest

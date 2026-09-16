@@ -108,61 +108,64 @@ theorem fetchedCode_a_ne (k r : ℕ) (hk : 0 < k) :
 def fetchedPage (k : ℕ) (pages : Fin (k + 2) ↪ Page) (i : ℕ) : Page :=
   page k pages (fetchedCode k i)
 
-/-- FIFO's queue once `i` payments have been made: the last `min i k` fetched
-pages, oldest first. -/
+/-- The page at position `n` of the eviction order. -/
+def entryPage (k : ℕ) (pages : Fin (k + 2) ↪ Page) (n : ℕ) : Page :=
+  page k pages (entryCode k n)
+
+/-- FIFO's queue once `i` payments have been made: the `k` entries
+`i, …, i + k - 1` of the eviction order, oldest first. -/
 def queueAt (k : ℕ) (pages : Fin (k + 2) ↪ Page) (i : ℕ) : List Page :=
-  (List.range' (i + 1 - min i k) (min i k)).map (fetchedPage k pages)
+  (List.range' i k).map (entryPage k pages)
+
+omit [DecidableEq Page] in
+theorem queueAt_zero (k : ℕ) (pages : Fin (k + 2) ↪ Page) :
+    queueAt k pages 0 = initialCache k pages := by
+  unfold queueAt initialCache
+  rw [List.range_eq_range']
+  apply List.map_congr_left
+  intro n hn
+  rw [List.mem_range'_1] at hn
+  simp [entryPage, entryCode_of_lt (show n < k by omega)]
 
 omit [DecidableEq Page] in
 theorem queueAt_length (k : ℕ) (pages : Fin (k + 2) ↪ Page) (i : ℕ) :
-    (queueAt k pages i).length = min i k := by
+    (queueAt k pages i).length = k := by
   simp [queueAt]
 
 omit [DecidableEq Page] in
 theorem mem_queueAt {k : ℕ} {pages : Fin (k + 2) ↪ Page} {i : ℕ} {p : Page}
     (h : p ∈ queueAt k pages i) :
-    ∃ j, i + 1 - min i k ≤ j ∧ j ≤ i ∧ p = fetchedPage k pages j := by
+    ∃ n, i ≤ n ∧ n < i + k ∧ p = entryPage k pages n := by
   simp only [queueAt, List.mem_map, List.mem_range'_1] at h
-  obtain ⟨j, ⟨hlo, hhi⟩, hj⟩ := h
-  exact ⟨j, hlo, by omega, hj.symm⟩
+  obtain ⟨n, ⟨hlo, hhi⟩, hn⟩ := h
+  exact ⟨n, hlo, hhi, hn.symm⟩
+
+omit [DecidableEq Page] in
+theorem entryPage_of_ge {k : ℕ} (pages : Fin (k + 2) ↪ Page) {n : ℕ} (hn : k ≤ n) :
+    entryPage k pages n = fetchedPage k pages (n - k + 1) := by
+  simp [entryPage, fetchedPage, entryCode_of_ge hn]
 
 omit [DecidableEq Page] in
 /-- One fetch advances the queue. -/
 theorem queueAt_succ (k : ℕ) (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) (i : ℕ) :
     insertPage k (queueAt k pages i) (fetchedPage k pages (i + 1)) = queueAt k pages (i + 1) := by
-  have hlen : (queueAt k pages i).length = min i k := queueAt_length k pages i
-  rcases Nat.lt_or_ge i k with hlt | hge
-  · have hmin : min i k = i := by omega
-    have hmin' : min (i + 1) k = i + 1 := by omega
-    rw [insertPage, if_pos (by rw [hlen, hmin]; omega)]
-    unfold queueAt
-    rw [hmin, hmin', show i + 1 - i = 1 by omega, show i + 1 + 1 - (i + 1) = 1 by omega,
-      List.range'_concat, List.map_append]
-    norm_num
-    congr 1
-    omega
-  · have hmin : min i k = k := by omega
-    have hmin' : min (i + 1) k = k := by omega
-    rw [insertPage, if_neg (by rw [hlen, hmin]; omega)]
-    unfold queueAt
-    rw [hmin, hmin']
-    obtain ⟨k', rfl⟩ : ∃ k', k = k' + 1 := ⟨k - 1, by omega⟩
-    rw [List.range'_succ, List.map_cons, List.tail_cons,
-      show i + 1 + 1 - (k' + 1) = i + 1 - (k' + 1) + 1 by omega,
-      List.range'_concat,
-      show i + 1 - (k' + 1) + 1 + 1 * k' = i + 1 by omega,
-      List.map_append]
-    rfl
+  have hlen : (queueAt k pages i).length = k := queueAt_length k pages i
+  rw [insertPage, if_neg (by rw [hlen]; omega)]
+  unfold queueAt
+  obtain ⟨k', rfl⟩ : ∃ k', k = k' + 1 := ⟨k - 1, by omega⟩
+  rw [List.range'_succ, List.map_cons, List.tail_cons, List.range'_concat, List.map_append,
+    List.map_singleton, entryPage_of_ge pages (by omega),
+    show i + 1 + 1 * k' - (k' + 1) + 1 = i + 1 by omega]
 
 omit [DecidableEq Page] in
-/-- A page that no fetch in the window carries is absent from the queue. -/
+/-- A page that no entry of the window carries is absent from the queue. -/
 theorem notMem_queueAt {k : ℕ} (hk : 0 < k) {pages : Fin (k + 2) ↪ Page} {i c : ℕ}
     (hc : c < k + 2)
-    (hne : ∀ j, i + 1 - min i k ≤ j → j ≤ i → fetchedCode k j ≠ c) :
+    (hne : ∀ n, i ≤ n → n < i + k → entryCode k n ≠ c) :
     page k pages c ∉ queueAt k pages i := by
   intro hmem
-  obtain ⟨j, hlo, hhi, hj⟩ := mem_queueAt hmem
-  exact hne j hlo hhi (page_injOn pages (fetchedCode_lt k j hk) hc hj.symm)
+  obtain ⟨n, hlo, hhi, hn⟩ := mem_queueAt hmem
+  exact hne n hlo hhi (page_injOn pages (entryCode_lt k n hk) hc hn.symm)
 
 /-! ## The unseen occurrences -/
 

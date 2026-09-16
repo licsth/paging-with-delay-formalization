@@ -10,7 +10,9 @@ named by codes
 0 = a,   1 = b,   2 = c,   3 … k+1 = v₁ … v_{k-1}
 ```
 
-and consists of `runs` runs of `2k+2` requests each.  In *criticality* order —
+and consists of `runs` runs of `2k+2` requests each, starting from the initial
+FIFO queue `b, v_{k-1}, …, v₁` (oldest first), which leaves `a` and `c`
+absent.  In *criticality* order —
 the order in which the pending requests reach the threshold `δ`, hence the
 order in which FIFO fetches — a run is
 
@@ -90,6 +92,35 @@ theorem page_injOn {k : ℕ} (pages : Fin (k + 2) ↪ Page) {i j : ℕ}
   have := pages.injective h
   simpa [Fin.ext_iff, Nat.mod_eq_of_lt hi, Nat.mod_eq_of_lt hj] using this
 
+/-- The code at position `n` of the initial FIFO queue `b, v_{k-1}, …, v₁`:
+`b` at the front, then `v_{k-1}` down to `v₁`. -/
+def initialCode (k n : ℕ) : ℕ := if n = 0 then 1 else k + 2 - n
+
+theorem initialCode_lt (k n : ℕ) (hk : 0 < k) (hn : n < k) : initialCode k n < k + 2 := by
+  unfold initialCode; split_ifs <;> omega
+
+theorem initialCode_injOn (k : ℕ) {n n' : ℕ} (hn : n < k) (hn' : n' < k)
+    (h : initialCode k n = initialCode k n') : n = n' := by
+  unfold initialCode at h; split_ifs at h <;> omega
+
+/-- The initial FIFO queue, oldest page first. -/
+def initialCache (k : ℕ) (pages : Fin (k + 2) ↪ Page) : List Page :=
+  (List.range k).map fun n => page k pages (initialCode k n)
+
+@[simp] theorem initialCache_length (k : ℕ) (pages : Fin (k + 2) ↪ Page) :
+    (initialCache k pages).length = k := by
+  simp [initialCache]
+
+theorem initialCache_nodup (k : ℕ) (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) :
+    (initialCache k pages).Nodup := by
+  unfold initialCache
+  refine List.nodup_range.map_on ?_
+  intro n hn n' hn' h
+  rw [List.mem_range] at hn hn'
+  exact initialCode_injOn k hn hn'
+    (page_injOn pages (initialCode_lt k n hk hn) (initialCode_lt k n' hk hn') h)
+
+
 /-! ## Times, in quarters -/
 
 /-- Arrival time of the request with global arrival rank `m`, in quarters.
@@ -166,10 +197,15 @@ def requestAt (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (m : ℕ
 @[simp] theorem requestAt_page (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (m : ℕ) :
     (requestAt δ k runs pages m).page = page k pages (pageCode k m) := rfl
 
-/-- The adversarial instance: `runs` runs of `2k+2` requests, cache size `k`. -/
+/-- The adversarial instance: `runs` runs of `2k+2` requests, cache size `k`,
+starting from the initial queue `b, v_{k-1}, …, v₁`. -/
 def input (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) : Instance Page where
   cacheSize := k
+  initialCache := initialCache k pages
   requests := (List.range (runLength k * runs)).map (requestAt δ k runs pages)
+
+@[simp] theorem input_initialCache (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
+    (input δ k runs pages).initialCache = initialCache k pages := rfl
 
 @[simp] theorem input_cacheSize (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
     (input δ k runs pages).cacheSize = k := rfl
@@ -188,6 +224,8 @@ theorem input_valid (δ : Cost) {k : ℕ} (runs : ℕ) (pages : Fin (k + 2) ↪ 
     (hk : 0 < k) : (input δ k runs pages).Valid where
   chronological := input_chronological δ k runs pages
   positiveCapacity := hk
+  initialCache_nodup := initialCache_nodup k hk pages
+  initialCache_full := initialCache_length k pages
 
 end
 end PagingWithDelay.LowerBound

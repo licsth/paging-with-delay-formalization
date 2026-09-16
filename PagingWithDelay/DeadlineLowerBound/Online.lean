@@ -168,24 +168,26 @@ not disturb what the algorithm did earlier, so earlier misses stay misses and
 the new request is a miss too. -/
 
 /-- At least two of the `k + 2` pages are missing from the cache at any time. -/
-theorem two_le_card_uncovered {input : Instance Page} (schedule : Schedule Page)
+theorem two_le_card_uncovered {input : Instance Page} (valid : input.Valid)
+    (schedule : Schedule Page)
     (feasible : schedule.Feasible input) {V : Finset Page} {k : ℕ}
     (hsize : input.cacheSize = k) (hcard : k + 2 ≤ V.card) (t : Time) :
     2 ≤ (V \ schedule.cacheBefore t).card := by
   have hcap : (schedule.cacheBefore t).card ≤ k := by
     rw [← hsize]
-    exact schedule.cacheBefore_card_le input feasible t
+    exact schedule.cacheBefore_card_le input valid feasible t
   have hle := Finset.le_card_sdiff (schedule.cacheBefore t) V
   omega
 
 /-- Hence a page to request: in `V`, uncovered, and different from the page the
 adversary must leave alone. -/
-theorem exists_uncovered_ne {input : Instance Page} (schedule : Schedule Page)
+theorem exists_uncovered_ne {input : Instance Page} (valid : input.Valid)
+    (schedule : Schedule Page)
     (feasible : schedule.Feasible input) {V : Finset Page} {k : ℕ}
     (hsize : input.cacheSize = k) (hcard : k + 2 ≤ V.card) (t : Time) (avoid : Page) :
     ∃ page ∈ V, page ≠ avoid ∧ page ∉ schedule.cacheBefore t := by
   obtain ⟨first, hfirst, second, hsecond, hne⟩ :=
-    Finset.one_lt_card.mp (two_le_card_uncovered schedule feasible hsize hcard t)
+    Finset.one_lt_card.mp (two_le_card_uncovered valid schedule feasible hsize hcard t)
   by_cases havoid : first = avoid
   · refine ⟨second, (Finset.mem_sdiff.mp hsecond).1, ?_, (Finset.mem_sdiff.mp hsecond).2⟩
     rw [← havoid]
@@ -196,18 +198,20 @@ theorem exists_uncovered_ne {input : Instance Page} (schedule : Schedule Page)
 earlier instant — exactly as it was.  This is
 `Algorithm.Online.appendRequest_cacheBefore` at an arbitrary earlier time. -/
 theorem appendRequest_cacheBefore_le {algorithm : Algorithm Page} (online : algorithm.Online)
+    (feasible : algorithm.Feasible)
     (input : Instance Page) (valid : input.Valid) (request : Request Page)
     (extendedValid : (input.appendRequest request).Valid) {t : Time}
     (ht : t ≤ request.arrival) :
     (algorithm (input.appendRequest request) extendedValid).cacheBefore t =
       (algorithm input valid).cacheBefore t := by
-  apply online.cacheBefore_eq
+  apply online.cacheBefore_eq feasible _ _ _ _ (by rfl)
   intro s hs
   exact input.appendRequest_upTo request (hs.trans_le ht)
 
 /-- **One release.**  Every miss of the run so far is still a miss of the
 extended run, and the new request is a miss as well. -/
 theorem appendRequest_misses {algorithm : Algorithm Page} (online : algorithm.Online)
+    (feasible : algorithm.Feasible)
     (input : Instance Page) (valid : input.Valid) (request : Request Page)
     (extendedValid : (input.appendRequest request).Valid)
     (hearlier : ∀ other ∈ input.requests, other.arrival ≤ request.arrival)
@@ -219,11 +223,11 @@ theorem appendRequest_misses {algorithm : Algorithm Page} (online : algorithm.On
         (algorithm (input.appendRequest request) extendedValid).cacheBefore other.arrival := by
   intro other hother
   rcases List.mem_append.mp hother with hother | hother
-  · rw [appendRequest_cacheBefore_le online input valid request extendedValid
+  · rw [appendRequest_cacheBefore_le online feasible input valid request extendedValid
       (hearlier other hother)]
     exact hold other hother
   · rw [List.mem_singleton.mp hother,
-      appendRequest_cacheBefore_le online input valid request extendedValid le_rfl]
+      appendRequest_cacheBefore_le online feasible input valid request extendedValid le_rfl]
     exact hnew
 
 end

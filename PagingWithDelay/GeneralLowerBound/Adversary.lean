@@ -46,7 +46,7 @@ theorem exists_extension_more_fetches (algorithm : Algorithm Page)
     exact Or.inr ⟨r, hr, rfl⟩
   let arrival : Time := cutoff + 1
   have htime : cutoff < arrival := lt_add_of_pos_right _ zero_lt_one
-  have hcapacity := old.cacheBefore_card_le input (feasible.scheduleFeasible input valid) arrival
+  have hcapacity := old.cacheBefore_card_le input valid (feasible.scheduleFeasible input valid) arrival
   have hnsubset : ¬pages ⊆ old.cacheBefore arrival := by
     intro h
     have := (Finset.card_le_card h).trans hcapacity
@@ -57,7 +57,7 @@ theorem exists_extension_more_fetches (algorithm : Algorithm Page)
     valid.appendRequest request (fun r hr => (hrequest r hr).trans htime.le)
   let extended := algorithm (input.appendRequest request) extendedValid
   have hmiss' : request.page ∉ extended.cacheBefore request.arrival := by
-    rw [online.appendRequest_cacheBefore input valid request extendedValid]
+    rw [online.appendRequest_cacheBefore feasible input valid request extendedValid]
     exact hmiss
   have hserved := (feasible.scheduleFeasible (input.appendRequest request) extendedValid).eventuallyServed
     request (by simp [Instance.appendRequest])
@@ -71,7 +71,7 @@ theorem exists_extension_more_fetches (algorithm : Algorithm Page)
     htime.trans_le (of_decide_eq_true he'.2).1
   have hprefix : extended.upTo cutoff = old := by
     rw [online.appendRequest_prefix input valid request extendedValid htime]
-    apply congrArg Schedule.mk
+    apply congrArg (Schedule.mk old.initialCache)
     exact List.filter_eq_self.mpr (fun e he => by simpa using hevent e he)
   refine ⟨request, extendedValid, hpage, ?_⟩
   have hlength : (extended.upTo cutoff).events.length < extended.events.length := by
@@ -80,7 +80,7 @@ theorem exists_extension_more_fetches (algorithm : Algorithm Page)
   simpa [hprefix, Schedule.fetchCount] using hlength
 
 /-- There are legal inputs over the chosen universe forcing any prescribed
-number of fetches. No assumption of a full initial cache is made. -/
+number of fetches, starting from any `k` of its pages. -/
 theorem exists_many_fetches (algorithm : Algorithm Page) (online : algorithm.Online)
     (feasible : algorithm.Feasible)
     {k : ℕ} (hk : 0 < k) (pages : Finset Page) (hcard : pages.card = k + 1)
@@ -91,7 +91,9 @@ theorem exists_many_fetches (algorithm : Algorithm Page) (online : algorithm.Onl
       n ≤ (algorithm input valid).fetchCount := by
   induction n with
   | zero =>
-      exact ⟨⟨k, []⟩, ⟨List.Pairwise.nil, hk⟩, rfl, by simp, Nat.zero_le _⟩
+      exact ⟨⟨k, pages.toList.take k, []⟩, ⟨List.Pairwise.nil, hk,
+        (Finset.nodup_toList pages).sublist (List.take_sublist _ _), by simp [hcard]⟩,
+        rfl, by simp, Nat.zero_le _⟩
   | succ n ih =>
       obtain ⟨input, valid, hsize, hpages, hn⟩ := ih
       obtain ⟨request, extendedValid, hp, hmore⟩ :=

@@ -29,7 +29,7 @@ structure Settled (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (i :
 
 theorem settled_initial (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
     Settled δ k runs pages 0 (initialState (input δ k runs pages)) where
-  queue := by simp [initialState, queueAt]
+  queue := by simp [initialState, queueAt_zero]
   unseen := by
     show enumerate (input δ k runs pages).requests = _
     exact unseenFrom_zero δ k runs pages
@@ -233,15 +233,14 @@ theorem transposed_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
 /-! ## The beats of the construction -/
 
 omit [DecidableEq Page] in
-/-- The page about to be fetched is never in the queue: it was fetched, if at
-all, more than `k` fetches ago. -/
+/-- The page about to be fetched is never in the queue: it is entry `i + k` of
+the eviction order, and the queue holds the `k` entries before it. -/
 theorem notMem_queueAt_succ (k : ℕ) (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) (i : ℕ) :
     page k pages (fetchedCode k (i + 1)) ∉ queueAt k pages i := by
   refine notMem_queueAt hk (fetchedCode_lt k (i + 1) hk) ?_
-  intro j hlo hhi
-  have h1 : min i k ≤ k := min_le_right i k
-  have h2 : min i k ≤ i := min_le_left i k
-  exact fetchedCode_ne hk (by omega) (by omega) (by omega)
+  intro n hlo hhi
+  have := entryCode_ne hk (n := n) (n' := i + k) (by omega) (by omega)
+  rwa [entryCode_of_ge (show k ≤ i + k by omega), Nat.add_sub_cancel] at this
 
 omit [DecidableEq Page] in
 /-- The same for the early repeat request, which is fetched `k + 1` positions
@@ -249,12 +248,11 @@ after the request on `a` that still sits at the front of the queue. -/
 theorem notMem_queueAt_early (k : ℕ) (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) (r : ℕ) :
     page k pages (fetchedCode k (runLength k * r + (k + 3))) ∉
       queueAt k pages (runLength k * r + (k + 1)) := by
-  have hmin : min (runLength k * r + (k + 1)) k = k := by omega
   refine notMem_queueAt hk (fetchedCode_lt k _ hk) ?_
-  intro j hlo hhi
-  rw [hmin] at hlo
+  intro n hlo hhi
+  rw [entryCode_of_ge (show k ≤ n by omega)]
   rcases eq_or_lt_of_le hlo with heq | hlt
-  · rw [← heq, show runLength k * r + (k + 1) + 1 - k = runLength k * r + 2 by omega]
+  · rw [← heq, show runLength k * r + (k + 1) - k + 1 = runLength k * r + 2 by omega]
     exact fetchedCode_a_ne k r hk
   · exact fetchedCode_ne hk (by omega) (by omega) (by omega)
 

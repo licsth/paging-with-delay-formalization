@@ -44,6 +44,7 @@ theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
     ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
       input.cacheSize = k ∧
       (∀ request ∈ input.requests, IsDeadlineShaped request) ∧
+      (∀ page ∈ input.initialCache, page ∈ V) ∧
       (∀ request ∈ input.requests, request.page ∈ V) ∧
       comparator.Feasible input ∧
       (∀ request ∈ input.requests, comparator.requestCost request = 0) ∧
@@ -72,16 +73,16 @@ theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
     certificate_totalCost_le run.cert hz
       (PhaseCount.refill_nonempty hcard hk run.cert.distinguished_mem hzV
         (fun heq => hzc heq.symm))
-      run.size (PhaseCount.card_refill hcard hc hd hcd)
-      (PhaseCount.refill_nonempty hcard hk hc hd hcd) run.deadline run.positive run.free run.link
+      run.valid run.size (PhaseCount.card_refill hcard hc hd hcd)
+      run.deadline run.positive run.free run.link
   -- the certificate's budget is small
   have hbudget : (2 * k + 1) * run.state.budget ≤ 2 * steps + 2 * k := by
     have hpotential := run.stateValid.potential_le
     have hbound := run.potentialBound
     rw [hrunSteps] at hbound
     omega
-  refine ⟨run.input, run.valid, comparator, run.size, run.shaped, run.pages, hfeasible,
-    hcomparatorDelay, ?_⟩
+  refine ⟨run.input, run.valid, comparator, run.size, run.shaped, run.initialPages, run.pages,
+    hfeasible, hcomparatorDelay, ?_⟩
   · refine hsteps (run.state.budget : Cost) _ (comparator.totalCost run.input)
       (hlength.trans halg) ?_ ?_
     · exact_mod_cast hbudget
@@ -111,11 +112,11 @@ theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
       (∀ request ∈ input.requests, comparator.requestCost request = 0) ∧
         ratio * comparator.totalCost input + additive <
           (algorithm input valid).totalCost input := by
-  obtain ⟨input, valid, comparator, hsize, _, hpages, hfeasible, hdelay, hcost⟩ :=
+  obtain ⟨input, valid, comparator, hsize, _, hinitial, hpages, hfeasible, hdelay, hcost⟩ :=
     competitive_ratio_lower_bound algorithm online feasible hk
       (V := Finset.univ.map pages) (by simp) ratio additive hratio
   exact ⟨input, valid, comparator, hsize,
-    (Instance.card_pageUniverse_le hpages).trans_eq (by simp), hfeasible, hdelay, hcost⟩
+    (Instance.card_pageUniverse_le hinitial hpages).trans_eq (by simp), hfeasible, hdelay, hcost⟩
 
 end
 end PagingWithDelay.DeadlineLowerBound

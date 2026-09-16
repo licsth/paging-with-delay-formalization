@@ -19,8 +19,9 @@ Supporting modules outside this directory:
   an arrival; appending a request preserves that cache and all earlier events.
 - `Analysis/Preserve.lean`: appending a request also preserves the *service* of
   every request already served before the new arrival, hence its delay cost.
-- `Analysis/CacheFill.lean`: feasible initial cache filling with one fetch per
-  page, and concatenation of valid event traces.
+- `Analysis/CacheFill.lean`: turning the instance's initial cache into any
+  target cache with one fetch per missing page (`resetEvents`), and
+  concatenation of valid event traces.
 
 In this directory:
 
@@ -29,7 +30,8 @@ In this directory:
   This is the unbounded-cost construction with long gaps; the tight argument in
   `Phases.lean` uses short gaps instead.
 - `Static.lean`: the actual static comparator schedules, their feasibility from
-  empty caches, and their summed cost bound by terminal delay plus `(k+1)^2`.
+  the common initial cache, and their summed cost bound by terminal delay plus
+  `(k+1)^2`.
 - `Dynamic.lean`: `k` dynamic schedules with distinct holes; each request causes
   at most one movement in the family. The schedules are feasible, serve every
   request at arrival, and have aggregate cost at most `k^2 + requests.length`.
@@ -71,6 +73,6 @@ extended run.
 `Final.lean` runs the phases `n` times, feeds the resulting input to
 `exists_comparisonFamily_of_delay_bound`, and applies
 `competitive_ratio_lower_bound_of_families`. The additive overhead is
-`k² + (k+1)² + 1`, independent of the number of phases: `k²` for filling the
-dynamic caches, `(k+1)²` for the static ones, and `1` for all gap perturbations
-together.
+`k² + (k+1)² + 1`, independent of the number of phases: at most `k²` for
+turning the common initial cache into the dynamic caches, at most `(k+1)²` for
+the static ones, and `1` for all gap perturbations together.

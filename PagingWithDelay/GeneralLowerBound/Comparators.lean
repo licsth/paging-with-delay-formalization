@@ -32,12 +32,13 @@ theorem exists_comparisonFamily (input : Instance Page) (valid : input.Valid)
           input.requests.length +
           (input.requests.map (fun r => r.delay (terminal - r.arrival))).sum := by
   obtain ⟨dynamic, hfeasible, _, _, hcost⟩ :=
-    exists_dynamic_comparators input pages hcard hstrict
+    exists_dynamic_comparators input valid pages hcard hstrict
       (fun r hr => ⟨(hrequests r hr).1, (hrequests r hr).2.1⟩)
   let index : Fin (2 * input.cacheSize + 1) ≃ (↥pages ⊕ Fin input.cacheSize) :=
     Fintype.equivOfCardEq (by simp [hcard]; omega)
   let comparator : (↥pages ⊕ Fin input.cacheSize) → Schedule Page :=
-    Sum.elim (fun hole => staticComparator pages hole terminal) dynamic
+    Sum.elim (fun hole => staticComparator input.initialCache.toFinset pages hole terminal)
+      dynamic
   refine ⟨⟨input, valid, fun i => comparator (index i), ?_⟩, rfl, ?_⟩
   · intro i
     cases hi : index i with
@@ -47,12 +48,13 @@ theorem exists_comparisonFamily (input : Instance Page) (valid : input.Valid)
     | inr j => simpa [hi, comparator] using hfeasible j
   · change (∑ i, (comparator (index i)).totalCost input) ≤ _
     rw [index.sum_comp (fun i => (comparator i).totalCost input), Fintype.sum_sum_type]
-    have hstatic := sum_staticComparator_cost_le input pages terminal hrequests
-    have hs : (∑ i : ↥pages, (staticComparator pages i terminal).totalCost input) ≤
+    have hstatic := sum_staticComparator_cost_le input valid pages hcard terminal hrequests
+    have hs : (∑ i : ↥pages,
+        (staticComparator input.initialCache.toFinset pages i terminal).totalCost input) ≤
         (pages.card : Cost) * pages.card +
           (input.requests.map (fun r => r.delay (terminal - r.arrival))).sum := by
       rw [Finset.sum_coe_sort pages (fun hole =>
-        (staticComparator pages hole terminal).totalCost input)]
+        (staticComparator input.initialCache.toFinset pages hole terminal).totalCost input)]
       exact hstatic
     calc
       _ ≤ ((pages.card : Cost) * pages.card +

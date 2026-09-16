@@ -111,4 +111,48 @@ theorem fetchedCode_ne {k : ℕ} (hk : 0 < k) {i i' : ℕ} (hi : 1 ≤ i) (hlt :
     exact codeAt_ne_of_close hk hj1 (by omega) (by omega) (by omega) hj
   · exact codeAt_swap_ne hk hj1' (by omega) (by omega)
 
+/-! ## The eviction order -/
+
+/-- The code at position `n` of the eviction order: the initial queue for
+`n < k`, then the pages fetched by payments `1, 2, …`.  The entry at position
+`n` is the page FIFO's `n`-th eviction removes, and the queue once `i`
+payments have been made is the window of entries `i, …, i + k - 1`. -/
+def entryCode (k n : ℕ) : ℕ :=
+  if n < k then initialCode k n else fetchedCode k (n - k + 1)
+
+theorem entryCode_of_lt {k n : ℕ} (hn : n < k) : entryCode k n = initialCode k n := by
+  simp [entryCode, hn]
+
+theorem entryCode_of_ge {k n : ℕ} (hn : k ≤ n) : entryCode k n = fetchedCode k (n - k + 1) := by
+  simp [entryCode, not_lt.mpr hn]
+
+theorem entryCode_lt (k n : ℕ) (hk : 0 < k) : entryCode k n < k + 2 := by
+  unfold entryCode
+  split_ifs with h
+  · exact initialCode_lt k n hk h
+  · exact fetchedCode_lt k _ hk
+
+/-- A page of the initial queue differs from every page fetched while it is
+still cached: the first run's fetches `c, a, v_{k-1}, …` reach `v_j` only
+after `v_j` has been evicted. -/
+theorem initialCode_ne_fetchedCode {k n j : ℕ} (hk : 0 < k) (hn : n < k) (hj1 : 1 ≤ j)
+    (hj : j ≤ n + 1) : initialCode k n ≠ fetchedCode k j := by
+  rw [show j = runLength k * 0 + j by simp, fetchedCode_eq k 0 j hj1 (by unfold runLength; omega)]
+  unfold initialCode swapBC codeAt
+  split_ifs <;> omega
+
+/-- **Any `k + 1` consecutive entries of the eviction order are distinct.** -/
+theorem entryCode_ne {k : ℕ} (hk : 0 < k) {n n' : ℕ} (hlt : n < n') (hle : n' ≤ n + k) :
+    entryCode k n ≠ entryCode k n' := by
+  by_cases hn' : n' < k
+  · rw [entryCode_of_lt (hlt.trans hn'), entryCode_of_lt hn']
+    intro h
+    exact absurd (initialCode_injOn k (hlt.trans hn') hn' h) (by omega)
+  · rw [entryCode_of_ge (not_lt.mp hn')]
+    by_cases hn : n < k
+    · rw [entryCode_of_lt hn]
+      exact initialCode_ne_fetchedCode hk hn (by omega) (by omega)
+    · rw [entryCode_of_ge (not_lt.mp hn)]
+      exact fetchedCode_ne hk (by omega) (by omega) (by omega)
+
 end PagingWithDelay.LowerBound

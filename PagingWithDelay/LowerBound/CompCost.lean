@@ -3,7 +3,7 @@ import PagingWithDelay.LowerBound.CompSchedule
 /-!
 # What the comparator pays
 
-Its `k + runs + 1` fetches are counted by `comparator_fetchCount`.  This file
+Its `runs + 2` fetches are counted by `comparator_fetchCount`.  This file
 settles the delay: every request except the one on `a` in each run is served
 the moment it arrives, and each request on `a` waits on the comparator's plateau
 and costs exactly the threshold `δ`.
@@ -210,7 +210,7 @@ theorem pageCode_v (k r q : ℕ) (hk : 0 < k) (hq : q < runLength k)
 theorem phaseEvent_mem (k runs r : ℕ) (pages : Fin (k + 2) ↪ Page) (hr : r ≤ runs) :
     phaseEvent k pages r ∈ compEvents k runs pages := by
   simp only [compEvents, List.mem_append, List.mem_map, List.mem_range'_1]
-  exact Or.inl (Or.inr ⟨r, ⟨Nat.zero_le _, by omega⟩, rfl⟩)
+  exact Or.inl ⟨r, ⟨Nat.zero_le _, by omega⟩, rfl⟩
 
 theorem finalEvent_mem (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
     finalEvent k runs pages ∈ compEvents k runs pages := by
@@ -222,10 +222,7 @@ theorem fetched_zero_time {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) 
     (hfetched : event.fetched = page k pages 0) : event.time = finalTime k runs := by
   simp only [compEvents, List.mem_append, List.mem_map, List.mem_singleton,
     List.mem_range'_1] at hevent
-  rcases hevent with (⟨i, ⟨_, hi⟩, rfl⟩ | ⟨r, _, rfl⟩) | rfl
-  · exfalso
-    have h := page_injOn pages (show i + 3 < k + 2 by omega) (show 0 < k + 2 by omega) hfetched
-    omega
+  rcases hevent with ⟨r, _, rfl⟩ | rfl
   · exact absurd (page_injOn pages (swapBC_two_lt k r hk) (show 0 < k + 2 by omega) hfetched)
       (swapBC_two_ne_zero r)
   · rfl
@@ -300,7 +297,8 @@ theorem comparator_serves {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
       exact quarter_le hle
     have hmem : finalTime k runs ∈ (comparator k runs pages).serviceCandidates
         (requestAt δ k runs pages (runLength k * r + 1)) :=
-      mem_serviceCandidates_of_fetch _ _ (finalEvent_mem k runs pages) harr hpage
+      mem_serviceCandidates_of_fetch (comparator k runs pages) _
+        (event := finalEvent k runs pages) (finalEvent_mem k runs pages) harr hpage
     have hservice : (comparator k runs pages).serviceTime
         (requestAt δ k runs pages (runLength k * r + 1)) = some (finalTime k runs) :=
       Schedule.serviceTime_eq_some_of_le_candidates _ _ _ hmem
@@ -415,6 +413,7 @@ theorem comparator_totalDelay {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
 theorem comparator_feasible {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
     (pages : Fin (k + 2) ↪ Page) :
     (comparator k runs pages).Feasible (input δ k runs pages) where
+  initialCache := rfl
   chronological := comparator_chronological hk pages runs
   validTransitions := comparator_validTransitions hk pages runs
   capacity := comparator_capacity hk pages runs
@@ -427,8 +426,8 @@ theorem comparator_feasible {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
 
 theorem comparator_totalCost {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
     (pages : Fin (k + 2) ↪ Page) :
-    (comparator k runs pages).totalCost (input δ k runs pages) = (1 + δ) * runs + (k + 1) := by
-  rw [Schedule.totalCost, comparator_fetchCount k runs pages hk, comparator_totalDelay hk pages]
+    (comparator k runs pages).totalCost (input δ k runs pages) = (1 + δ) * runs + 2 := by
+  rw [Schedule.totalCost, comparator_fetchCount k runs pages, comparator_totalDelay hk pages]
   push_cast
   ring
 

@@ -1,5 +1,6 @@
 import PagingWithDelay.Analysis.CacheFill
 import PagingWithDelay.LowerBound.CompCost
+import PagingWithDelay.GeneralLowerBound.Static
 import Mathlib.Data.Fintype.EquivFin
 
 /-!
@@ -8,7 +9,8 @@ import Mathlib.Data.Fintype.EquivFin
 The family has distinct holes, all different from the most recently requested
 page. On a request for `q`, a strategy whose hole is `q` fetches `q` and evicts
 the previous requested page. Every other strategy stays put. Thus at most one
-strategy moves per request. Initial caches are installed at time zero.
+strategy moves per request. The caches are installed at time zero, by fetching
+whatever the common initial cache lacks.
 -/
 
 namespace PagingWithDelay.GeneralLowerBound
@@ -21,7 +23,8 @@ noncomputable section
 
 private theorem cacheBefore_eq_fold (schedule : Schedule Page) (t : Time)
     (h : ∀ e ∈ schedule.events, e.time < t) :
-    schedule.cacheBefore t = schedule.events.foldl (fun _ e => e.cacheAfter) ∅ := by
+    schedule.cacheBefore t =
+      schedule.events.foldl (fun _ e => e.cacheAfter) schedule.initialCache := by
   have aux (events : List (FetchEvent Page)) (initial : Finset Page)
       (he : ∀ e ∈ events, e.time < t) :
       events.foldl (fun cache e => if e.time < t then e.cacheAfter else cache) initial =
@@ -36,8 +39,10 @@ private theorem cacheBefore_eq_fold (schedule : Schedule Page) (t : Time)
 private theorem candidate_append (schedule : Schedule Page) (event : FetchEvent Page)
     (request : Request Page) (ht : request.arrival ≤ event.time)
     {t : Time} (h : t ∈ schedule.serviceCandidates request) :
-    t ∈ (Schedule.mk (schedule.events ++ [event])).serviceCandidates request := by
-  have hc : (Schedule.mk (schedule.events ++ [event])).cacheBefore request.arrival =
+    t ∈ (Schedule.mk schedule.initialCache (schedule.events ++ [event])).serviceCandidates
+      request := by
+  have hc : (Schedule.mk schedule.initialCache (schedule.events ++ [event])).cacheBefore
+        request.arrival =
       schedule.cacheBefore request.arrival := by
     simp [Schedule.cacheBefore, List.foldl_append, not_lt.mpr ht]
   simp only [Schedule.serviceCandidates, hc, List.filter_append, List.map_append,
@@ -50,9 +55,12 @@ private theorem candidate_append (schedule : Schedule Page) (event : FetchEvent 
 
 /-- The invariant of the dynamic family after a request prefix. `anchor` is
 the last requested page (or an arbitrary initial page for the empty prefix).
-The sum counts actual fetch events, including initial cache filling. -/
-structure DynamicRun (pages : Finset Page) (k : ℕ) (requests : List (Request Page)) where
+All schedules start from the common initial cache `initial`.  The sum counts
+actual fetch events, including the installation of the caches. -/
+structure DynamicRun (initial pages : Finset Page) (k : ℕ) (requests : List (Request Page))
+    where
   schedule : Fin k → Schedule Page
+  initialCache : ∀ i, (schedule i).initialCache = initial
   hole : Fin k → Page
   anchor : Page
   anchor_mem : anchor ∈ pages
@@ -64,9 +72,9 @@ structure DynamicRun (pages : Finset Page) (k : ℕ) (requests : List (Request P
   request_time : ∀ r ∈ requests, r.arrival ≤ now
   event_time : ∀ i e, e ∈ (schedule i).events → e.time ≤ now
   chronological : ∀ i, (schedule i).events.Pairwise (fun a b => a.time ≤ b.time)
-  transitions : ∀ i, Schedule.ValidTransitionsFrom ∅ (schedule i).events
+  transitions : ∀ i, Schedule.ValidTransitionsFrom initial (schedule i).events
   capacity : ∀ i e, e ∈ (schedule i).events → e.cacheAfter.card ≤ k
-  cache : ∀ i, (schedule i).events.foldl (fun _ e => e.cacheAfter) ∅ = pages.erase (hole i)
+  cache : ∀ i, (schedule i).events.foldl (fun _ e => e.cacheAfter) initial = pages.erase (hole i)
   served : ∀ i r, r ∈ requests → r.arrival ∈ (schedule i).serviceCandidates r
   fetch_bound : (∑ i, (schedule i).fetchCount) ≤ k * k + requests.length
 
@@ -77,17 +85,21 @@ private theorem erased_card {pages : Finset Page} {k : ℕ}
   omega
 
 /-- Initialize exactly `k` comparators, each with a different hole. -/
-def DynamicRun.initial (pages : Finset Page) (k : ℕ) (hcard : pages.card = k + 1)
-    (anchor : Page) (ha : anchor ∈ pages) : DynamicRun pages k [] := by
+def DynamicRun.initial (initial pages : Finset Page) (k : ℕ) (hcard : pages.card = k + 1)
+    (hinitial : initial.card ≤ k)
+    (anchor : Page) (ha : anchor ∈ pages) : DynamicRun initial pages k [] := by
   let index : Fin k ≃ ↥(pages.erase anchor) := Fintype.equivOfCardEq (by
     simp [erased_card hcard ha])
   let hole : Fin k → Page := fun i => (index i).val
   have hm (i : Fin k) : hole i ∈ pages := (Finset.mem_erase.mp (index i).property).2
   have hn (i : Fin k) : hole i ≠ anchor := (Finset.mem_erase.mp (index i).property).1
   let schedule : Fin k → Schedule Page := fun i =>
-    ⟨Analysis.fillEvents ∅ (pages.erase (hole i)).toList⟩
+    ⟨initial, Analysis.resetEvents initial (pages.erase (hole i))⟩
+  have hcard' (i : Fin k) : initial.card ≤ (pages.erase (hole i)).card := by
+    rw [erased_card hcard (hm i)]; exact hinitial
   refine
     { schedule := schedule
+      initialCache := fun _ => rfl
       hole := hole
       anchor := anchor
       anchor_mem := ha
@@ -105,38 +117,42 @@ def DynamicRun.initial (pages : Finset Page) (k : ℕ) (hcard : pages.card = k +
       served := by simp
       fetch_bound := ?_ }
   · intro i e he
-    exact (Analysis.fillEvents_time _ _ e he).le
+    exact (Analysis.resetEvents_time _ _ e he).le
   · intro i
     apply List.pairwise_of_forall_mem_list
     intro a ha b hb
-    rw [Analysis.fillEvents_time _ _ a ha, Analysis.fillEvents_time _ _ b hb]
+    rw [Analysis.resetEvents_time _ _ a ha, Analysis.resetEvents_time _ _ b hb]
   · intro i
-    exact Analysis.fillEvents_valid _ _ (Finset.nodup_toList _) (by simp)
+    exact Analysis.resetEvents_valid _ _
   · intro i e he
-    have h := Finset.card_le_card (Analysis.fillEvents_cache_subset _ _ e he)
+    have h := Finset.card_le_card (Analysis.resetEvents_cache_subset _ _ e he)
     simpa [erased_card hcard (hm i)] using h
   · intro i
-    simp [schedule, Analysis.fillEvents_fold]
-  · have hc (i : Fin k) : (schedule i).fetchCount = k := by
-      simp [schedule, Schedule.fetchCount, erased_card hcard (hm i)]
-    simp [hc]
+    exact Analysis.resetEvents_fold _ _ (hcard' i)
+  · have hc (i : Fin k) : (schedule i).fetchCount ≤ k := by
+      have := Analysis.resetEvents_length_le initial (pages.erase (hole i))
+      rw [erased_card hcard (hm i)] at this
+      simpa [schedule, Schedule.fetchCount] using this
+    calc (∑ i, (schedule i).fetchCount) ≤ ∑ _i : Fin k, k := Finset.sum_le_sum fun i _ => hc i
+      _ = k * k + [].length := by simp
 
 /-- A move fetches the requested hole and leaves the previous anchor absent. -/
-def DynamicRun.advanceSchedule {pages : Finset Page} {k : ℕ}
-    {requests : List (Request Page)} (run : DynamicRun pages k requests)
+def DynamicRun.advanceSchedule {initial pages : Finset Page} {k : ℕ}
+    {requests : List (Request Page)} (run : DynamicRun initial pages k requests)
     (request : Request Page) (i : Fin k) : Schedule Page :=
   if run.hole i = request.page then
-    ⟨(run.schedule i).events ++ [⟨request.arrival, request.page, pages.erase run.anchor⟩]⟩
+    ⟨(run.schedule i).initialCache,
+      (run.schedule i).events ++ [⟨request.arrival, request.page, pages.erase run.anchor⟩]⟩
   else run.schedule i
 
-def DynamicRun.advanceHole {pages : Finset Page} {k : ℕ}
-    {requests : List (Request Page)} (run : DynamicRun pages k requests)
+def DynamicRun.advanceHole {initial pages : Finset Page} {k : ℕ}
+    {requests : List (Request Page)} (run : DynamicRun initial pages k requests)
     (request : Request Page) (i : Fin k) : Page :=
   if run.hole i = request.page then run.anchor else run.hole i
 
 /-- One request causes at most one movement in the whole family. -/
-theorem DynamicRun.advance_fetch_bound {pages : Finset Page} {k : ℕ}
-    {requests : List (Request Page)} (run : DynamicRun pages k requests)
+theorem DynamicRun.advance_fetch_bound {initial pages : Finset Page} {k : ℕ}
+    {requests : List (Request Page)} (run : DynamicRun initial pages k requests)
     (request : Request Page) :
     (∑ i, (run.advanceSchedule request i).fetchCount) ≤
       (∑ i, (run.schedule i).fetchCount) + 1 := by
@@ -157,13 +173,14 @@ theorem DynamicRun.advance_fetch_bound {pages : Finset Page} {k : ℕ}
 
 /-- Extend the family by one strictly later request. All previously served
 requests remain served at arrival, and the new request is served immediately. -/
-def DynamicRun.advance {pages : Finset Page} {k : ℕ}
+def DynamicRun.advance {initial pages : Finset Page} {k : ℕ}
     (hcard : pages.card = k + 1) {requests : List (Request Page)}
-    (run : DynamicRun pages k requests) (request : Request Page)
+    (run : DynamicRun initial pages k requests) (request : Request Page)
     (hp : request.page ∈ pages) (ht : run.now < request.arrival) :
-    DynamicRun pages k (requests ++ [request]) := by
+    DynamicRun initial pages k (requests ++ [request]) := by
   refine
     { schedule := run.advanceSchedule request
+      initialCache := ?_
       hole := run.advanceHole request
       anchor := request.page
       anchor_mem := hp
@@ -180,6 +197,9 @@ def DynamicRun.advance {pages : Finset Page} {k : ℕ}
       cache := ?_
       served := ?_
       fetch_bound := ?_ }
+  · intro i
+    unfold advanceSchedule
+    split <;> exact run.initialCache i
   · intro i
     unfold advanceHole
     split
@@ -264,7 +284,8 @@ def DynamicRun.advance {pages : Finset Page} {k : ℕ}
         · rfl
       · simp only [advanceSchedule, if_neg hi]
         apply LowerBound.arrival_mem_serviceCandidates_of_hit
-        rw [cacheBefore_eq_fold _ _ (fun e he => (run.event_time i e he).trans_lt ht), run.cache]
+        rw [cacheBefore_eq_fold _ _ (fun e he => (run.event_time i e he).trans_lt ht),
+          run.initialCache, run.cache]
         exact Finset.mem_erase.mpr ⟨Ne.symm hi, hp⟩
   · have h := run.advance_fetch_bound request
     have hb := run.fetch_bound
@@ -273,16 +294,16 @@ def DynamicRun.advance {pages : Finset Page} {k : ℕ}
 
 /-- Build the dynamic family for any strictly chronological request sequence
 whose arrivals are positive and whose pages lie in the chosen universe. -/
-theorem exists_dynamicRun (pages : Finset Page) (k : ℕ)
-    (hcard : pages.card = k + 1) (requests : List (Request Page))
+theorem exists_dynamicRun (initial pages : Finset Page) (k : ℕ)
+    (hcard : pages.card = k + 1) (hinitial : initial.card ≤ k) (requests : List (Request Page))
     (hstrict : requests.Pairwise (fun a b => a.arrival < b.arrival))
     (hrequests : ∀ r ∈ requests, r.page ∈ pages ∧ 0 < r.arrival) :
-    Nonempty (DynamicRun pages k requests) := by
+    Nonempty (DynamicRun initial pages k requests) := by
   induction requests using List.reverseRecOn with
   | nil =>
       have hne : pages.Nonempty := Finset.card_pos.mp (by omega)
       obtain ⟨anchor, ha⟩ := hne
-      exact ⟨DynamicRun.initial pages k hcard anchor ha⟩
+      exact ⟨DynamicRun.initial initial pages k hcard hinitial anchor ha⟩
   | append_singleton requests request ih =>
       have hs := List.pairwise_append.mp hstrict
       obtain ⟨run⟩ := ih hs.1 (fun r hr => hrequests r (List.mem_append_left _ hr))
@@ -296,9 +317,9 @@ theorem exists_dynamicRun (pages : Finset Page) (k : ℕ)
 
 /-- The dynamic comparators in the trusted schedule model: every request is
 served at arrival, so the aggregate cost is at most `k² + number of requests`.
-The `k²` term pays to fill all `k` initially empty caches. -/
-theorem exists_dynamic_comparators (input : Instance Page) (pages : Finset Page)
-    (hcard : pages.card = input.cacheSize + 1)
+The `k²` term pays to install all `k` caches. -/
+theorem exists_dynamic_comparators (input : Instance Page) (valid : input.Valid)
+    (pages : Finset Page) (hcard : pages.card = input.cacheSize + 1)
     (hstrict : input.requests.Pairwise (fun a b => a.arrival < b.arrival))
     (hrequests : ∀ r ∈ input.requests, r.page ∈ pages ∧ 0 < r.arrival) :
     ∃ comparator : Fin input.cacheSize → Schedule Page,
@@ -307,7 +328,8 @@ theorem exists_dynamic_comparators (input : Instance Page) (pages : Finset Page)
       (∀ i, (comparator i).totalDelay input = 0) ∧
       (∑ i, (comparator i).totalCost input) ≤
         (input.cacheSize : Cost) * input.cacheSize + input.requests.length := by
-  obtain ⟨run⟩ := exists_dynamicRun pages input.cacheSize hcard input.requests hstrict hrequests
+  obtain ⟨run⟩ := exists_dynamicRun input.initialCache.toFinset pages input.cacheSize hcard
+    (initialCache_card_le input valid) input.requests hstrict hrequests
   have hzero (i : Fin input.cacheSize) : (run.schedule i).totalDelay input = 0 := by
     apply List.sum_eq_zero
     intro c hc
@@ -315,8 +337,8 @@ theorem exists_dynamic_comparators (input : Instance Page) (pages : Finset Page)
     exact LowerBound.requestCost_eq_zero_of_arrival_mem _ _ (run.served i r hr)
   refine ⟨run.schedule, ?_, ?_, hzero, ?_⟩
   · intro i
-    exact ⟨run.chronological i, run.transitions i, run.capacity i,
-      fun r hr => ⟨r.arrival, run.served i r hr⟩⟩
+    exact ⟨run.initialCache i, run.chronological i, (run.initialCache i).symm ▸ run.transitions i,
+      run.capacity i, fun r hr => ⟨r.arrival, run.served i r hr⟩⟩
   · intro i r hr
     apply Schedule.serviceTime_eq_some_of_le_candidates _ _ _ (run.served i r hr)
     exact fun t ht => LowerBound.arrival_le_of_mem_serviceCandidates _ _ ht

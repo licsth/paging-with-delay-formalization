@@ -17,9 +17,10 @@ noncomputable section
 
 namespace Schedule
 
-/-- Capacity also bounds the cache between fetch events, starting empty. -/
+/-- Capacity also bounds the cache between fetch events, the initial cache
+included. -/
 theorem cacheBefore_card_le (schedule : Schedule Page) (input : Instance Page)
-    (feasible : schedule.Feasible input) (t : Time) :
+    (hvalid : input.Valid) (feasible : schedule.Feasible input) (t : Time) :
     (schedule.cacheBefore t).card ≤ input.cacheSize := by
   have hfold (events : List (FetchEvent Page)) (initial : Finset Page)
       (hi : initial.card ≤ input.cacheSize)
@@ -36,7 +37,9 @@ theorem cacheBefore_card_le (schedule : Schedule Page) (input : Instance Page)
           · exact hi
         · intro e he'
           exact he e (List.mem_cons_of_mem _ he')
-  exact hfold schedule.events ∅ (by simp) feasible.capacity
+  refine hfold schedule.events schedule.initialCache ?_ feasible.capacity
+  rw [feasible.initialCache]
+  exact (List.toFinset_card_le _).trans hvalid.initialCache_full.le
 
 private theorem exists_cutoff (events : List (FetchEvent Page))
     {t : Time} (ht : 0 < t) :
@@ -80,27 +83,35 @@ theorem events_before_eq_of_prefix_eq (first second : Schedule Page) (t : Time)
     hfilter second.events (fun _ he => List.mem_append_right _ he)]
   exact congrArg Schedule.events (h s hst)
 
-/-- In particular, a cache before `t` depends only on the earlier trace. -/
+/-- In particular, a cache before `t` depends only on the earlier trace and
+the initial cache.  The initial cache is a separate hypothesis: at `t = 0`
+there is no earlier cutoff to read it from. -/
 theorem cacheBefore_eq_of_prefix_eq (first second : Schedule Page) (t : Time)
+    (hinitial : first.initialCache = second.initialCache)
     (h : ∀ s < t, first.upTo s = second.upTo s) :
     first.cacheBefore t = second.cacheBefore t := by
   have hfold (schedule : Schedule Page) : schedule.cacheBefore t =
       (schedule.events.filter (fun e => decide (e.time < t))).foldl
-        (fun _ e => e.cacheAfter) ∅ := by
+        (fun _ e => e.cacheAfter) schedule.initialCache := by
     simp [cacheBefore, List.foldl_filter]
-  rw [hfold first, hfold second, events_before_eq_of_prefix_eq first second t h]
+  rw [hfold first, hfold second, events_before_eq_of_prefix_eq first second t h, hinitial]
 
 end Schedule
 
 namespace Algorithm
 
 /-- Requests arriving at `t` cannot affect the cache *before* `t`, although
-they can affect the fetch events stamped exactly `t`. -/
+they can affect the fetch events stamped exactly `t`.  Feasibility pins the
+initial caches to those of the instances, which must agree. -/
 theorem Online.cacheBefore_eq {algorithm : Algorithm Page} (online : Online algorithm)
+    (feasible : Feasible algorithm)
     (first second : Instance Page) (hfirst : first.Valid) (hsecond : second.Valid)
+    (hinitial : first.initialCache = second.initialCache)
     (t : Time) (h : ∀ s < t, first.upTo s = second.upTo s) :
     (algorithm first hfirst).cacheBefore t = (algorithm second hsecond).cacheBefore t := by
   apply Schedule.cacheBefore_eq_of_prefix_eq
+  · rw [(feasible.scheduleFeasible first hfirst).initialCache,
+      (feasible.scheduleFeasible second hsecond).initialCache, hinitial]
   intro s hs
   exact online.prefixDetermined first second hfirst hsecond s (h s hs)
 
@@ -117,6 +128,8 @@ theorem Valid.appendRequest {input : Instance Page} (valid : input.Valid)
     (request : Request Page) (hlast : ∀ r ∈ input.requests, r.arrival ≤ request.arrival) :
     (input.appendRequest request).Valid where
   positiveCapacity := valid.positiveCapacity
+  initialCache_nodup := valid.initialCache_nodup
+  initialCache_full := valid.initialCache_full
   chronological := by
     simpa [Chronological, Instance.appendRequest, List.pairwise_append] using
       And.intro valid.chronological hlast
@@ -143,11 +156,12 @@ theorem Online.appendRequest_prefix {algorithm : Algorithm Page} (online : Onlin
 /-- The next requested page can be chosen from the old run's cache complement:
 the new run has exactly the same cache immediately before that request. -/
 theorem Online.appendRequest_cacheBefore {algorithm : Algorithm Page}
-    (online : Online algorithm) (input : Instance Page) (valid : input.Valid)
+    (online : Online algorithm) (feasible : Feasible algorithm)
+    (input : Instance Page) (valid : input.Valid)
     (request : Request Page) (extendedValid : (input.appendRequest request).Valid) :
     (algorithm (input.appendRequest request) extendedValid).cacheBefore request.arrival =
       (algorithm input valid).cacheBefore request.arrival := by
-  apply online.cacheBefore_eq
+  apply online.cacheBefore_eq feasible _ _ _ _ (by rfl)
   intro s hs
   exact input.appendRequest_upTo request hs
 

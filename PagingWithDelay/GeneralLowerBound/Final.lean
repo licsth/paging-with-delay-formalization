@@ -28,7 +28,7 @@ theorem exists_run {algorithm : Algorithm Page} (online : algorithm.Online)
     {c ε : Cost} (hc : ε + 1 ≤ ε * c) (n : ℕ) :
     ∃ run : AdversaryRun algorithm k pages c ε, n ≤ run.input.requests.length := by
   induction n with
-  | zero => exact ⟨AdversaryRun.initial algorithm hk pages c ε, Nat.zero_le _⟩
+  | zero => exact ⟨AdversaryRun.initial algorithm hk pages hcard c ε, Nat.zero_le _⟩
   | succ n ih =>
       obtain ⟨run, hrun⟩ := ih
       obtain ⟨next, hnext⟩ := AdversaryRun.exists_advance online feasible hcard hc run
@@ -43,6 +43,7 @@ theorem exists_adaptive_input {algorithm : Algorithm Page} (online : algorithm.O
     {ε : Cost} (hε : 0 < ε) (n : ℕ) :
     ∃ (input : Instance Page) (valid : input.Valid) (terminal : Time),
       input.cacheSize = k ∧
+      (∀ page ∈ input.initialCache, page ∈ pages) ∧
       (∀ r ∈ input.requests, r.page ∈ pages ∧ 0 < r.arrival ∧ r.arrival ≤ terminal) ∧
       input.requests.Pairwise (fun a b => a.arrival < b.arrival) ∧
       n ≤ input.requests.length ∧
@@ -51,7 +52,7 @@ theorem exists_adaptive_input {algorithm : Algorithm Page} (online : algorithm.O
         (1 + ε) * (algorithm input valid).totalDelay input + 1 := by
   obtain ⟨c, _, hc⟩ := Analysis.exists_rate_growth ε hε
   obtain ⟨run, hlen⟩ := exists_run online feasible hk hcard hc n
-  refine ⟨run.input, run.valid, run.now, run.size,
+  refine ⟨run.input, run.valid, run.now, run.size, run.memInitial,
     fun r hr => ⟨run.memPages r hr, run.positive r hr, run.arrivalLe r hr⟩,
     run.strict, hlen, run.fetches.trans (List.length_filter_le _ _), run.delayBound.trans ?_⟩
   gcongr
@@ -66,6 +67,7 @@ theorem competitive_ratio_lower_bound {algorithm : Algorithm Page} (online : alg
     (ratio additive : Cost) (hratio : ratio < (2 * k + 1 : ℕ)) :
     ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
       input.cacheSize = k ∧
+      (∀ page ∈ input.initialCache, page ∈ pages) ∧
       (∀ request ∈ input.requests, request.page ∈ pages) ∧
       comparator.Feasible input ∧
         ratio * comparator.totalCost input + additive <
@@ -75,7 +77,7 @@ theorem competitive_ratio_lower_bound {algorithm : Algorithm Page} (online : alg
   refine ⟨(k : Cost) * k + ((k : Cost) + 1) * ((k : Cost) + 1) + 1, ?_⟩
   intro bound
   obtain ⟨n, hn⟩ := exists_nat_gt bound
-  obtain ⟨input, valid, terminal, hsize, hrequests, hstrict, hlen, hfetch, hdelay⟩ :=
+  obtain ⟨input, valid, terminal, hsize, hinitial, hrequests, hstrict, hlen, hfetch, hdelay⟩ :=
     exists_adaptive_input online feasible hk hcard hε n
   obtain ⟨family, hinput, hcost⟩ :=
     exists_comparisonFamily_of_delay_bound input valid pages (by rw [hsize]; exact hcard)
@@ -89,7 +91,7 @@ theorem competitive_ratio_lower_bound {algorithm : Algorithm Page} (online : alg
   refine ⟨{ input := input, valid := valid
             comparator := fun i => family.comparator (finCongr hindex i)
             feasible := fun i => hfeasible (finCongr hindex i) },
-    ⟨hsize, fun r hr => (hrequests r hr).1⟩, ?_, ?_⟩
+    ⟨hsize, hinitial, fun r hr => (hrequests r hr).1⟩, ?_, ?_⟩
   · -- the algorithm's cost exceeds any prescribed bound
     refine hn.trans_le ?_
     calc (n : Cost) ≤ (input.requests.length : Cost) := by exact_mod_cast hlen
@@ -119,11 +121,11 @@ theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
       comparator.Feasible input ∧
         ratio * comparator.totalCost input + additive <
           (algorithm input valid).totalCost input := by
-  obtain ⟨input, valid, comparator, hsize, hrequests, hfeasible, hcost⟩ :=
+  obtain ⟨input, valid, comparator, hsize, hinitial, hrequests, hfeasible, hcost⟩ :=
     competitive_ratio_lower_bound online feasible hk (Finset.univ.map pages) (by simp)
       ratio additive hratio
   exact ⟨input, valid, comparator, hsize,
-    (Instance.card_pageUniverse_le hrequests).trans_eq (by simp), hfeasible, hcost⟩
+    (Instance.card_pageUniverse_le hinitial hrequests).trans_eq (by simp), hfeasible, hcost⟩
 
 end
 end PagingWithDelay.GeneralLowerBound

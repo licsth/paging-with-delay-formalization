@@ -20,7 +20,7 @@ open scoped BigOperators
 variable {Page : Type*} [DecidableEq Page]
 
 /-- A legal input together with an indexed family of feasible offline
-schedules. Each schedule uses the model's empty initial cache. -/
+schedules, all starting from the input's initial cache. -/
 structure ComparisonFamily (Page : Type*) [DecidableEq Page] (n : ℕ) where
   input : Instance Page
   valid : input.Valid
@@ -35,12 +35,14 @@ theorem competitive_ratio_lower_bound_of_families (algorithm : Algorithm Page)
     (hfamily : ∀ ε : Cost, 0 < ε → ∃ overhead : Cost,
       ∀ bound : Cost, ∃ family : ComparisonFamily Page (2 * k + 1),
         (family.input.cacheSize = k ∧
+          (∀ page ∈ family.input.initialCache, page ∈ pages) ∧
           ∀ request ∈ family.input.requests, request.page ∈ pages) ∧
         bound < (algorithm family.input family.valid).totalCost family.input ∧
         (∑ i, (family.comparator i).totalCost family.input) ≤
           (1 + ε) * (algorithm family.input family.valid).totalCost family.input + overhead) :
     ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
       input.cacheSize = k ∧
+      (∀ page ∈ input.initialCache, page ∈ pages) ∧
       (∀ request ∈ input.requests, request.page ∈ pages) ∧
       comparator.Feasible input ∧
       ratio * comparator.totalCost input + additive <
@@ -51,9 +53,10 @@ theorem competitive_ratio_lower_bound_of_families (algorithm : Algorithm Page)
         (algorithm family.input family.valid).totalCost family.input)
       (fun family i => (family.comparator i).totalCost family.input)
       (fun family => family.input.cacheSize = k ∧
+        (∀ page ∈ family.input.initialCache, page ∈ pages) ∧
         ∀ request ∈ family.input.requests, request.page ∈ pages)
       ratio additive (by simpa using hratio) hfamily
-  exact ⟨family.input, family.valid, family.comparator i, hsize.1, hsize.2,
+  exact ⟨family.input, family.valid, family.comparator i, hsize.1, hsize.2.1, hsize.2.2,
     family.feasible i, hcost⟩
 
 end PagingWithDelay.GeneralLowerBound

@@ -74,14 +74,14 @@ theorem competitive_ratio_lower_bound {δ : Cost} (hδ : 0 < δ) {k : ℕ} (hk :
   obtain ⟨d, hd, hsum⟩ : ∃ d : Cost, 0 < d ∧ (2 * k + 2 : Cost) = ratio + d :=
     ⟨(2 * k + 2 : Cost) - ratio, tsub_pos_of_lt hratio,
       (add_tsub_cancel_of_le hratio.le).symm⟩
-  obtain ⟨runs, hruns⟩ := exists_runs (bound := ratio * (k + 1) + additive) hd
+  obtain ⟨runs, hruns⟩ := exists_runs (bound := ratio * 2 + additive) hd
   obtain ⟨comparator, hfeasible, hcost⟩ := exists_comparator δ runs pages hk
   refine ⟨input δ k runs pages, input_valid δ runs pages hk, comparator, rfl, hfeasible, ?_⟩
   rw [algorithmCost_eq hδ runs pages hk, hsum]
   have hone : (1 : Cost) ≤ 1 + δ := le_add_of_nonneg_right (zero_le δ)
   calc ratio * comparator.totalCost (input δ k runs pages) + additive
-      ≤ ratio * ((1 + δ) * runs + (k + 1)) + additive := by gcongr
-    _ = ratio * ((1 + δ) * runs) + (ratio * (k + 1) + additive) := by ring
+      ≤ ratio * ((1 + δ) * runs + 2) + additive := by gcongr
+    _ = ratio * ((1 + δ) * runs) + (ratio * 2 + additive) := by ring
     _ < ratio * ((1 + δ) * runs) + d * runs :=
         add_lt_add_of_le_of_lt le_rfl hruns
     _ ≤ ratio * ((1 + δ) * runs) + (1 + δ) * (d * runs) :=

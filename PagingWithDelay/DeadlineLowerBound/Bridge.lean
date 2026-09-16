@@ -1,4 +1,5 @@
 import PagingWithDelay.DeadlineLowerBound.Certificate
+import PagingWithDelay.Analysis.CacheFill
 
 /-!
 # From the certificate's move lists to `Model.lean` schedules
@@ -11,15 +12,16 @@ translation: `buildSchedule` turns a move list into a `Schedule` of
 instance whose requests the moves serve, with
 
 ```text
-totalCost = cacheSize + (number of moves)
+totalCost ≤ cacheSize + (number of moves)
 ```
 
-The additive `cacheSize` is forced by the model and is not an artefact of the
-translation: `Model.lean` starts every schedule with an empty cache
-(`ValidTransitionsFrom ∅`), whereas the drafts start both schedules on a common
-set of `k` nodes.  Those `k` fetches are stamped at time `0`, which is why the
-translation asks for every request to arrive, and every move to happen, strictly
-after `0`.
+The additive `cacheSize` pays for turning the instance's initial cache into
+the certificate's start configuration: the drafts start both schedules on a
+common set of `k` nodes, but the certificate picks that set from the
+algorithm's cache just before the first request, which need not be the initial
+cache it was given.  Those at most `k` fetches are stamped at time `0`, which
+is why the translation asks for every request to arrive, and every move to
+happen, strictly after `0`.
 
 The delay side costs nothing: a request whose delay curve still vanishes at the
 end of its window contributes `0`, whether it is served by a cache hit at
@@ -90,61 +92,22 @@ theorem requestCost_eq_zero_of_hit (schedule : Schedule Page) (request : Request
 
 /-! ## Building the schedule -/
 
-/-- The cache after filling an empty cache with `pages`. -/
-def fillCache (pages : List Page) (cache : Finset Page) : Finset Page :=
-  pages.foldl (fun current page => insert page current) cache
-
-/-- The fetch events that fill the cache with `pages`, all stamped `0`. -/
-def fillEvents : List Page → Finset Page → List (FetchEvent Page)
-  | [], _ => []
-  | page :: rest, cache =>
-      ⟨0, page, insert page cache⟩ :: fillEvents rest (insert page cache)
-
 /-- The fetch events of a move list. -/
 def moveEvents : Finset Page → List (Move Page) → List (FetchEvent Page)
   | _, [] => []
   | cache, mv :: rest =>
       ⟨mv.time, mv.fetched, applyMove cache mv⟩ :: moveEvents (applyMove cache mv) rest
 
-/-- The `Model.lean` schedule of an offline run: fill the empty cache with the
-start configuration at time `0`, then make the moves. -/
-def buildSchedule (start : Finset Page) (moves : List (Move Page)) : Schedule Page :=
-  ⟨fillEvents start.toList ∅ ++ moveEvents start moves⟩
-
-theorem fillCache_union (pages : List Page) (cache : Finset Page) :
-    fillCache pages cache = cache ∪ pages.toFinset := by
-  induction pages generalizing cache with
-  | nil => simp [fillCache]
-  | cons page rest ih =>
-      simp only [fillCache, List.foldl_cons] at ih ⊢
-      rw [ih]
-      ext y
-      simp [Finset.mem_union, Finset.mem_insert]
-
-@[simp] theorem fillCache_toList (start : Finset Page) : fillCache start.toList ∅ = start := by
-  rw [fillCache_union]
-  simp
-
-theorem length_fillEvents (pages : List Page) (cache : Finset Page) :
-    (fillEvents pages cache).length = pages.length := by
-  induction pages generalizing cache with
-  | nil => rfl
-  | cons page rest ih => simp [fillEvents, ih]
+/-- The `Model.lean` schedule of an offline run: turn the initial cache into
+the start configuration at time `0`, then make the moves. -/
+def buildSchedule (initial start : Finset Page) (moves : List (Move Page)) : Schedule Page :=
+  ⟨initial, Analysis.resetEvents initial start ++ moveEvents start moves⟩
 
 theorem length_moveEvents (cache : Finset Page) (moves : List (Move Page)) :
     (moveEvents cache moves).length = moves.length := by
   induction moves generalizing cache with
   | nil => rfl
   | cons mv rest ih => simp [moveEvents, ih]
-
-theorem time_of_mem_fillEvents {pages : List Page} {cache : Finset Page}
-    {event : FetchEvent Page} (hevent : event ∈ fillEvents pages cache) : event.time = 0 := by
-  induction pages generalizing cache with
-  | nil => simp [fillEvents] at hevent
-  | cons page rest ih =>
-      rcases List.mem_cons.mp hevent with rfl | hevent
-      · rfl
-      · exact ih hevent
 
 theorem exists_move_of_mem_moveEvents {cache : Finset Page} {moves : List (Move Page)}
     {event : FetchEvent Page} (hevent : event ∈ moveEvents cache moves) :
@@ -212,33 +175,31 @@ theorem foldl_moveEvents (t : Time) :
         exact foldl_late t _ rest cache fun candidate hcandidate =>
           hlate candidate (List.mem_cons_of_mem _ hcandidate)
 
-theorem foldl_fillEvents {t : Time} (ht : 0 < t) :
-    ∀ (pages : List Page) (cache init : Finset Page), pages ≠ [] →
-      (fillEvents pages cache).foldl
-          (fun current event => if event.time < t then event.cacheAfter else current) init =
-        fillCache pages cache := by
-  intro pages
-  induction pages with
-  | nil => intro _ _ hne; exact absurd rfl hne
-  | cons page rest ih =>
-      intro cache init _
-      simp only [fillEvents, List.foldl_cons, if_pos ht]
-      cases rest with
-      | nil => rfl
-      | cons next more =>
-          rw [ih (insert page cache) (insert page cache) (by simp)]
-          rfl
-
 /-- The translation computes the same cache as the offline model. -/
-theorem cacheBefore_buildSchedule {start : Finset Page} {moves : List (Move Page)}
-    (hstart : start.Nonempty)
+private theorem foldl_resetEvents {t : Time} (ht : 0 < t) (initial start : Finset Page)
+    (hcard : initial.card ≤ start.card) :
+    (Analysis.resetEvents initial start).foldl
+        (fun current event => if event.time < t then event.cacheAfter else current) initial =
+      start := by
+  have h : ∀ (events : List (FetchEvent Page)) (init : Finset Page),
+      (∀ e ∈ events, e.time = 0) →
+      events.foldl (fun current event => if event.time < t then event.cacheAfter else current)
+        init = events.foldl (fun _ event => event.cacheAfter) init := by
+    intro events init hevents
+    induction events generalizing init with
+    | nil => rfl
+    | cons e rest ih =>
+        simp only [List.foldl_cons, hevents e (by simp), if_pos ht]
+        exact ih _ (fun e he => hevents e (by simp [he]))
+  rw [h _ _ (Analysis.resetEvents_time _ _), Analysis.resetEvents_fold _ _ hcard]
+
+theorem cacheBefore_buildSchedule {initial start : Finset Page} {moves : List (Move Page)}
+    (hcard : initial.card ≤ start.card)
     (hchrono : moves.Pairwise fun earlier later => earlier.time < later.time)
     {t : Time} (ht : 0 < t) :
-    (buildSchedule start moves).cacheBefore t = cacheBefore start moves t := by
-  have hlist : start.toList ≠ [] := by
-    simpa using hstart.ne_empty ∘ Finset.toList_eq_nil.mp
+    (buildSchedule initial start moves).cacheBefore t = cacheBefore start moves t := by
   unfold Schedule.cacheBefore buildSchedule
-  rw [List.foldl_append, foldl_fillEvents ht start.toList ∅ ∅ hlist, fillCache_toList,
+  rw [List.foldl_append, foldl_resetEvents ht initial start hcard,
     foldl_moveEvents t start moves hchrono]
   rfl
 
@@ -261,12 +222,15 @@ theorem validTransitionsFrom_append {previous : Finset Page} :
       rintro second ⟨hmem, hdiff, hrest⟩ hsecond
       exact ⟨hmem, hdiff, ih hrest hsecond⟩
 
-theorem lastCache_fillEvents : ∀ (pages : List Page) (cache : Finset Page),
-    lastCache cache (fillEvents pages cache) = fillCache pages cache := by
-  intro pages
-  induction pages with
-  | nil => intro _; rfl
-  | cons page rest ih => intro cache; exact ih (insert page cache)
+theorem lastCache_eq_foldl (previous : Finset Page) :
+    ∀ events : List (FetchEvent Page),
+      lastCache previous events = events.foldl (fun _ event => event.cacheAfter) previous
+  | [] => rfl
+  | _ :: rest => lastCache_eq_foldl _ rest
+
+theorem lastCache_resetEvents (initial start : Finset Page) (hcard : initial.card ≤ start.card) :
+    lastCache initial (Analysis.resetEvents initial start) = start := by
+  rw [lastCache_eq_foldl, Analysis.resetEvents_fold _ _ hcard]
 
 theorem lastCache_moveEvents : ∀ (cache : Finset Page) (moves : List (Move Page)),
     lastCache cache (moveEvents cache moves) = cacheAfter cache moves := by
@@ -298,24 +262,6 @@ theorem applyMove_sdiff {cache : Finset Page} {mv : Move Page} (hfetch : mv.fetc
   · rintro rfl
     exact ⟨Or.inl rfl, hfetch⟩
 
-theorem validTransitions_fillEvents : ∀ (pages : List Page) (cache : Finset Page),
-    pages.Nodup → (∀ page ∈ pages, page ∉ cache) →
-      Schedule.ValidTransitionsFrom cache (fillEvents pages cache) := by
-  intro pages
-  induction pages with
-  | nil => intro _ _ _; trivial
-  | cons page rest ih =>
-      intro cache hnodup hfresh
-      rw [List.nodup_cons] at hnodup
-      refine ⟨Finset.mem_insert_self _ _,
-        insert_sdiff_self (hfresh page (List.mem_cons_self ..)), ?_⟩
-      refine ih (insert page cache) hnodup.2 ?_
-      intro other hother
-      rw [Finset.mem_insert]
-      push_neg
-      exact ⟨fun heq => hnodup.1 (heq ▸ hother),
-        hfresh other (List.mem_cons_of_mem _ hother)⟩
-
 theorem validTransitions_moveEvents : ∀ (cache : Finset Page) (moves : List (Move Page)),
     ValidMoves cache moves → Schedule.ValidTransitionsFrom cache (moveEvents cache moves) := by
   intro cache moves
@@ -324,23 +270,6 @@ theorem validTransitions_moveEvents : ∀ (cache : Finset Page) (moves : List (M
   | cons mv rest ih =>
       rintro ⟨hevict, hfetch, hrest⟩
       exact ⟨Finset.mem_insert_self _ _, applyMove_sdiff hfetch, ih _ hrest⟩
-
-theorem subset_fillCache (pages : List Page) (cache : Finset Page) :
-    cache ⊆ fillCache pages cache := by
-  rw [fillCache_union]
-  exact Finset.subset_union_left
-
-theorem cacheAfter_subset_of_mem_fillEvents : ∀ (pages : List Page) (cache : Finset Page)
-    (event : FetchEvent Page), event ∈ fillEvents pages cache →
-      event.cacheAfter ⊆ fillCache pages cache := by
-  intro pages
-  induction pages with
-  | nil => intro _ _ hevent; simp [fillEvents] at hevent
-  | cons page rest ih =>
-      intro cache event hevent
-      rcases List.mem_cons.mp hevent with rfl | hevent
-      · exact subset_fillCache rest (insert page cache)
-      · exact ih (insert page cache) event hevent
 
 theorem card_of_mem_moveEvents : ∀ (cache : Finset Page) (moves : List (Move Page)),
     ValidMoves cache moves → ∀ event ∈ moveEvents cache moves,
@@ -354,15 +283,6 @@ theorem card_of_mem_moveEvents : ∀ (cache : Finset Page) (moves : List (Move P
       · exact card_applyMove hevict hfetch
       · rw [ih _ hrest event hevent]
         exact card_applyMove hevict hfetch
-
-theorem pairwise_fillEvents : ∀ (pages : List Page) (cache : Finset Page),
-    (fillEvents pages cache).Pairwise fun earlier later => earlier.time ≤ later.time := by
-  intro pages
-  induction pages with
-  | nil => intro _; exact List.Pairwise.nil
-  | cons page rest ih =>
-      intro cache
-      exact List.pairwise_cons.mpr ⟨fun _ _ => zero_le _, ih (insert page cache)⟩
 
 theorem pairwise_moveEvents : ∀ (cache : Finset Page) (moves : List (Move Page)),
     moves.Pairwise (fun earlier later => earlier.time < later.time) →
@@ -381,17 +301,18 @@ theorem pairwise_moveEvents : ∀ (cache : Finset Page) (moves : List (Move Page
 
 /-! ## Service -/
 
-theorem serves_buildSchedule {start : Finset Page} {moves : List (Move Page)}
-    (hstart : start.Nonempty)
+theorem serves_buildSchedule {initial start : Finset Page} {moves : List (Move Page)}
+    (hcard : initial.card ≤ start.card)
     (hchrono : moves.Pairwise fun earlier later => earlier.time < later.time)
     (request : Request Page) {deadline : Time} (harrival : 0 < request.arrival)
     (hzero : request.delay (deadline - request.arrival) = 0)
     (hserves : Serves start moves ⟨request.page, request.arrival, deadline⟩) :
-    ((buildSchedule start moves).serviceCandidates request).Nonempty ∧
-      (buildSchedule start moves).requestCost request = 0 := by
+    ((buildSchedule initial start moves).serviceCandidates request).Nonempty ∧
+      (buildSchedule initial start moves).requestCost request = 0 := by
   rcases hserves with hhit | ⟨mv, hmv, hpage, hafter, hbefore⟩
-  · have hcache : request.page ∈ (buildSchedule start moves).cacheBefore request.arrival := by
-      rw [cacheBefore_buildSchedule hstart hchrono harrival]
+  · have hcache : request.page ∈
+        (buildSchedule initial start moves).cacheBefore request.arrival := by
+      rw [cacheBefore_buildSchedule hcard hchrono harrival]
       exact hhit
     refine ⟨⟨request.arrival, ?_⟩,
       requestCost_eq_zero_of_hit _ _ hcache⟩
@@ -399,13 +320,14 @@ theorem serves_buildSchedule {start : Finset Page} {moves : List (Move Page)}
     rw [if_pos hcache]
     exact Finset.mem_insert_self _ _
   · obtain ⟨event, hevent, htime, hfetched⟩ := mem_moveEvents (cache := start) hmv
-    have hmem : event ∈ (buildSchedule start moves).events :=
+    have hmem : event ∈ (buildSchedule initial start moves).events :=
       List.mem_append_right _ hevent
-    have hcandidate : event.time ∈ (buildSchedule start moves).serviceCandidates request :=
+    have hcandidate : event.time ∈
+        (buildSchedule initial start moves).serviceCandidates request :=
       mem_serviceCandidates_of_mem_events _ _ hmem (by rw [htime]; exact hafter)
         (by rw [hfetched, hpage])
     refine ⟨⟨event.time, hcandidate⟩, le_antisymm ?_ (zero_le _)⟩
-    calc (buildSchedule start moves).requestCost request
+    calc (buildSchedule initial start moves).requestCost request
         ≤ request.delay (event.time - request.arrival) :=
           requestCost_le_of_mem_serviceCandidates _ _ hcandidate
       _ ≤ request.delay (deadline - request.arrival) := by
@@ -418,12 +340,13 @@ theorem serves_buildSchedule {start : Finset Page} {moves : List (Move Page)}
 
 /-- **The certificate's schedules are `Model.lean` schedules.**  A valid move
 list whose moves all happen after time `0`, serving every request of `input`
-inside its window, becomes a feasible schedule of cost exactly
+inside its window, becomes a feasible schedule of cost at most
 `cacheSize + (number of moves)`, which serves every request at *no delay cost*:
 it is inside its window every time. -/
 theorem feasible_buildSchedule {k : ℕ} {start : Finset Page} {moves : List (Move Page)}
-    {input : Instance Page} (hsize : input.cacheSize = k) (hcard : start.card = k)
-    (hstart : start.Nonempty) (hvalid : ValidMoves start moves)
+    {input : Instance Page} (valid : input.Valid)
+    (hsize : input.cacheSize = k) (hcard : start.card = k)
+    (hvalid : ValidMoves start moves)
     (hchrono : moves.Pairwise fun earlier later => earlier.time < later.time)
     (deadline : Request Page → Time)
     (harrival : ∀ request ∈ input.requests, 0 < request.arrival)
@@ -431,46 +354,57 @@ theorem feasible_buildSchedule {k : ℕ} {start : Finset Page} {moves : List (Mo
       request.delay (deadline request - request.arrival) = 0)
     (hserves : ∀ request ∈ input.requests,
       Serves start moves ⟨request.page, request.arrival, deadline request⟩) :
-    (buildSchedule start moves).Feasible input ∧
-      (buildSchedule start moves).totalCost input = ((k + moves.length : ℕ) : Cost) ∧
-      ∀ request ∈ input.requests, (buildSchedule start moves).requestCost request = 0 := by
-  have hfill : fillCache start.toList ∅ = start := fillCache_toList start
+    (buildSchedule input.initialCache.toFinset start moves).Feasible input ∧
+      (buildSchedule input.initialCache.toFinset start moves).totalCost input ≤
+        ((k + moves.length : ℕ) : Cost) ∧
+      ∀ request ∈ input.requests,
+        (buildSchedule input.initialCache.toFinset start moves).requestCost request = 0 := by
+  have hinit : input.initialCache.toFinset.card ≤ start.card := by
+    rw [hcard, ← hsize]
+    exact (List.toFinset_card_le _).trans valid.initialCache_full.le
   have hservice : ∀ request ∈ input.requests,
-      ((buildSchedule start moves).serviceCandidates request).Nonempty ∧
-        (buildSchedule start moves).requestCost request = 0 := by
+      ((buildSchedule input.initialCache.toFinset start moves).serviceCandidates
+          request).Nonempty ∧
+        (buildSchedule input.initialCache.toFinset start moves).requestCost request = 0 := by
     intro request hrequest
-    exact serves_buildSchedule hstart hchrono request (harrival request hrequest)
+    exact serves_buildSchedule hinit hchrono request (harrival request hrequest)
       (hzero request hrequest) (hserves request hrequest)
-  refine ⟨⟨?_, ?_, ?_, fun request hrequest => (hservice request hrequest).1⟩, ?_,
+  refine ⟨⟨rfl, ?_, ?_, ?_, fun request hrequest => (hservice request hrequest).1⟩, ?_,
     fun request hrequest => (hservice request hrequest).2⟩
   · -- chronological
     rw [buildSchedule]
-    refine List.pairwise_append.mpr ⟨pairwise_fillEvents _ _, pairwise_moveEvents _ _ hchrono, ?_⟩
-    intro earlier hearlier later _
-    rw [time_of_mem_fillEvents hearlier]
-    exact zero_le _
+    refine List.pairwise_append.mpr ⟨?_, pairwise_moveEvents _ _ hchrono, ?_⟩
+    · apply List.pairwise_of_forall_mem_list
+      intro a ha b hb
+      rw [Analysis.resetEvents_time _ _ a ha, Analysis.resetEvents_time _ _ b hb]
+    · intro earlier hearlier later _
+      rw [Analysis.resetEvents_time _ _ earlier hearlier]
+      exact zero_le _
   · -- valid transitions
-    refine validTransitionsFrom_append
-      (validTransitions_fillEvents start.toList ∅ (Finset.nodup_toList start) (by simp)) ?_
-    rw [lastCache_fillEvents, hfill]
+    show Schedule.ValidTransitionsFrom input.initialCache.toFinset _
+    refine validTransitionsFrom_append (Analysis.resetEvents_valid _ _) ?_
+    rw [lastCache_resetEvents _ _ hinit]
     exact validTransitions_moveEvents start moves hvalid
   · -- capacity
     intro event hevent
     rw [hsize]
     rcases List.mem_append.mp hevent with hevent | hevent
     · calc event.cacheAfter.card
-          ≤ (fillCache start.toList ∅).card :=
-            Finset.card_le_card (cacheAfter_subset_of_mem_fillEvents _ _ event hevent)
-        _ = k := by rw [hfill, hcard]
+          ≤ start.card :=
+            Finset.card_le_card (Analysis.resetEvents_cache_subset _ _ event hevent)
+        _ = k := hcard
     · rw [card_of_mem_moveEvents start moves hvalid event hevent, hcard]
   · -- cost
-    have hdelay : (buildSchedule start moves).totalDelay input = 0 := by
+    have hdelay : (buildSchedule input.initialCache.toFinset start moves).totalDelay input = 0 := by
       refine List.sum_eq_zero ?_
       intro cost hcost
       obtain ⟨request, hrequest, rfl⟩ := List.mem_map.mp hcost
       exact (hservice request hrequest).2
     rw [Schedule.totalCost, hdelay, add_zero, Schedule.fetchCount, buildSchedule]
-    simp [length_fillEvents, length_moveEvents, hcard]
+    have := Analysis.resetEvents_length_le input.initialCache.toFinset start
+    rw [hcard] at this
+    simp only [List.length_append, length_moveEvents]
+    exact_mod_cast Nat.add_le_add_right this _
 
 /-! ## Deadline-shaped requests
 
@@ -535,19 +469,20 @@ The schedule serves every request at no delay cost, which is what makes the
 bound transfer to the hard-deadline reading of the instance: the comparator
 never buys its way out of a deadline.
 
-This is the drafts' `OPT ≤ m_T + 1`, plus the `cacheSize` that `Model.lean`'s
-empty initial cache costs any schedule.  The hypotheses are: the instance's
-cache has the size of the certificate's configurations (`hsize`, `hcard`), every
-request arrives after time `0` (`harrival`), every request is free inside its
-window (`hzero`), and every request of the instance is one the certificate has
-served (`hmem`). -/
+This is the drafts' `OPT ≤ m_T + 1`, plus the `cacheSize` that turning the
+instance's initial cache into the certificate's start configuration costs.
+The hypotheses are: the instance's cache has the size of the certificate's
+configurations (`hsize`, `hcard`), every request arrives after time `0`
+(`harrival`), every request is free inside its window (`hzero`), and every
+request of the instance is one the certificate has served (`hmem`). -/
 theorem certificate_totalCost_le {k : ℕ} {V start : Finset Page}
     {processed : List (Window Page)} {alpha : Window Page} {c : Page} {L : Finset Page}
     {q : Option Page} {m : ℕ} {now : Time}
     (hcert : Certificate V start processed alpha c L q m now)
     {z : Page} (hz : z ∈ L) (hne : (V \ {c, z}).Nonempty)
-    {input : Instance Page} (hsize : input.cacheSize = k) (hcard : start.card = k)
-    (hstart : start.Nonempty) (deadline : Request Page → Time)
+    {input : Instance Page} (valid : input.Valid)
+    (hsize : input.cacheSize = k) (hcard : start.card = k)
+    (deadline : Request Page → Time)
     (harrival : ∀ request ∈ input.requests, 0 < request.arrival)
     (hzero : ∀ request ∈ input.requests,
       request.delay (deadline request - request.arrival) = 0)
@@ -559,27 +494,29 @@ theorem certificate_totalCost_le {k : ℕ} {V start : Finset Page}
   obtain ⟨t, cfg, moves, hvalid, hchrono, _, hlength, hserves, _⟩ :=
     hcert.exists_final_schedule hz hne
   obtain ⟨hfeasible, hcost, hdelay⟩ :=
-    feasible_buildSchedule hsize hcard hstart hvalid hchrono deadline harrival hzero
+    feasible_buildSchedule valid hsize hcard hvalid hchrono deadline harrival hzero
       (fun request hrequest => hserves _ (hmem request hrequest))
-  refine ⟨buildSchedule start moves, hfeasible, ?_, hdelay⟩
-  rw [hcost]
+  refine ⟨buildSchedule input.initialCache.toFinset start moves, hfeasible, ?_, hdelay⟩
+  refine hcost.trans ?_
   exact_mod_cast Nat.add_le_add_left hlength k
 
 /-! ## The translation is not vacuous
 
 Every hypothesis of `feasible_buildSchedule` holds at once for a one-page
-cache serving one deadline-shaped request, and the cost is the promised one:
-`1` for filling the empty cache, and no delay — the request is served by a
-cache hit at its arrival. -/
+cache serving one deadline-shaped request, and the cost is within the promised
+bound: no fetch — the initial cache is already the start configuration — and
+no delay, the request being served by a cache hit at its arrival. -/
 
 example :
-    (buildSchedule ({0} : Finset ℕ) []).Feasible ⟨1, [deadlineRequest 0 1 1 1 zero_lt_one]⟩ ∧
-      (buildSchedule ({0} : Finset ℕ) []).totalCost ⟨1, [deadlineRequest 0 1 1 1 zero_lt_one]⟩
-        = ((1 + 0 : ℕ) : Cost) ∧
-      ∀ request ∈ (⟨1, [deadlineRequest 0 1 1 1 zero_lt_one]⟩ : Instance ℕ).requests,
-        (buildSchedule ({0} : Finset ℕ) []).requestCost request = 0 := by
-  refine feasible_buildSchedule (k := 1) rfl (by simp) ⟨0, by simp⟩ trivial
-    List.Pairwise.nil (fun request => request.arrival + 1) ?_ ?_ ?_
+    (buildSchedule ({0} : Finset ℕ) {0} []).Feasible ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ ∧
+      (buildSchedule ({0} : Finset ℕ) {0} []).totalCost
+          ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ ≤ ((1 + 0 : ℕ) : Cost) ∧
+      ∀ request ∈ (⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ : Instance ℕ).requests,
+        (buildSchedule ({0} : Finset ℕ) {0} []).requestCost request = 0 := by
+  refine feasible_buildSchedule (k := 1)
+    (input := ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩)
+    ⟨List.pairwise_singleton _ _, one_pos, List.nodup_singleton _, rfl⟩ rfl (by simp)
+    trivial List.Pairwise.nil (fun request => request.arrival + 1) ?_ ?_ ?_
   · intro request hrequest
     simp only [List.mem_singleton] at hrequest
     subst hrequest

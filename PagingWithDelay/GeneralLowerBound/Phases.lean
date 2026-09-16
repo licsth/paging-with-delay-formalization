@@ -48,6 +48,7 @@ structure AdversaryRun (algorithm : Algorithm Page) (k : ℕ) (pages : Finset Pa
   input : Instance Page
   valid : input.Valid
   size : input.cacheSize = k
+  memInitial : ∀ page ∈ input.initialCache, page ∈ pages
   memPages : ∀ r ∈ input.requests, r.page ∈ pages
   positive : ∀ r ∈ input.requests, 0 < r.arrival
   strict : input.requests.Pairwise fun earlier later => earlier.arrival < later.arrival
@@ -74,12 +75,16 @@ structure AdversaryRun (algorithm : Algorithm Page) (k : ℕ) (pages : Finset Pa
   delayBound : (input.requests.map fun r => r.delay (now - r.arrival)).sum ≤
       (1 + ε) * (algorithm input valid).totalDelay input + used
 
-/-- Before the first request, the invariant is trivial. -/
+/-- Before the first request, the invariant is trivial.  The initial cache is
+any `k` of the `k + 1` pages. -/
 def AdversaryRun.initial (algorithm : Algorithm Page) {k : ℕ} (hk : 0 < k)
-    (pages : Finset Page) (c ε : Cost) : AdversaryRun algorithm k pages c ε where
-  input := ⟨k, []⟩
-  valid := ⟨List.Pairwise.nil, hk⟩
+    (pages : Finset Page) (hcard : pages.card = k + 1) (c ε : Cost) :
+    AdversaryRun algorithm k pages c ε where
+  input := ⟨k, pages.toList.take k, []⟩
+  valid := ⟨List.Pairwise.nil, hk, (Finset.nodup_toList pages).sublist (List.take_sublist _ _),
+    by simp [hcard]⟩
   size := rfl
+  memInitial := fun page hpage => Finset.mem_toList.mp (List.mem_of_mem_take hpage)
   memPages := by simp
   positive := by simp
   strict := List.Pairwise.nil
@@ -128,7 +133,7 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
     · rw [← h, mul_zero] at hc
       simp at hc
   -- a page the algorithm does not hold just before the new arrival
-  have hcap := old.cacheBefore_card_le run.input (feasible.scheduleFeasible _ _) arrival
+  have hcap := old.cacheBefore_card_le run.input run.valid (feasible.scheduleFeasible _ _) arrival
   have hnsub : ¬pages ⊆ old.cacheBefore arrival := by
     intro h
     have hle := (Finset.card_le_card h).trans hcap
@@ -146,7 +151,7 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
     fun r hr => lt_of_le_of_lt (run.arrivalLe r hr) hnowlt
   -- the miss persists in the extended run
   have hmiss' : request.page ∉ new.cacheBefore request.arrival := by
-    rw [hnew, online.appendRequest_cacheBefore run.input run.valid request extendedValid]
+    rw [hnew, online.appendRequest_cacheBefore feasible run.input run.valid request extendedValid]
     exact hmiss
   -- the end of the new phase
   have hmem : request ∈ (run.input.appendRequest request).requests := by
@@ -176,12 +181,12 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
   have hservedOld : ∀ r ∈ run.input.requests, ∃ t ≤ run.now, new.serviceTime r = some t := by
     intro r hr
     obtain ⟨t, htle, ht⟩ := run.served r hr
-    exact ⟨t, htle, online.appendRequest_serviceTime run.input run.valid request extendedValid
+    exact ⟨t, htle, online.appendRequest_serviceTime feasible run.input run.valid request extendedValid
       r (hearlier r hr) (lt_of_le_of_lt htle hnowlt) ht⟩
   have hcostOld : ∀ r ∈ run.input.requests, new.requestCost r = old.requestCost r := by
     intro r hr
     obtain ⟨t, htle, ht⟩ := run.served r hr
-    exact online.appendRequest_requestCost run.input run.valid request extendedValid r
+    exact online.appendRequest_requestCost feasible run.input run.valid request extendedValid r
       (hearlier r hr) (lt_of_le_of_lt htle hnowlt) ht
   -- the algorithm's delay grows by exactly the delay of the new request
   have htotalDelay : new.totalDelay (run.input.appendRequest request) =
@@ -208,6 +213,7 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
     input := run.input.appendRequest request
     valid := extendedValid
     size := run.size
+    memInitial := run.memInitial
     memPages := ?_
     positive := ?_
     strict := ?_
