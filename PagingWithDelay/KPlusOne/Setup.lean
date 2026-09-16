@@ -6,12 +6,14 @@ import PagingWithDelay.EventLoop.PaymentAccounting
 /-!
 # The `k+1`-page setting
 
-Section 5 of `fifo-upper-bound.tex` studies FIFO with threshold `(k+1)/k` on a
-universe of exactly `k+1` pages.  `Setup` bundles those hypotheses, and this
-file derives the structure of the FIFO run under them: the cache before a
-payment is the window of the last `k` fetched pages, those pages are pairwise
-distinct, and therefore exactly one page of the universe is missing — the one
-the payment fetches, which is the page evicted by the previous payment.
+The write-up studies FIFO with threshold `(k+1)/k` on a universe of exactly
+`k+1` pages.  `Setup` bundles those hypotheses, and this file derives the
+structure of the FIFO run under them: the cache before a payment is the window
+of the last `k` pages of the eviction order — the initial cache followed by
+the fetched pages — those pages are pairwise distinct, and therefore exactly
+one page of the universe is missing: the one the payment fetches, which is the
+page evicted by the previous payment (or, for the first payment, the page
+outside the common initial cache).
 
 Everything is read off the event loop of `Algorithm.lean` through the
 threshold-independent invariants in `EventLoop/`.
@@ -23,8 +25,8 @@ open PagingWithDelay
 
 variable {Page : Type*} [DecidableEq Page]
 
-/-- The hypotheses of the `k+1`-page theorem: a cache of size `k ≥ 1` and a
-request sequence drawn from a universe of `k + 1` pages. -/
+/-- The hypotheses of the `k+1`-page theorem: a cache of size `k ≥ 1`, and an
+initial cache and request sequence drawn from a universe of `k + 1` pages. -/
 structure Setup (Page : Type*) [DecidableEq Page] where
   /-- The cache size `k`. -/
   cacheSize : ℕ
@@ -35,6 +37,7 @@ structure Setup (Page : Type*) [DecidableEq Page] where
   input : Instance Page
   valid : input.Valid
   size : input.cacheSize = cacheSize
+  initialPages : ∀ page ∈ input.initialCache, page ∈ pages
   requestPages : ∀ request ∈ input.requests, request.page ∈ pages
 
 namespace Setup
@@ -59,6 +62,9 @@ theorem cacheSize_mul_threshold : (S.cacheSize : Cost) * S.threshold = (S.cacheS
   have h := S.cacheSize_ne_zero
   unfold threshold
   field_simp
+
+theorem initialCache_length : S.input.initialCache.length = S.cacheSize := by
+  rw [S.valid.initialCache_full, S.size]
 
 theorem pages_nonempty : S.pages.Nonempty := by
   apply Finset.card_pos.mp

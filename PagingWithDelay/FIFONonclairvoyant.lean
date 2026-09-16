@@ -269,7 +269,7 @@ theorem schedule_upTo_eq_of_agree (first second : Instance Page)
       (by omega)).symm
   -- The two initial states mirror each other.
   have hmirror : Mirror t (initialState first) (initialState second) := by
-    refine ⟨rfl, bot_le, rfl, List.Forall₂.nil, rfl,
+    refine ⟨rfl, bot_le, agree.initialCache, List.Forall₂.nil, rfl,
       ⟨enumerate (first.requests.take count₁), enumerate (second.requests.take count₂),
         (enumerate first.requests).drop count₁, (enumerate second.requests).drop count₂,
         ?_, ?_, ?_, ?_, ?_, ?_⟩⟩
@@ -301,10 +301,9 @@ theorem schedule_upTo_eq_of_agree (first second : Instance Page)
     (initial_belowThreshold first) (initial_belowThreshold second) hmirror
   unfold earlyPayments at hevents
   unfold Schedule.upTo
-  apply congrArg Schedule.mk
   rw [schedule_events, schedule_events, filter_map_fetchEvent, filter_map_fetchEvent,
     hraise₁, hraise₂]
-  exact hevents
+  exact congrArg₂ Schedule.mk (by simp [schedule, agree.initialCache]) hevents
 
 /-- **FIFO with any threshold `δ` is a nonclairvoyant algorithm.** -/
 theorem schedule_nonclairvoyant (δ : Cost) :

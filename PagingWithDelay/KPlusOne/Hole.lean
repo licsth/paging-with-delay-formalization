@@ -51,9 +51,11 @@ end
 end Setup
 
 /-- A page of the universe that the comparator does not hold after its first
-`n` events.  It only moves when the comparator fetches it. -/
+`n` events.  It only moves when the comparator fetches it.  Initially it is a
+page outside the comparator's initial cache — under feasibility the common
+`C₀`, so the one page of the universe FIFO does not hold either. -/
 noncomputable def hole (S : Setup Page) (comparator : Schedule Page) : ℕ → Page
-  | 0 => S.missingPage ∅
+  | 0 => S.missingPage (Analysis.cacheAfterCount comparator 0)
   | n + 1 =>
       if hole S comparator n ∈ Analysis.cacheAfterCount comparator (n + 1) then
         S.missingPage (Analysis.cacheAfterCount comparator (n + 1))
@@ -61,18 +63,28 @@ noncomputable def hole (S : Setup Page) (comparator : Schedule Page) : ℕ → P
 
 variable {S : Setup Page} {comparator : Schedule Page}
 
+/-- A feasible comparator starts from the instance's initial cache, which has
+`k` pages. -/
+theorem initialCache_card_le (feasible : comparator.Feasible S.input) :
+    comparator.initialCache.card ≤ S.input.cacheSize := by
+  rw [feasible.initialCache]
+  exact (List.toFinset_card_le _).trans S.valid.initialCache_full.le
+
+theorem cacheAfterCount_card_le (feasible : comparator.Feasible S.input) (m : ℕ) :
+    (Analysis.cacheAfterCount comparator m).card ≤ S.cacheSize := by
+  rw [← S.size]
+  exact Analysis.cacheAfterCount_card_le comparator S.input (initialCache_card_le feasible)
+    feasible.capacity m
+
 /-- The defining property of the hole: it is a page of the universe, and the
 comparator does not hold it. -/
 theorem hole_spec (feasible : comparator.Feasible S.input) (n : ℕ) :
     hole S comparator n ∈ S.pages ∧
       hole S comparator n ∉ Analysis.cacheAfterCount comparator n := by
-  have hcard : ∀ m : ℕ, (Analysis.cacheAfterCount comparator m).card ≤ S.cacheSize := by
-    intro m
-    rw [← S.size]
-    exact Analysis.cacheAfterCount_card_le comparator S.input feasible.capacity m
+  have hcard := cacheAfterCount_card_le feasible
   induction n with
   | zero =>
-      have := S.missingPage_spec (cache := ∅) (by simp)
+      have := S.missingPage_spec (hcard 0)
       simpa [hole] using this
   | succ n ih =>
       rw [hole]

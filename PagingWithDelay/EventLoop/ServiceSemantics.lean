@@ -11,18 +11,20 @@ namespace PagingWithDelay.FIFO
 variable {Page : Type*} [DecidableEq Page] {δ : Cost}
 noncomputable section
 
-def prefixSchedule (state : State Page) : Schedule Page :=
-  ⟨state.payments.map Payment.fetchEvent⟩
+def prefixSchedule (input : Instance Page) (state : State Page) : Schedule Page :=
+  ⟨input.initialCache.toFinset, state.payments.map Payment.fetchEvent⟩
 
-def ServiceTraceInvariant (state : State Page) : Prop :=
+def ServiceTraceInvariant (input : Instance Page) (state : State Page) : Prop :=
   state.queue.toFinset = state.payments.foldl
-      (fun _ payment => payment.queueAfter.toFinset) ∅ ∧
+      (fun _ payment => payment.queueAfter.toFinset) input.initialCache.toFinset ∧
     (∀ payment ∈ state.payments, ∀ occurrence ∈ state.unseen,
       payment.time < occurrence.request.arrival) ∧
     (∀ occurrence ∈ state.pending,
-      occurrence.request.page ∉ (prefixSchedule state).cacheBefore occurrence.request.arrival) ∧
+      occurrence.request.page ∉
+        (prefixSchedule input state).cacheBefore occurrence.request.arrival) ∧
     (∀ payment ∈ state.payments, ∀ occurrence ∈ payment.served,
-      occurrence.request.page ∉ (prefixSchedule state).cacheBefore occurrence.request.arrival) ∧
+      occurrence.request.page ∉
+        (prefixSchedule input state).cacheBefore occurrence.request.arrival) ∧
     (∀ payment ∈ state.payments, ∀ occurrence ∈ payment.served,
       occurrence.request.arrival ≤ payment.time) ∧
     (∀ occurrence ∈ state.pending, occurrence.request.arrival ≤ state.now) ∧
@@ -53,17 +55,18 @@ private theorem fold_if_all_lt (payments : List (Payment Page))
       rw [if_pos (h payment (by simp))]
       exact ih (fun p hp => h p (by simp [hp]))
 
-theorem prefixSchedule_cacheBefore_eq_queue
-    {state : State Page} (hinv : ServiceTraceInvariant state)
+theorem prefixSchedule_cacheBefore_eq_queue {input : Instance Page}
+    {state : State Page} (hinv : ServiceTraceInvariant input state)
     {occurrence : Occurrence Page} (hunseen : occurrence ∈ state.unseen) :
-    (prefixSchedule state).cacheBefore occurrence.request.arrival = state.queue.toFinset := by
+    (prefixSchedule input state).cacheBefore occurrence.request.arrival =
+      state.queue.toFinset := by
   rw [hinv.1]
   unfold prefixSchedule Schedule.cacheBefore
   rw [fold_events_eq_fold_payments]
   exact fold_if_all_lt _ (fun payment hp => hinv.2.1 payment hp occurrence hunseen)
 
 theorem initial_serviceTraceInvariant (input : Instance Page) :
-    ServiceTraceInvariant (initialState input) := by
+    ServiceTraceInvariant input (initialState input) := by
   simp [ServiceTraceInvariant, initialState]
 
 private theorem arrival_unseen_eq {state : State Page} {occurrence : Occurrence Page}
@@ -107,11 +110,12 @@ private theorem selected_payment_lt_unseen {state : State Page} {time : Time}
               rw [hu, List.pairwise_cons] at hc
               exact hhead.trans_le (hc.1 occurrence htail)
 
-private theorem cacheBefore_append_future
+private theorem cacheBefore_append_future (initial : Finset Page)
     (payments : List (Payment Page)) (payment : Payment Page) {arrival : Time}
     (hfuture : arrival ≤ payment.time) :
-    (Schedule.mk ((payments ++ [payment]).map Payment.fetchEvent)).cacheBefore arrival =
-      (Schedule.mk (payments.map Payment.fetchEvent)).cacheBefore arrival := by
+    (Schedule.mk initial ((payments ++ [payment]).map Payment.fetchEvent)).cacheBefore
+        arrival =
+      (Schedule.mk initial (payments.map Payment.fetchEvent)).cacheBefore arrival := by
   unfold Schedule.cacheBefore
   simp [not_lt_of_ge hfuture]
 
@@ -119,9 +123,9 @@ private theorem cacheBefore_append_future
 premises are independently proved event-loop invariants. -/
 theorem step_serviceTraceInvariant (input : Instance Page) (state : State Page)
     (action : Action Page) (htime : TimeInvariant state)
-    (hinv : ServiceTraceInvariant state)
+    (hinv : ServiceTraceInvariant input state)
     (haction : nextAction? δ state = some action) :
-    ServiceTraceInvariant (step input state action) := by
+    ServiceTraceInvariant input (step input state action) := by
   rcases hinv with ⟨hqueue, hunseen, hpendingMiss, hservedMiss,
     hservedArrival, hpendingArrival, hpendingPayments⟩
   cases action with
@@ -129,7 +133,7 @@ theorem step_serviceTraceInvariant (input : Instance Page) (state : State Page)
       have hu := arrival_unseen_eq haction
       have hoccurUnseen : occurrence ∈ state.unseen := by rw [hu]; simp
       have hcache := prefixSchedule_cacheBefore_eq_queue
-        (show ServiceTraceInvariant state from ⟨hqueue, hunseen, hpendingMiss,
+        (show ServiceTraceInvariant input state from ⟨hqueue, hunseen, hpendingMiss,
           hservedMiss, hservedArrival, hpendingArrival, hpendingPayments⟩)
         hoccurUnseen
       simp only [step]
@@ -147,7 +151,7 @@ theorem step_serviceTraceInvariant (input : Instance Page) (state : State Page)
           · have : candidate = occurrence := by simpa using hnew
             subst candidate
             change occurrence.request.page ∉
-              (prefixSchedule state).cacheBefore occurrence.request.arrival
+              (prefixSchedule input state).cacheBefore occurrence.request.arrival
             rw [hcache]
             simpa using (show occurrence.request.page ∉ state.queue from by assumption)
       constructor
@@ -199,13 +203,13 @@ theorem step_serviceTraceInvariant (input : Instance Page) (state : State Page)
       · intro o ho
         have hold := (List.mem_filter.mp ho).1
         unfold prefixSchedule
-        rw [cacheBefore_append_future state.payments made (hfuture o hold)]
+        rw [cacheBefore_append_future _ state.payments made (hfuture o hold)]
         exact hpendingMiss o hold
       constructor
       · intro candidate hm o ho
         rcases List.mem_append.mp hm with hold | hnew
         · unfold prefixSchedule
-          rw [cacheBefore_append_future state.payments made
+          rw [cacheBefore_append_future _ state.payments made
               ((hservedArrival candidate hold o ho).trans
                 ((htime.payments_before_now candidate hold).trans hnow))]
           exact hservedMiss candidate hold o ho
@@ -213,7 +217,7 @@ theorem step_serviceTraceInvariant (input : Instance Page) (state : State Page)
           subst candidate
           have hold := (List.mem_filter.mp ho).1
           unfold prefixSchedule
-          rw [cacheBefore_append_future state.payments made (hfuture o hold)]
+          rw [cacheBefore_append_future _ state.payments made (hfuture o hold)]
           exact hpendingMiss o hold
       constructor
       · intro candidate hm o ho
@@ -246,7 +250,7 @@ theorem initial_serviceMinimalInvariant (input : Instance Page) :
 
 theorem step_serviceMinimalInvariant (input : Instance Page) (state : State Page)
     (action : Action Page) (htime : TimeInvariant state)
-    (htrace : ServiceTraceInvariant state) (hminimal : ServiceMinimalInvariant state)
+    (htrace : ServiceTraceInvariant input state) (hminimal : ServiceMinimalInvariant state)
     (haction : nextAction? δ state = some action) :
     ServiceMinimalInvariant (step input state action) := by
   rcases htrace with ⟨_, _, _, _, _, _, hpendingPayments⟩
@@ -270,9 +274,9 @@ theorem step_serviceMinimalInvariant (input : Instance Page) (state : State Page
         · exact Or.inr le_rfl
 
 theorem run_serviceInvariants (input : Instance Page) : ∀ fuel state,
-    TimeInvariant state → BelowThreshold δ state → ServiceTraceInvariant state →
+    TimeInvariant state → BelowThreshold δ state → ServiceTraceInvariant input state →
       ServiceMinimalInvariant state →
-      ServiceTraceInvariant (run δ input fuel state) ∧
+      ServiceTraceInvariant input (run δ input fuel state) ∧
         ServiceMinimalInvariant (run δ input fuel state) := by
   intro fuel
   induction fuel with
@@ -290,7 +294,7 @@ theorem run_serviceInvariants (input : Instance Page) : ∀ fuel state,
 
 theorem final_serviceInvariants (input : Instance Page) (valid : input.Valid) :
     let final := run δ input (2 * input.requests.length) (initialState input)
-    ServiceTraceInvariant final ∧ ServiceMinimalInvariant final := by
+    ServiceTraceInvariant input final ∧ ServiceMinimalInvariant final := by
   exact run_serviceInvariants input _ _ (initial_timeInvariant input valid)
     (initial_belowThreshold input) (initial_serviceTraceInvariant input)
     (initial_serviceMinimalInvariant input)
@@ -300,25 +304,25 @@ the runtime proof supplies the two genuinely semantic facts: the request was
 not already resident on arrival, and no eligible fetch of the same page is
 earlier.  Keeping this bridge separate prevents either fact from being
 smuggled into the definition of FIFO accounting. -/
-theorem payment_serviceTime_eq_of_minimal
+theorem payment_serviceTime_eq_of_minimal (initial : Finset Page)
     (payments : List (Payment Page)) (payment : Payment Page)
     (occurrence : Occurrence Page)
     (hpayment : payment ∈ payments)
     (harrival : occurrence.request.arrival ≤ payment.time)
     (hpage : occurrence.request.page = payment.page)
     (hmiss : occurrence.request.page ∉
-      (Schedule.mk (payments.map Payment.fetchEvent)).cacheBefore
+      (Schedule.mk initial (payments.map Payment.fetchEvent)).cacheBefore
         occurrence.request.arrival)
     (hminimal : ∀ candidate ∈ payments,
       occurrence.request.arrival ≤ candidate.time →
       occurrence.request.page = candidate.page →
       payment.time ≤ candidate.time) :
-    (Schedule.mk (payments.map Payment.fetchEvent)).serviceTime occurrence.request =
+    (Schedule.mk initial (payments.map Payment.fetchEvent)).serviceTime occurrence.request =
       some payment.time := by
-  let schedule : Schedule Page := ⟨payments.map Payment.fetchEvent⟩
+  let schedule : Schedule Page := ⟨initial, payments.map Payment.fetchEvent⟩
   change schedule.serviceTime occurrence.request = some payment.time
   apply Schedule.serviceTime_eq_some_of_le_candidates
-  · exact payment_time_mem_serviceCandidates payments payment occurrence hpayment
+  · exact payment_time_mem_serviceCandidates initial payments payment occurrence hpayment
       harrival hpage
   · intro time htime
     unfold Schedule.serviceCandidates at htime
@@ -332,23 +336,23 @@ theorem payment_serviceTime_eq_of_minimal
       (of_decide_eq_true heventValid).2
 
 /-- Cost form of `payment_serviceTime_eq_of_minimal`. -/
-theorem payment_requestCost_eq_of_minimal
+theorem payment_requestCost_eq_of_minimal (initial : Finset Page)
     (payments : List (Payment Page)) (payment : Payment Page)
     (occurrence : Occurrence Page)
     (hpayment : payment ∈ payments)
     (harrival : occurrence.request.arrival ≤ payment.time)
     (hpage : occurrence.request.page = payment.page)
     (hmiss : occurrence.request.page ∉
-      (Schedule.mk (payments.map Payment.fetchEvent)).cacheBefore
+      (Schedule.mk initial (payments.map Payment.fetchEvent)).cacheBefore
         occurrence.request.arrival)
     (hminimal : ∀ candidate ∈ payments,
       occurrence.request.arrival ≤ candidate.time →
       occurrence.request.page = candidate.page →
       payment.time ≤ candidate.time) :
-    (Schedule.mk (payments.map Payment.fetchEvent)).requestCost occurrence.request =
+    (Schedule.mk initial (payments.map Payment.fetchEvent)).requestCost occurrence.request =
       occurrence.request.delay (payment.time - occurrence.request.arrival) := by
   apply Schedule.requestCost_eq_of_serviceTime
-  exact payment_serviceTime_eq_of_minimal payments payment occurrence hpayment
+  exact payment_serviceTime_eq_of_minimal initial payments payment occurrence hpayment
     harrival hpage hmiss hminimal
 
 /-- Every occurrence recorded in a final payment batch has exactly the
@@ -362,16 +366,16 @@ theorem final_served_requestCost_eq (input : Instance Page) (valid : input.Valid
       occurrence.request.delay (payment.time - occurrence.request.arrival) := by
   let final := run δ input (2 * input.requests.length) (initialState input)
   have hinvariants := final_serviceInvariants (δ := δ) input valid
-  have htrace : ServiceTraceInvariant final := hinvariants.1
+  have htrace : ServiceTraceInvariant input final := hinvariants.1
   have hminimal : ServiceMinimalInvariant final := hinvariants.2
   have hmiss := htrace.2.2.2.1 payment hpayment occurrence hserved
   have harrival := htrace.2.2.2.2.1 payment hpayment occurrence hserved
   have hpage :=
     (History.final_validBatches input valid payment hpayment
       occurrence hserved).1
-  change (Schedule.mk (final.payments.map Payment.fetchEvent)).requestCost
-      occurrence.request = _
-  apply payment_requestCost_eq_of_minimal final.payments payment occurrence
+  change (Schedule.mk input.initialCache.toFinset
+      (final.payments.map Payment.fetchEvent)).requestCost occurrence.request = _
+  apply payment_requestCost_eq_of_minimal _ final.payments payment occurrence
     hpayment harrival hpage hmiss
   intro candidate hcandidate hcandidateArrival hcandidatePage
   rcases hminimal payment hpayment occurrence hserved candidate hcandidate
@@ -389,7 +393,7 @@ def DroppedHitInvariant (input : Instance Page) (state : State Page) : Prop :=
     occurrence ∉ state.payments.flatMap Payment.served →
       occurrence.request.arrival ≤ state.now ∧
         occurrence.request.page ∈
-          (prefixSchedule state).cacheBefore occurrence.request.arrival
+          (prefixSchedule input state).cacheBefore occurrence.request.arrival
 
 theorem initial_droppedHitInvariant (input : Instance Page) :
     DroppedHitInvariant input (initialState input) := by
@@ -398,7 +402,7 @@ theorem initial_droppedHitInvariant (input : Instance Page) :
 
 theorem step_droppedHitInvariant (input : Instance Page) (state : State Page)
     (action : Action Page) (htime : TimeInvariant state)
-    (htrace : ServiceTraceInvariant state)
+    (htrace : ServiceTraceInvariant input state)
     (hhits : DroppedHitInvariant input state)
     (haction : nextAction? δ state = some action) :
     DroppedHitInvariant input (step input state action) := by
@@ -414,7 +418,7 @@ theorem step_droppedHitInvariant (input : Instance Page) (state : State Page)
           · have hcache := prefixSchedule_cacheBefore_eq_queue htrace
               (show occurrence ∈ state.unseen by rw [hu]; simp)
             change occurrence.request.page ∈
-              (prefixSchedule state).cacheBefore occurrence.request.arrival
+              (prefixSchedule input state).cacheBefore occurrence.request.arrival
             rw [hcache]
             simpa using hhit
           · exfalso
@@ -437,7 +441,7 @@ theorem step_droppedHitInvariant (input : Instance Page) (state : State Page)
         constructor
         · exact hold.1.trans (htime.now_before_unseen occurrence (by rw [hu]; simp))
         · change original.request.page ∈
-            (prefixSchedule state).cacheBefore original.request.arrival
+            (prefixSchedule input state).cacheBefore original.request.arrival
           exact hold.2
   | payment time page =>
       have hnow : state.now ≤ time := by
@@ -462,7 +466,7 @@ theorem step_droppedHitInvariant (input : Instance Page) (state : State Page)
       · exact hold.1.trans hnow
       · unfold prefixSchedule
         simp only [step]
-        rw [cacheBefore_append_future state.payments
+        rw [cacheBefore_append_future _ state.payments
           { time := time, page := page,
             served := state.pending.filter fun o => o.request.page = page,
             queueAfter := insertPage input.cacheSize state.queue page }
@@ -470,7 +474,7 @@ theorem step_droppedHitInvariant (input : Instance Page) (state : State Page)
         exact hold.2
 
 theorem run_droppedHitInvariant (input : Instance Page) : ∀ fuel state,
-    TimeInvariant state → BelowThreshold δ state → ServiceTraceInvariant state →
+    TimeInvariant state → BelowThreshold δ state → ServiceTraceInvariant input state →
       DroppedHitInvariant input state →
       DroppedHitInvariant input (run δ input fuel state) := by
   intro fuel
@@ -501,7 +505,7 @@ theorem final_dropped_occurrence_is_hit (input : Instance Page) (valid : input.V
     (initial_timeInvariant input valid) (initial_belowThreshold input)
     (initial_serviceTraceInvariant input) (initial_droppedHitInvariant input)
   change occurrence.request.page ∈
-    (prefixSchedule final).cacheBefore occurrence.request.arrival
+    (prefixSchedule input final).cacheBefore occurrence.request.arrival
   exact (hinv occurrence hinput (by simp [hfinished.1])
     (by simp [hfinished.2]) hnotServed).2
 

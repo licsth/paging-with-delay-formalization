@@ -5,7 +5,8 @@ import PagingWithDelay.Model
 
 The definitions of the algorithm the main theorem exhibits.  A page is fetched
 once the total delay accumulated by its pending requests reaches the threshold
-`δ : Cost`, and the cache is maintained by first-in-first-out replacement.
+`δ : Cost`, and the cache is maintained by first-in-first-out replacement,
+starting from the instance's initial cache in the order the instance lists it.
 Every threshold is admissible: `Cost = NNReal`, so `δ` is nonnegative by
 construction.  The upper-bound theorem is about `schedule 1`, threshold-one
 FIFO; the event loop itself is parametric in `δ`.
@@ -61,9 +62,11 @@ structure State (Page : Type*) [DecidableEq Page] where
   pending : List (Occurrence Page)
   payments : List (Payment Page)
 
+/-- The state before any event: the queue is the instance's initial cache, in
+its given order, so its front is the page evicted first. -/
 def initialState (input : Instance Page) : State Page where
   now := 0
-  queue := []
+  queue := input.initialCache
   unseen := enumerate input.requests
   pending := []
   payments := []
@@ -149,10 +152,11 @@ algorithm rather than executable numerical code.  `schedule 1` is the
 threshold-one FIFO of the upper-bound theorem. -/
 def schedule (δ : Cost) (input : Instance Page) (_valid : input.Valid) : Schedule Page :=
   let final := run δ input (2 * input.requests.length) (initialState input)
-  ⟨final.payments.map fun payment =>
-    { time := payment.time
-      fetched := payment.page
-      cacheAfter := payment.queueAfter.toFinset }⟩
+  ⟨input.initialCache.toFinset,
+    final.payments.map fun payment =>
+      { time := payment.time
+        fetched := payment.page
+        cacheAfter := payment.queueAfter.toFinset }⟩
 
 end
 end FIFO

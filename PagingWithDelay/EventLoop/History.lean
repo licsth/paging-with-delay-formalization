@@ -7,8 +7,9 @@ import PagingWithDelay.EventLoop.PaymentOrder
 Bookkeeping facts about the payment log that the event loop builds: batches
 record occurrences of the page they fetch, arriving no later than the payment;
 every retained occurrence comes from the input; occurrence identifiers are
-never duplicated; and a pending request for a previously fetched page arrived
-after that copy was evicted.
+never duplicated; and a pending request for a page that FIFO has evicted —
+whether it was fetched by an earlier payment or held from the start — arrived
+after that eviction.
 
 All of these are established by preserving an invariant through `step` and
 lifting it along `run`.  None depends on the competitive analysis.
@@ -47,25 +48,60 @@ def StrictUnseen (state : State Page) : Prop :=
   ∀ payment ∈ state.payments, ∀ occurrence ∈ state.unseen,
     payment.time < occurrence.request.arrival
 
-/-- A pending request for a page that has previously been fetched arrived
-strictly after that copy's FIFO eviction.  Indices are relative to the
-payment prefix recorded in `state`. -/
+/-- The initial queue followed by the fetched pages.  On a valid instance its
+entry at position `j` is the page FIFO evicts at payment `j`: the initial queue
+is evicted front to back by the first `k` payments, and the page fetched by
+payment `i` is evicted by payment `i + k`. -/
+def evictionOrder (input : Instance Page) (payments : List (Payment Page)) : List Page :=
+  input.initialCache ++ payments.map Payment.page
+
+@[simp] theorem evictionOrder_length (input : Instance Page) (payments : List (Payment Page)) :
+    (evictionOrder input payments).length = input.initialCache.length + payments.length := by
+  simp [evictionOrder]
+
+theorem evictionOrder_append (input : Instance Page) (payments : List (Payment Page))
+    (payment : Payment Page) :
+    evictionOrder input (payments ++ [payment]) =
+      evictionOrder input payments ++ [payment.page] := by
+  simp [evictionOrder]
+
+theorem evictionOrder_getElem_initial (input : Instance Page) (payments : List (Payment Page))
+    {p : ℕ} (hp : p < input.initialCache.length) :
+    (evictionOrder input payments)[p]'(by simp; omega) = input.initialCache[p] :=
+  List.getElem_append_left hp
+
+theorem evictionOrder_getElem_payment (input : Instance Page) (payments : List (Payment Page))
+    {i : ℕ} (hi : i < payments.length) :
+    (evictionOrder input payments)[input.initialCache.length + i]'(by simp; omega) =
+      payments[i].page := by
+  unfold evictionOrder
+  rw [List.getElem_append_right (by omega)]
+  simp
+
+/-- A pending request for a page that FIFO has evicted arrived strictly after
+that eviction: the page at position `j` of the eviction order is evicted by
+payment `j`.  Indices are relative to the payment prefix recorded in `state`. -/
 def PendingSinceEviction (input : Instance Page) (state : State Page) : Prop :=
-  ∀ occurrence ∈ state.pending, ∀ previous (hprevious : previous < state.payments.length),
-    state.payments[previous].page = occurrence.request.page →
-      previous + input.cacheSize < state.payments.length ∧
-        (state.payments[previous + input.cacheSize]?).any
-          (fun payment => payment.time < occurrence.request.arrival)
+  ∀ occurrence ∈ state.pending,
+    ∀ j (hj : j < (evictionOrder input state.payments).length),
+      (evictionOrder input state.payments)[j] = occurrence.request.page →
+        j < state.payments.length ∧
+          (state.payments[j]?).any
+            (fun payment => payment.time < occurrence.request.arrival)
 
 /-- The already recorded batches satisfy the lower endpoint of their payment
-window. -/
+window: a request served by payment `index` arrived after every eviction of
+its page preceding that payment.  Positions `j < initialCache.length + index`
+of the eviction order are exactly the initial queue and the payments before
+`index`. -/
 def ValidBatchLowerBounds (input : Instance Page) (state : State Page) : Prop :=
   ∀ index (hindex : index < state.payments.length),
     ∀ occurrence ∈ state.payments[index].served,
-      ∀ previous (hprevious : previous < index),
-        state.payments[previous].page = state.payments[index].page →
-          previous + input.cacheSize < index ∧
-            (state.payments[previous + input.cacheSize]?).any
+      ∀ j (hj : j < input.initialCache.length + index),
+        (evictionOrder input state.payments)[j]'(by simp; omega) =
+            state.payments[index].page →
+          j < index ∧
+            (state.payments[j]?).any
               (fun payment => payment.time < occurrence.request.arrival)
 
 omit [DecidableEq Page] in private theorem enumerateFrom_ids
@@ -221,56 +257,55 @@ theorem step_pendingSinceEviction (input : Instance Page) (valid : input.Valid)
   cases action with
   | arrival occurrence =>
       have hunseen : occurrence ∈ state.unseen := arrival_mem_unseen haction
-      simp only [step]
-      split
-      · intro candidate hcand previous hp hpage
-        exact hpending candidate hcand previous hp hpage
+      intro candidate hcand j hj hpage
+      simp only [step] at hcand hj hpage ⊢
+      split at hcand
+      · exact hpending candidate hcand j hj hpage
       · rename_i hmiss
-        intro candidate hcand previous hp hpage
         rcases List.mem_append.mp hcand with hold | hnew
-        · exact hpending candidate hold previous hp hpage
+        · exact hpending candidate hold j hj hpage
         · have heq : candidate = occurrence := by simpa using hnew
           subst candidate
-          have hlt : previous + input.cacheSize < state.payments.length := by
+          have hlt : j < state.payments.length := by
             by_contra hn
-            have hnear : state.payments.length ≤ previous + input.cacheSize :=
-              Nat.le_of_not_gt hn
-            have hmem : state.payments[previous].page ∈
-                recentPages input.cacheSize state.payments := by
-              have := page_mem_recentPages_between valid.positiveCapacity
-                state.payments (le_rfl) hp hnear
-              simpa [List.take_length] using this
-            have hqueue : state.queue = recentPages input.cacheSize state.payments :=
+            have hnear : input.initialCache.length + state.payments.length ≤
+                j + input.cacheSize := by
+              have := valid.initialCache_full
+              omega
+            have hmem : (evictionOrder input state.payments)[j] ∈
+                recentPages input.cacheSize input.initialCache state.payments :=
+              getElem_mem_recentPages valid.positiveCapacity input.initialCache
+                valid.initialCache_full.le state.payments hj hnear
+            have hqueue : state.queue =
+                recentPages input.cacheSize input.initialCache state.payments :=
               hfresh.recent
             have : occurrence.request.page ∈ state.queue := by
               rw [hqueue, ← hpage]
               exact hmem
             exact hmiss this
           refine ⟨hlt, ?_⟩
-          have hs := hstrict state.payments[previous + input.cacheSize]
-            (List.getElem_mem (l := state.payments)
-              (n := previous + input.cacheSize) hlt) occurrence hunseen
+          have hs := hstrict state.payments[j]
+            (List.getElem_mem (l := state.payments) (n := j) hlt) occurrence hunseen
           simpa [List.getElem?_eq_getElem hlt] using hs
   | payment time page =>
-      intro occurrence hoccur previous hp hpage
-      simp only [step] at hoccur hp ⊢
+      intro occurrence hoccur j hj hpage
+      simp only [step] at hoccur hj hpage ⊢
       have hold := (List.mem_filter.mp hoccur)
-      have hpold : previous < state.payments.length := by
-        simp only [List.length_append, List.length_singleton] at hp
+      simp only [evictionOrder_append, List.length_append, List.length_singleton] at hj hpage
+      have hjold : j < (evictionOrder input state.payments).length := by
         by_contra hn
-        have heq : previous = state.payments.length := by omega
-        subst previous
+        have heq : j = (evictionOrder input state.payments).length := by omega
         have hne : occurrence.request.page ≠ page := of_decide_eq_true hold.2
-        have : page = occurrence.request.page := by
-          simpa [step] using hpage
-        exact hne this.symm
-      have hpageOld : state.payments[previous].page = occurrence.request.page := by
-        simpa [step, List.getElem_append_left hpold] using hpage
-      obtain ⟨hev, htime⟩ := hpending occurrence hold.1 previous hpold hpageOld
+        rw [List.getElem_append_right (by omega)] at hpage
+        simp [heq] at hpage
+        exact hne hpage.symm
+      have hpageOld : (evictionOrder input state.payments)[j] = occurrence.request.page := by
+        rw [← hpage, List.getElem_append_left hjold]
+      obtain ⟨hev, htime⟩ := hpending occurrence hold.1 j hjold hpageOld
       constructor
       · simp only [List.length_append, List.length_singleton]
         omega
-      · change ((state.payments ++ [_])[previous + input.cacheSize]?).any
+      · change ((state.payments ++ [_])[j]?).any
           (fun payment => payment.time < occurrence.request.arrival)
         rw [List.getElem?_append_left hev]
         exact htime
@@ -282,18 +317,19 @@ theorem step_validBatchLowerBounds (input : Instance Page) (state : State Page)
   cases action with
   | arrival occurrence => simpa [step, ValidBatchLowerBounds] using hbatches
   | payment time page =>
-      intro index hindex occurrence hoccur previous hprevious hpage
-      simp only [step, List.length_append, List.length_singleton] at hindex
+      intro index hindex occurrence hoccur j hj hpage
+      simp only [step, List.length_append, List.length_singleton] at hindex hpage
+      simp only [evictionOrder_append] at hpage
+      rw [List.getElem_append_left (by simp; omega)] at hpage
       by_cases hi : index < state.payments.length
       · have hoccurOld : occurrence ∈ state.payments[index].served := by
           simpa [step, List.getElem_append_left hi] using hoccur
-        have hpold : previous < state.payments.length := hprevious.trans hi
-        have hpageOld : state.payments[previous].page = state.payments[index].page := by
-          simpa [step, List.getElem_append_left hi,
-            List.getElem_append_left hpold] using hpage
-        obtain ⟨hb, ht⟩ := hbatches index hi occurrence hoccurOld previous hprevious hpageOld
+        have hpageOld : (evictionOrder input state.payments)[j]'(by simp; omega) =
+            state.payments[index].page := by
+          rw [hpage, List.getElem_append_left hi]
+        obtain ⟨hb, ht⟩ := hbatches index hi occurrence hoccurOld j hj hpageOld
         refine ⟨hb, ?_⟩
-        change ((state.payments ++ [_])[previous + input.cacheSize]?).any
+        change ((state.payments ++ [_])[j]?).any
           (fun payment => payment.time < occurrence.request.arrival)
         rw [List.getElem?_append_left (hb.trans hi)]
         exact ht
@@ -302,15 +338,15 @@ theorem step_validBatchLowerBounds (input : Instance Page) (state : State Page)
         have hoccurNew : occurrence ∈
             state.pending.filter (fun occurrence => occurrence.request.page = page) := by
           simpa [step] using hoccur
-        have hpold : previous < state.payments.length := hprevious
-        have hpageOld : state.payments[previous].page = page := by
-          simpa [step, List.getElem_append_left hpold] using hpage
         have hm : occurrence ∈ state.pending := (List.mem_filter.mp hoccurNew).1
-        have hsame : state.payments[previous].page = occurrence.request.page := by
-          exact hpageOld.trans (of_decide_eq_true (List.mem_filter.mp hoccurNew).2).symm
-        obtain ⟨hb, ht⟩ := hpending occurrence hm previous hpold hsame
+        have hsame : (evictionOrder input state.payments)[j]'(by simp; omega) =
+            occurrence.request.page := by
+          rw [hpage, List.getElem_append_right (by omega)]
+          simp only [Nat.sub_self, List.getElem_singleton]
+          exact (of_decide_eq_true (List.mem_filter.mp hoccurNew).2).symm
+        obtain ⟨hb, ht⟩ := hpending occurrence hm j (by simp; omega) hsame
         refine ⟨hb, ?_⟩
-        change ((state.payments ++ [_])[previous + input.cacheSize]?).any
+        change ((state.payments ++ [_])[j]?).any
           (fun payment => payment.time < occurrence.request.arrival)
         rw [List.getElem?_append_left hb]
         exact ht
@@ -343,10 +379,53 @@ theorem final_validBatchLowerBounds (input : Instance Page) (valid : input.Valid
     ValidBatchLowerBounds input (run δ input (2 * input.requests.length) (initialState input)) := by
   exact run_lowerBounds input valid _ _
     (initial_timeInvariant input valid) (initial_belowThreshold input)
-    (initial_freshQueue input) (initial_cacheInvariant input)
+    (initial_freshQueue input) (initial_cacheInvariant input valid)
     (initial_strictUnseen input)
     (by simp [PendingSinceEviction, initialState])
     (by simp [ValidBatchLowerBounds, initialState])
+
+/-- The lower bound read at an earlier *payment* of the same page: that copy
+was evicted by payment `previous + k`, and the request arrived after it. -/
+theorem final_validBatchLowerBounds_payment (input : Instance Page) (valid : input.Valid)
+    (index : ℕ)
+    (hindex : index < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
+    (occurrence : Occurrence Page)
+    (hserved : occurrence ∈
+      (run δ input (2 * input.requests.length) (initialState input)).payments[index].served)
+    (previous : ℕ) (hprevious : previous < index)
+    (hpage : (run δ input (2 * input.requests.length) (initialState input)).payments[previous].page =
+      (run δ input (2 * input.requests.length) (initialState input)).payments[index].page) :
+    previous + input.cacheSize < index ∧
+      ((run δ input (2 * input.requests.length) (initialState input)).payments[previous +
+          input.cacheSize]?).any
+        (fun payment => payment.time < occurrence.request.arrival) := by
+  have hfull := valid.initialCache_full
+  have hpos : input.initialCache.length + previous < input.initialCache.length + index := by
+    omega
+  have hentry := evictionOrder_getElem_payment input
+    (run δ input (2 * input.requests.length) (initialState input)).payments
+    (hprevious.trans hindex)
+  obtain ⟨hlt, htime⟩ := final_validBatchLowerBounds input valid index hindex occurrence hserved
+    (input.initialCache.length + previous) hpos (hentry.trans hpage)
+  rw [hfull, Nat.add_comm] at hlt htime
+  exact ⟨hlt, htime⟩
+
+/-- The lower bound read at a page of the *initial* cache: position `p` of the
+initial queue is evicted by payment `p`, and the request arrived after it. -/
+theorem final_validBatchLowerBounds_initial (input : Instance Page) (valid : input.Valid)
+    (index : ℕ)
+    (hindex : index < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
+    (occurrence : Occurrence Page)
+    (hserved : occurrence ∈
+      (run δ input (2 * input.requests.length) (initialState input)).payments[index].served)
+    (p : ℕ) (hp : p < input.initialCache.length)
+    (hpage : input.initialCache[p] =
+      (run δ input (2 * input.requests.length) (initialState input)).payments[index].page) :
+    p < index ∧
+      ((run δ input (2 * input.requests.length) (initialState input)).payments[p]?).any
+        (fun payment => payment.time < occurrence.request.arrival) :=
+  final_validBatchLowerBounds input valid index hindex occurrence hserved p (by omega)
+    ((evictionOrder_getElem_initial input _ hp).trans hpage)
 
 theorem step_history (input : Instance Page) (state : State Page)
     (action : Action Page) (htime : TimeInvariant state)

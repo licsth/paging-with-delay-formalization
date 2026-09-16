@@ -49,8 +49,8 @@ theorem servedOccurrence_after_previous_fifo_eviction (input : Instance Page)
     have hm := (Finset.mem_filter.mp hmember).2
     rw [List.getElem?_eq_getElem hpLen] at hm
     simpa [payment] using hm
-  exact (FIFO.History.final_validBatchLowerBounds input valid) i i.isLt occurrence hserved
-    previous hpLt hsame |>.2
+  exact (FIFO.History.final_validBatchLowerBounds_payment input valid) i i.isLt occurrence
+    hserved previous hpLt hsame |>.2
 
 
 theorem servedOccurrence_page_and_arrival (input : Instance Page)

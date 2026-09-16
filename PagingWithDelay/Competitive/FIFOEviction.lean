@@ -119,12 +119,13 @@ theorem evictionIndex_ge_previous_add_cacheSize (input : Instance Page)
     simpa [payment] using hany
   have hqueue := (FIFO.final_freshPayments input valid).queueAfter_at eviction hevLen
   change (fifoRun input).payments[eviction].queueAfter =
-    FIFO.recentPages input.cacheSize
+    FIFO.recentPages input.cacheSize input.initialCache
       ((fifoRun input).payments.take (eviction + 1)) at hqueue
   have hmem : (fifoRun input).payments[previous].page ∈
-      FIFO.recentPages input.cacheSize
+      FIFO.recentPages input.cacheSize input.initialCache
         ((fifoRun input).payments.take (eviction + 1)) :=
-    FIFO.page_mem_recentPages_between valid.positiveCapacity _
+    FIFO.page_mem_recentPages_between valid.positiveCapacity input.initialCache
+      valid.initialCache_full.le _
       (Nat.succ_le_of_lt hevLen) (hpred.trans_le (Nat.le_succ _)) hnear
   have habsent : (payment input i).page ∉
       (fifoRun input).payments[eviction].queueAfter := by
@@ -163,12 +164,14 @@ theorem evictionIndex_eq_previous_add_cacheSize (input : Instance Page)
   have habsent : (payment input i).page ∉ payments[eviction].queueAfter := by
     have hqueue := (FIFO.final_freshPayments input valid).queueAfter_at eviction heLen
     change payments[eviction].queueAfter =
-      FIFO.recentPages input.cacheSize (payments.take (eviction + 1)) at hqueue
+      FIFO.recentPages input.cacheSize input.initialCache
+        (payments.take (eviction + 1)) at hqueue
     rw [hqueue]
     rw [show eviction + 1 = (previous + 1) + input.cacheSize by
       dsimp [eviction]; omega]
     rw [FIFO.recentPages_take_add input.cacheSize (previous + 1)
-      valid.positiveCapacity payments] <;> try omega
+      valid.positiveCapacity input.initialCache valid.initialCache_full.le payments]
+      <;> try omega
     intro hm
     simp only [List.mem_map] at hm
     obtain ⟨p, hpIn, hpEq⟩ := hm
@@ -208,10 +211,11 @@ theorem evictionIndex_eq_previous_add_cacheSize (input : Instance Page)
     · have hmLen : m < payments.length := hm.trans heLen
       have hqueue := (FIFO.final_freshPayments input valid).queueAfter_at m hmLen
       change payments[m].queueAfter =
-        FIFO.recentPages input.cacheSize (payments.take (m + 1)) at hqueue
+        FIFO.recentPages input.cacheSize input.initialCache (payments.take (m + 1)) at hqueue
       have hmember : payments[previous].page ∈
-          FIFO.recentPages input.cacheSize (payments.take (m + 1)) :=
-        FIFO.page_mem_recentPages_between valid.positiveCapacity payments
+          FIFO.recentPages input.cacheSize input.initialCache (payments.take (m + 1)) :=
+        FIFO.page_mem_recentPages_between valid.positiveCapacity input.initialCache
+          valid.initialCache_full.le payments
           (Nat.succ_le_of_lt hmLen) (hprev.trans_le (Nat.le_succ _)) (by omega)
       have : (payment input i).page ∈ payments[m].queueAfter := by
         rw [hqueue, ← hpPage]

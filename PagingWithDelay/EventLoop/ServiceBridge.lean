@@ -92,14 +92,14 @@ as rewrite rules. -/
 /-- Membership in a recorded batch supplies a public service candidate.  The
 remaining run invariants only have to establish that this candidate is the
 earliest one. -/
-theorem payment_time_mem_serviceCandidates
+theorem payment_time_mem_serviceCandidates (initial : Finset Page)
     (payments : List (Payment Page)) (payment : Payment Page)
     (occurrence : Occurrence Page)
     (hpayment : payment ∈ payments)
     (harrival : occurrence.request.arrival ≤ payment.time)
     (hpage : occurrence.request.page = payment.page) :
     payment.time ∈
-      (Schedule.mk (payments.map Payment.fetchEvent)).serviceCandidates
+      (Schedule.mk initial (payments.map Payment.fetchEvent)).serviceCandidates
         occurrence.request := by
   unfold Schedule.serviceCandidates
   have hfetch : payment.fetchEvent ∈ payments.map Payment.fetchEvent := by

@@ -22,12 +22,13 @@ variable {Page : Type*} [DecidableEq Page]
 
 noncomputable section
 
-/-- Cache contents after the first `n` events of a trace. -/
+/-- Cache contents after the first `n` events of a trace, starting from its
+initial cache. -/
 def cacheAfterCount (schedule : Schedule Page) (n : ℕ) : Finset Page :=
-  (schedule.events.take n).foldl (fun _ event => event.cacheAfter) ∅
+  (schedule.events.take n).foldl (fun _ event => event.cacheAfter) schedule.initialCache
 
 @[simp] theorem cacheAfterCount_zero (schedule : Schedule Page) :
-    cacheAfterCount schedule 0 = ∅ := rfl
+    cacheAfterCount schedule 0 = schedule.initialCache := rfl
 
 theorem cacheAfterCount_succ (schedule : Schedule Page) {n : ℕ}
     (hn : n < schedule.events.length) :
@@ -132,7 +133,8 @@ theorem validTransitions_getElem {previous : Finset Page} :
       simpa using this
 
 theorem cacheAfterCount_sdiff (schedule : Schedule Page)
-    (htransitions : Schedule.ValidTransitionsFrom ∅ schedule.events) {n : ℕ}
+    (htransitions : Schedule.ValidTransitionsFrom schedule.initialCache schedule.events)
+    {n : ℕ}
     (hn : n < schedule.events.length) :
     cacheAfterCount schedule (n + 1) \ cacheAfterCount schedule n =
       {schedule.events[n].fetched} := by
@@ -140,17 +142,19 @@ theorem cacheAfterCount_sdiff (schedule : Schedule Page)
   exact (validTransitions_getElem htransitions n hn).2
 
 theorem fetched_mem_cacheAfterCount (schedule : Schedule Page)
-    (htransitions : Schedule.ValidTransitionsFrom ∅ schedule.events) {n : ℕ}
+    (htransitions : Schedule.ValidTransitionsFrom schedule.initialCache schedule.events)
+    {n : ℕ}
     (hn : n < schedule.events.length) :
     schedule.events[n].fetched ∈ cacheAfterCount schedule (n + 1) := by
   rw [cacheAfterCount_succ schedule hn]
   exact (validTransitions_getElem htransitions n hn).1
 
 theorem cacheAfterCount_card_le (schedule : Schedule Page) (input : Instance Page)
+    (hinitial : schedule.initialCache.card ≤ input.cacheSize)
     (hcapacity : ∀ event ∈ schedule.events, event.cacheAfter.card ≤ input.cacheSize)
     (n : ℕ) : (cacheAfterCount schedule n).card ≤ input.cacheSize := by
   cases n with
-  | zero => simp
+  | zero => simpa using hinitial
   | succ n =>
       by_cases hn : n < schedule.events.length
       · rw [cacheAfterCount_succ schedule hn]
@@ -159,7 +163,7 @@ theorem cacheAfterCount_card_le (schedule : Schedule Page) (input : Instance Pag
         have : schedule.events.take (n + 1) = schedule.events :=
           List.take_of_length_le (by omega)
         cases hempty : schedule.events with
-        | nil => simp [cacheAfterCount, hempty]
+        | nil => simpa [cacheAfterCount, hempty] using hinitial
         | cons head tail =>
             have hlast : cacheAfterCount schedule (n + 1) =
                 cacheAfterCount schedule schedule.events.length := by

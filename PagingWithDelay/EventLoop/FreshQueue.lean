@@ -6,8 +6,9 @@ import PagingWithDelay.EventLoop.TemporalInvariant
 
 Every payment fetches a page that is absent from the queue it replaces.  This
 is what turns the abstract replay `recentPages` into the paper's closed form —
-the suffix of the last `min(k, M)` fetched pages — and what yields the eviction
-spacing `i + k < j` between two payments for the same page.
+the last `k` pages of the initial queue followed by the fetched pages — and
+what yields the eviction spacing `i + k < j` between two payments for the same
+page.
 -/
 
 
@@ -17,17 +18,19 @@ variable {Page : Type*} [DecidableEq Page] {δ : Cost}
 
 /-- Every payment page is absent from the queue obtained from the preceding
 payments.  This is the exact history property used by the FIFO suffix proof. -/
-inductive FreshPayments (capacity : ℕ) : List (Payment Page) → Prop
-  | nil : FreshPayments capacity []
-  | snoc {payments : List (Payment Page)} (h : FreshPayments capacity payments)
+inductive FreshPayments (capacity : ℕ) (initial : List Page) : List (Payment Page) → Prop
+  | nil : FreshPayments capacity initial []
+  | snoc {payments : List (Payment Page)} (h : FreshPayments capacity initial payments)
       (payment : Payment Page)
-      (fresh : payment.page ∉ recentPages capacity payments) :
-      (coherent : payment.queueAfter = recentPages capacity (payments ++ [payment])) →
-      FreshPayments capacity (payments ++ [payment])
+      (fresh : payment.page ∉ recentPages capacity initial payments) :
+      (coherent : payment.queueAfter = recentPages capacity initial (payments ++ [payment])) →
+      FreshPayments capacity initial (payments ++ [payment])
 
-theorem FreshPayments.fresh_at {capacity : ℕ} {payments : List (Payment Page)}
-    (h : FreshPayments capacity payments) (index : ℕ) (hindex : index < payments.length) :
-    payments[index].page ∉ recentPages capacity (payments.take index) := by
+theorem FreshPayments.fresh_at {capacity : ℕ} {initial : List Page}
+    {payments : List (Payment Page)}
+    (h : FreshPayments capacity initial payments) (index : ℕ)
+    (hindex : index < payments.length) :
+    payments[index].page ∉ recentPages capacity initial (payments.take index) := by
   induction h with
   | nil => simp at hindex
   | @snoc previous hp payment hfresh coherent ih =>
@@ -44,9 +47,12 @@ theorem FreshPayments.fresh_at {capacity : ℕ} {payments : List (Payment Page)}
         subst index
         simpa using hfresh
 
-theorem FreshPayments.queueAfter_at {capacity : ℕ} {payments : List (Payment Page)}
-    (h : FreshPayments capacity payments) (index : ℕ) (hindex : index < payments.length) :
-    payments[index].queueAfter = recentPages capacity (payments.take (index + 1)) := by
+theorem FreshPayments.queueAfter_at {capacity : ℕ} {initial : List Page}
+    {payments : List (Payment Page)}
+    (h : FreshPayments capacity initial payments) (index : ℕ)
+    (hindex : index < payments.length) :
+    payments[index].queueAfter =
+      recentPages capacity initial (payments.take (index + 1)) := by
   induction h with
   | nil => simp at hindex
   | @snoc previous hp payment hfresh coherent ih =>
@@ -65,7 +71,7 @@ theorem FreshPayments.queueAfter_at {capacity : ℕ} {payments : List (Payment P
 payment at the instant it was made. -/
 structure FreshQueue (input : Instance Page) (state : State Page) : Prop where
   recent : RecentQueue input state
-  fresh : FreshPayments input.cacheSize state.payments
+  fresh : FreshPayments input.cacheSize input.initialCache state.payments
 
 theorem initial_freshQueue (input : Instance Page) :
     FreshQueue input (initialState input) := by
@@ -95,7 +101,8 @@ theorem step_freshQueue (input : Instance Page) (valid : input.Valid)
       exact hmiss
       · have hrecent := hfq.recent
         unfold RecentQueue at hrecent
-        exact recentPages_append input.cacheSize state.payments state.queue
+        exact recentPages_append input.cacheSize input.initialCache state.payments
+          state.queue
           { time := time, page := page,
             served := state.pending.filter fun occurrence => occurrence.request.page = page,
             queueAfter := insertPage input.cacheSize state.queue page } hrecent
@@ -116,10 +123,10 @@ theorem run_freshQueue (input : Instance Page) (valid : input.Valid) :
             (step_cacheInvariant input valid state action hcache ha)
 
 theorem final_freshPayments (input : Instance Page) (valid : input.Valid) :
-    FreshPayments input.cacheSize
+    FreshPayments input.cacheSize input.initialCache
       (run δ input (2 * input.requests.length) (initialState input)).payments := by
   exact (run_freshQueue input valid _ _ (initial_freshQueue input)
-    (initial_cacheInvariant input)).fresh
+    (initial_cacheInvariant input valid)).fresh
 
 omit [DecidableEq Page] in private theorem drop_succ_eq_tail
     (n : ℕ) (xs : List Page) :
@@ -162,52 +169,96 @@ omit [DecidableEq Page] in private theorem insertPage_drop_suffix
     | nil => exact (hnonempty htail).elim
     | cons head tail => rfl
 
-/-- Concrete FIFO replay is exactly the suffix of at most `capacity` payment
-pages.  This is the closed form used by the paper's cache invariant. -/
+/-- Concrete FIFO replay is exactly the suffix of length at most `capacity` of
+the initial queue followed by the payment pages.  This is the closed form used
+by the paper's cache invariant. -/
 theorem recentPages_eq_lastPaymentPages (capacity : ℕ) (hpositive : 0 < capacity)
+    (initial : List Page) (hinitial : initial.length ≤ capacity)
     (payments : List (Payment Page)) :
-    recentPages capacity payments = lastPaymentPages capacity payments := by
+    recentPages capacity initial payments = lastPaymentPages capacity initial payments := by
   induction payments using List.reverseRecOn with
-  | nil => simp [recentPages, lastPaymentPages]
+  | nil => simp [recentPages, lastPaymentPages, Nat.sub_eq_zero_of_le hinitial]
   | append_singleton payments payment ih =>
-      rw [← recentPages_append capacity payments (recentPages capacity payments)
-        payment rfl, ih]
+      rw [← recentPages_append capacity initial payments
+        (recentPages capacity initial payments) payment rfl, ih]
       unfold lastPaymentPages
-      simp only [List.map_append, List.map_singleton]
+      simp only [List.map_append, List.map_singleton, ← List.append_assoc]
       exact insertPage_drop_suffix capacity hpositive
-        (payments.map Payment.page) payment.page
+        (initial ++ payments.map Payment.page) payment.page
 
 theorem recentPages_take_add (capacity start : ℕ) (hpositive : 0 < capacity)
+    (initial : List Page) (hinitial : initial.length ≤ capacity)
     (payments : List (Payment Page)) (hbound : start + capacity ≤ payments.length) :
-    recentPages capacity (payments.take (start + capacity)) =
+    recentPages capacity initial (payments.take (start + capacity)) =
       ((payments.drop start).take capacity).map Payment.page := by
-  rw [recentPages_eq_lastPaymentPages capacity hpositive]
+  rw [recentPages_eq_lastPaymentPages capacity hpositive initial hinitial]
   unfold lastPaymentPages
-  simp only [List.map_take, List.length_take, List.length_map,
+  simp only [List.map_take, List.length_take, List.length_map, List.length_append,
     Nat.min_eq_left hbound, List.map_drop]
-  rw [List.drop_take]
+  rw [show initial.length + (start + capacity) - capacity = initial.length + start by omega,
+    List.drop_length_add_append, List.drop_take]
   simp
 
+/-- The closed form read at one index: the entry at position `j` of the initial
+queue followed by the payment pages is still in the replayed queue as long as
+fewer than `capacity` entries follow it. -/
+theorem getElem_mem_recentPages {capacity j : ℕ} (hpositive : 0 < capacity)
+    (initial : List Page) (hinitial : initial.length ≤ capacity)
+    (payments : List (Payment Page))
+    (hj : j < (initial ++ payments.map Payment.page).length)
+    (hnear : initial.length + payments.length ≤ j + capacity) :
+    (initial ++ payments.map Payment.page)[j] ∈ recentPages capacity initial payments := by
+  rw [recentPages_eq_lastPaymentPages capacity hpositive initial hinitial]
+  unfold lastPaymentPages
+  simp only [List.length_append, List.length_map] at hj ⊢
+  let d := initial.length + payments.length - capacity
+  have hdle : d ≤ j := by dsimp [d]; omega
+  have hidx : j - d < (List.drop d (initial ++ payments.map Payment.page)).length := by
+    simp only [List.length_drop, List.length_append, List.length_map]
+    omega
+  have hm := List.getElem_mem
+    (l := List.drop d (initial ++ payments.map Payment.page)) (n := j - d) hidx
+  convert hm using 1
+  rw [List.getElem_drop]
+  congr 1
+  omega
+
+/-- A page of the initial queue that no payment has yet evicted is still in
+the replayed queue: position `p` of the initial queue is evicted by payment `p`. -/
+theorem initial_getElem_mem_recentPages {capacity p : ℕ} (hpositive : 0 < capacity)
+    (initial : List Page) (hinitial : initial.length ≤ capacity)
+    (payments : List (Payment Page)) (hp : p < initial.length)
+    (hlate : payments.length ≤ p) :
+    initial[p] ∈ recentPages capacity initial payments := by
+  have hj : p < (initial ++ payments.map Payment.page).length := by
+    simp only [List.length_append, List.length_map]; omega
+  have := getElem_mem_recentPages hpositive initial hinitial payments hj (by omega)
+  rwa [List.getElem_append_left hp] at this
+
 theorem page_mem_recentPages_between {capacity i j : ℕ} (hpositive : 0 < capacity)
+    (initial : List Page) (hinitial : initial.length ≤ capacity)
     (payments : List (Payment Page)) (hj : j ≤ payments.length)
     (hij : i < j) (hnear : j ≤ i + capacity) :
-    payments[i].page ∈ recentPages capacity (payments.take j) := by
-  rw [recentPages_eq_lastPaymentPages capacity hpositive]
+    payments[i].page ∈ recentPages capacity initial (payments.take j) := by
+  rw [recentPages_eq_lastPaymentPages capacity hpositive initial hinitial]
   unfold lastPaymentPages
-  simp only [List.map_take, List.length_take, List.length_map, Nat.min_eq_left hj]
-  let d := j - capacity
-  have hdle : d ≤ i := by dsimp [d]; omega
+  simp only [List.map_take, List.length_take, List.length_map, List.length_append,
+    Nat.min_eq_left hj]
+  let d := initial.length + j - capacity
+  have hdle : d ≤ initial.length + i := by dsimp [d]; omega
   have hi : i < payments.length := hij.trans_le hj
-  have hidx : i - d <
-      (List.drop d (List.take j (List.map Payment.page payments))).length := by
-    simp only [List.length_drop, List.length_take, List.length_map,
+  have hidx : initial.length + i - d <
+      (List.drop d (initial ++ List.take j (List.map Payment.page payments))).length := by
+    simp only [List.length_drop, List.length_append, List.length_take, List.length_map,
       Nat.min_eq_left hj]
     omega
   have hm := List.getElem_mem
-    (l := List.drop d (List.take j (List.map Payment.page payments)))
-    (n := i - d) hidx
+    (l := List.drop d (initial ++ List.take j (List.map Payment.page payments)))
+    (n := initial.length + i - d) hidx
   convert hm using 1
-  all_goals simp [List.getElem_drop, d, hdle]
+  rw [List.getElem_drop]
+  rw [List.getElem_append_right (by omega)]
+  simp [d, hdle]
 
 /-- Two actual payments of the same page are separated by more than the cache
 capacity.  Equivalently, the earlier page is evicted by payment `i+k` before
@@ -224,9 +275,10 @@ theorem samePage_spacing (input : Instance Page) (valid : input.Valid)
   let payments := (run δ input (2 * input.requests.length) (initialState input)).payments
   by_contra hnot
   have hnear : j ≤ i + input.cacheSize := Nat.le_of_not_gt hnot
-  have hmem : payments[i].page ∈ recentPages input.cacheSize (payments.take j) :=
-    page_mem_recentPages_between valid.positiveCapacity payments
-      (Nat.le_of_lt hj) hij hnear
+  have hmem : payments[i].page ∈
+      recentPages input.cacheSize input.initialCache (payments.take j) :=
+    page_mem_recentPages_between valid.positiveCapacity input.initialCache
+      valid.initialCache_full.le payments (Nat.le_of_lt hj) hij hnear
   have hfresh := (final_freshPayments input valid).fresh_at j hj
   apply hfresh
   rw [← hpage]

@@ -107,30 +107,33 @@ specialized to the log of a completed `FIFO.run`. -/
 
 /-- The queue recorded by payment `i` is one FIFO insertion applied to the
 replay of the payments before it. -/
-private theorem queueAfter_eq_insertPage {capacity : ℕ}
-    {payments : List (Payment Page)} (hfresh : FreshPayments capacity payments)
+private theorem queueAfter_eq_insertPage {capacity : ℕ} {initial : List Page}
+    {payments : List (Payment Page)} (hfresh : FreshPayments capacity initial payments)
     (i : ℕ) (hi : i < payments.length) :
     payments[i].queueAfter =
-      insertPage capacity (recentPages capacity (payments.take i)) payments[i].page := by
+      insertPage capacity (recentPages capacity initial (payments.take i))
+        payments[i].page := by
   rw [hfresh.queueAfter_at i hi, List.take_add_one, List.getElem?_eq_getElem hi]
   simp only [Option.toList_some]
-  exact (recentPages_append capacity (payments.take i)
-    (recentPages capacity (payments.take i)) payments[i] rfl).symm
+  exact (recentPages_append capacity initial (payments.take i)
+    (recentPages capacity initial (payments.take i)) payments[i] rfl).symm
 
 /-- Erasing a fresh payment log to public fetch events yields a legal
-transition sequence: each event adds exactly the page it fetches. -/
-private theorem validTransitionsFrom_map_fetchEvent {capacity : ℕ}
-    {payments : List (Payment Page)} (hfresh : FreshPayments capacity payments) :
-    Schedule.ValidTransitionsFrom ∅ (payments.map Payment.fetchEvent) := by
-  have hzero : ((recentPages capacity (payments.take 0)).toFinset : Finset Page) = ∅ := by
+transition sequence from the initial queue: each event adds exactly the page
+it fetches. -/
+private theorem validTransitionsFrom_map_fetchEvent {capacity : ℕ} {initial : List Page}
+    {payments : List (Payment Page)} (hfresh : FreshPayments capacity initial payments) :
+    Schedule.ValidTransitionsFrom initial.toFinset (payments.map Payment.fetchEvent) := by
+  have hzero : ((recentPages capacity initial (payments.take 0)).toFinset : Finset Page) =
+      initial.toFinset := by
     simp [recentPages]
   rw [← hzero]
   refine validTransitionsFrom_of_steps _
-    (fun i => (recentPages capacity (payments.take i)).toFinset) ?_
+    (fun i => (recentPages capacity initial (payments.take i)).toFinset) ?_
   intro i hi
   have hlen : i < payments.length := by simpa using hi
   have hstep := queueAfter_eq_insertPage hfresh i hlen
-  have hmiss : payments[i].page ∉ recentPages capacity (payments.take i) :=
+  have hmiss : payments[i].page ∉ recentPages capacity initial (payments.take i) :=
     hfresh.fresh_at i hlen
   refine ⟨?_, ?_, ?_⟩ <;>
     simp only [List.getElem_map, Payment.fetchEvent_cacheAfter,
@@ -143,16 +146,17 @@ private theorem validTransitionsFrom_map_fetchEvent {capacity : ℕ}
 
 /-- A fresh payment log never records a queue exceeding the cache capacity. -/
 private theorem queueAfter_toFinset_card_le {capacity : ℕ} (hpositive : 0 < capacity)
-    {payments : List (Payment Page)} (hfresh : FreshPayments capacity payments)
+    {initial : List Page} (hinitial : initial.length ≤ capacity)
+    {payments : List (Payment Page)} (hfresh : FreshPayments capacity initial payments)
     {payment : Payment Page} (hmem : payment ∈ payments) :
     payment.queueAfter.toFinset.card ≤ capacity := by
   obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hmem
   calc
     payments[i].queueAfter.toFinset.card ≤ payments[i].queueAfter.length :=
       List.toFinset_card_le _
-    _ = min capacity (payments.take (i + 1)).length := by
+    _ = min capacity (initial.length + (payments.take (i + 1)).length) := by
         rw [hfresh.queueAfter_at i hi]
-        exact recentPages_length capacity hpositive _
+        exact recentPages_length capacity hpositive initial hinitial _
     _ ≤ capacity := min_le_left _ _
 
 /-! ## The four feasibility checks -/
@@ -171,7 +175,8 @@ private theorem schedule_chronological (input : Instance Page) (valid : input.Va
   exact final_payment_times_chronological input valid
 
 private theorem schedule_validTransitions (input : Instance Page) (valid : input.Valid) :
-    Schedule.ValidTransitionsFrom ∅ (schedule δ input valid).events := by
+    Schedule.ValidTransitionsFrom (schedule δ input valid).initialCache
+      (schedule δ input valid).events := by
   rw [schedule_events]
   exact validTransitionsFrom_map_fetchEvent (final_freshPayments input valid)
 
@@ -181,7 +186,7 @@ private theorem schedule_capacity (input : Instance Page) (valid : input.Valid) 
   rw [schedule_events]
   intro event hevent
   obtain ⟨payment, hpayment, rfl⟩ := List.mem_map.mp hevent
-  exact queueAfter_toFinset_card_le valid.positiveCapacity
+  exact queueAfter_toFinset_card_le valid.positiveCapacity valid.initialCache_full.le
     (final_freshPayments input valid) hpayment
 
 /-- Every input occurrence is served by the public trace: it is either a cache
@@ -199,7 +204,7 @@ private theorem exists_serviceCandidate (input : Instance Page) (valid : input.V
       History.final_validBatches input valid payment hpayment
         occurrence hbatch
     exact ⟨payment.time,
-      payment_time_mem_serviceCandidates _ payment occurrence hpayment harrival hpage⟩
+      payment_time_mem_serviceCandidates _ _ payment occurrence hpayment harrival hpage⟩
   · have hhit := final_dropped_occurrence_is_hit input valid occurrence hinput hserved
     exact ⟨occurrence.request.arrival, by
       simp [Schedule.serviceCandidates, hhit]⟩
@@ -218,6 +223,7 @@ paper-facing bound from a statement about a cost expression to a statement
 about an algorithm. -/
 theorem schedule_feasible (δ : Cost) (input : Instance Page) (valid : input.Valid) :
     (schedule δ input valid).Feasible input where
+  initialCache := rfl
   chronological := schedule_chronological input valid
   validTransitions := schedule_validTransitions input valid
   capacity := schedule_capacity input valid

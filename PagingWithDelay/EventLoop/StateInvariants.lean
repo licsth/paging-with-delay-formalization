@@ -10,9 +10,12 @@ structure CacheInvariant (input : Instance Page) (state : State Page) : Prop whe
   queue_capacity : state.queue.length ≤ input.cacheSize
   pending_miss : ∀ occurrence ∈ state.pending, occurrence.request.page ∉ state.queue
 
-theorem initial_cacheInvariant (input : Instance Page) :
+theorem initial_cacheInvariant (input : Instance Page) (valid : input.Valid) :
     CacheInvariant input (initialState input) := by
-  constructor <;> simp [initialState]
+  constructor
+  · exact valid.initialCache_nodup
+  · exact valid.initialCache_full.le
+  · simp [initialState]
 
 omit [DecidableEq Page] in private theorem insertPage_nodup
     (capacity : ℕ) (queue : List Page) (page : Page)

@@ -9,8 +9,7 @@ The formalization also includes four refinements:
 - the analysis is tight for threshold FIFO on page universes of size at least
   `k+2`;
 - on a universe of exactly `k+1` pages, FIFO with threshold `(k+1)/k` has
-  competitive ratio `2k+1`, up to an additive constant caused by the model's
-  empty initial cache; and
+  competitive ratio `2k+1`, with no additive constant; and
 - that ratio is optimal: no deterministic online algorithm is better than
   `(2k+1)`-competitive, already on `k+1` pages; and
 - on `k+2` pages, no deterministic online algorithm is better than
@@ -51,10 +50,14 @@ Only the charging argument establishing the `2k+2` ratio specializes to
 ## Model and scope
 
 The definitions in `Model.lean` describe request instances, schedules, cost,
-feasibility, onlineness, and nonclairvoyance. Caches start empty, requests are
-presented in nondecreasing arrival order, and comparator evictions occur at
-fetch events. These choices match the proof development while preserving the
-competitive claims in the write-up.
+feasibility, onlineness, and nonclairvoyance. Every instance supplies the
+common full initial cache `C₀` of the write-up (`Instance.initialCache`, a list
+of `cacheSize` distinct pages whose order is the initial FIFO queue); every
+schedule, online or offline, starts from it at no cost, and
+`Instance.pageUniverse` counts its pages. Requests are presented in
+nondecreasing arrival order, and comparator evictions occur at fetch events.
+These choices match the proof development while preserving the competitive
+claims in the write-up.
 
 The event loop resolves ties explicitly: arrivals at time `t` precede payments
 at `t`; pages reaching the threshold simultaneously are ordered by their first
@@ -119,19 +122,21 @@ payments occur on arrival and the construction no longer describes the run.
 FIFO with threshold `(k+1)/k` satisfies
 
 ```text
-ALG <= (2k+1) * cost(comparator) + (2k+1)^2/k
+ALG <= (2k+1) * cost(comparator)
 ```
 
 for every feasible comparator on every input with
-`input.pageUniverse.card <= k + 1`, that is, using at most `k+1` distinct
-pages. `Instance.pageUniverse`, defined in `Model.lean`, is the finite set of
-requested pages; the embedding `Fin (k+1) ↪ Page` in the hypotheses only says
-that the page type has room for `k+1` pages, exactly as naming a set of that
-size did before. The write-up uses a common full initial cache and therefore has no
-additive term; `Model.lean` starts both schedules empty, producing the explicit
-constant above while leaving the asymptotic ratio unchanged. The proof is in
-`PagingWithDelay/KPlusOne/`, supported by generic potential and cache-trace
-lemmas in `PagingWithDelay/Analysis/`.
+`input.pageUniverse.card <= k + 1`, that is, involving at most `k+1` distinct
+pages: the `k` initially cached ones and at most one more.
+`Instance.pageUniverse`, defined in `Model.lean`, is the finite set of pages
+in the initial cache or requested; the embedding `Fin (k+1) ↪ Page` in the
+hypotheses only says that the page type has room for `k+1` pages, exactly as
+naming a set of that size did before. There is no additive term: both
+schedules start from the common full initial cache, so the paper's potential
+starts at its maximum and the summation over all `M` payments gives
+`M <= k * OPT` outright. The proof is in `PagingWithDelay/KPlusOne/`,
+supported by generic potential and cache-trace lemmas in
+`PagingWithDelay/Analysis/`.
 
 ### The general lower bound
 

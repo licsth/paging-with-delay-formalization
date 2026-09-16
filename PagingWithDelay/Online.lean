@@ -24,12 +24,14 @@ variable {Page : Type*}
   simp [Instance.upTo, List.filter_filter]
 
 /-- A truncated instance is still a legal input: dropping requests preserves
-chronology, and the cache capacity is untouched. -/
+chronology, and the cache capacity and initial cache are untouched. -/
 theorem Instance.Valid.upTo {input : Instance Page} (valid : input.Valid) (t : Time) :
     (input.upTo t).Valid where
   chronological :=
     List.Pairwise.sublist List.filter_sublist valid.chronological
   positiveCapacity := valid.positiveCapacity
+  initialCache_nodup := valid.initialCache_nodup
+  initialCache_full := valid.initialCache_full
 
 variable [DecidableEq Page]
 

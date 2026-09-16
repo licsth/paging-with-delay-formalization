@@ -217,7 +217,7 @@ theorem schedule_upTo_eq (input : Instance Page) (valid : input.Valid) (t : Time
     hmirror
   unfold earlyPayments at hpayments
   unfold Schedule.upTo
-  apply congrArg Schedule.mk
+  apply congrArg (Schedule.mk input.initialCache.toFinset)
   rw [schedule_events, schedule_events, filter_map_fetchEvent, filter_map_fetchEvent,
     hraise]
   exact congrArg (List.map Payment.fetchEvent) hpayments
