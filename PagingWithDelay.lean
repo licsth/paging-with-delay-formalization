@@ -22,7 +22,7 @@ The imported model module contains the trusted definitions. The first theorem be
 
 The second theorem is the converse, "Tightness of the analysis": no threshold makes FIFO better than (2k+2)-competitive. Its proof is in `PagingWithDelay/LowerBound/`: the adversarial instance, the replay of FIFO on it, and the explicit comparator it is measured against. Like the upper bound, it stands on the Lean compiler alone.
 
-The third theorem is the refinement of the first theorem: on a universe of exactly `k+1` pages the ratio drops to `2k+1`, for FIFO with the raised threshold `(k+1)/k`. Its proof is in `PagingWithDelay/KPlusOne/`, on the generic online-analysis machinery of `PagingWithDelay/Analysis/`.
+The third theorem is the refinement of the first theorem: on a universe of exactly `k+1` pages the ratio drops to `2k+1`, for FIFO with the raised threshold `(k+1)/k`. Its proof, in `PagingWithDelay/KPlusOne/`, is the payment accounting of the first theorem (`PagingWithDelay/RankPotential/`) with the stronger offline potential change available on `k+1` pages.
 
 The fourth theorem is the general lower bound of the original paper: on a universe of `k+1` pages, *no* feasible online algorithm is `(2k+1-ε)`-competitive. Its proof is in `PagingWithDelay/GeneralLowerBound/`, and it is unconditional in the algorithm: the request sequence is built adaptively from the algorithm's own behaviour. Together with the third theorem, the ratio `2k+1` on `k+1` pages is tight.
 

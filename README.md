@@ -139,11 +139,13 @@ pages: the `k` initially cached ones and at most one more.
 in the initial cache or requested; the embedding `Fin (k+1) ↪ Page` in the
 hypotheses only says that the page type has room for `k+1` pages, exactly as
 naming a set of that size did before. There is no additive term: both
-schedules start from the common full initial cache, so the paper's potential
-starts at its maximum and the summation over all `M` payments gives
-`M <= k * OPT` outright. The proof is in `PagingWithDelay/KPlusOne/`,
-supported by generic potential and cache-trace lemmas in
-`PagingWithDelay/Analysis/`.
+schedules start from the common full initial cache, so the rank potential
+starts at its maximum. The proof, in `PagingWithDelay/KPlusOne/Final.lean`, is
+the payment accounting of `PagingWithDelay/RankPotential/` with the write-up's
+stronger offline potential change on `k+1` pages: an offline fetch that evicts
+the one page outside FIFO's cache raises the potential by at least one, so
+only `k` is charged per offline fetch, and at threshold `(k+1)/k` this gives
+`M <= k * OPT` and `ALG <= (2k+1) * OPT`.
 
 ### The general lower bound
 
@@ -215,7 +217,7 @@ implementation is in `PagingWithDelay/DeadlineLowerBound/`; see the
 | `PagingWithDelay/LowerBound/`             | Tightness construction and comparator           |
 | `PagingWithDelay/GeneralLowerBound/`      | General `2k+1` lower bound for all algorithms   |
 | `PagingWithDelay/DeadlineLowerBound/`     | `k+1/2` lower bound for deadline delays         |
-| `PagingWithDelay/KPlusOne/`               | Improved bound for `k+1` pages                  |
+| `PagingWithDelay/KPlusOne/`               | Improved bound for `k+1` pages, same accounting |
 | `PagingWithDelay/Analysis/`               | Reusable potential, rank, and cache-trace tools |
 
 ## Formalization status

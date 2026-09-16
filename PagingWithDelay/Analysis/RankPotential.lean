@@ -104,6 +104,27 @@ theorem rankPotential_le_of_sdiff_eq_empty (queue : List α)
     rankPotential queue cache ≤ rankPotential queue cache' :=
   rankPotential_mono queue (Finset.sdiff_eq_empty_iff_subset.mp h)
 
+/-- Removing a page outside the FIFO queue from the offline cache changes
+nothing. -/
+theorem rankPotential_erase_of_not_mem (queue : List α) (cache : Finset α) {page : α}
+    (hpage : page ∉ queue) :
+    rankPotential queue (cache.erase page) = rankPotential queue cache := by
+  unfold rankPotential sharedPages
+  congr 1
+  ext q
+  simp only [Finset.mem_inter, List.mem_toFinset, Finset.mem_erase]
+  constructor
+  · rintro ⟨hq, _, hc⟩; exact ⟨hq, hc⟩
+  · rintro ⟨hq, hc⟩; exact ⟨hq, fun heq => hpage (heq ▸ hq), hc⟩
+
+/-- Adding a page of the FIFO queue to the offline cache adds its rank. -/
+theorem rankPotential_insert_of_mem (queue : List α) {cache : Finset α} {page : α}
+    (hnot : page ∉ cache) (hmem : page ∈ queue) :
+    rankPotential queue (insert page cache) = rankPotential queue cache + rank queue page := by
+  unfold rankPotential sharedPages
+  rw [Finset.inter_insert_of_mem (List.mem_toFinset.mpr hmem),
+    Finset.sum_insert (fun h => hnot (Finset.mem_inter.mp h).2), add_comm]
+
 /-! ### The maximal potential -/
 
 omit [DecidableEq α] in

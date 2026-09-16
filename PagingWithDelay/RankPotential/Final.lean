@@ -170,8 +170,8 @@ theorem dropped_assoc {i : ℕ} (hi : i < S.count) (h : Dropped S comparator i) 
     ∃ x : ℕ × ℕ, x.1 < S.count ∧ eventIndex S comparator x.1 ≤ x.2 ∧
       x.2 < eventIndex S comparator (x.1 + 1) ∧
       windowLow S comparator i ≤ x.2 ∧ x.2 < eventIndex S comparator (i + 1) ∧
-      S.pageAt i ∈ Analysis.lazyCache S.cacheSize comparator x.2 ∧
-      S.pageAt i ∉ Analysis.lazyCache S.cacheSize comparator (x.2 + 1) := by
+      S.pageAt i ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator x.2 ∧
+      S.pageAt i ∉ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (x.2 + 1) := by
   obtain ⟨n, hlow, hhigh, hmem, hnot⟩ := dropped_event h
   have hn : n < eventIndex S comparator S.count :=
     hhigh.trans_le (eventIndex_monotone (Nat.succ_le_of_lt hi))
@@ -190,8 +190,8 @@ theorem assoc_spec {i : ℕ} (hi : i < S.count) (h : Dropped S comparator i) :
       (assoc S comparator i).2 < eventIndex S comparator ((assoc S comparator i).1 + 1) ∧
       windowLow S comparator i ≤ (assoc S comparator i).2 ∧
       (assoc S comparator i).2 < eventIndex S comparator (i + 1) ∧
-      S.pageAt i ∈ Analysis.lazyCache S.cacheSize comparator (assoc S comparator i).2 ∧
-      S.pageAt i ∉ Analysis.lazyCache S.cacheSize comparator ((assoc S comparator i).2 + 1) := by
+      S.pageAt i ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (assoc S comparator i).2 ∧
+      S.pageAt i ∉ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator ((assoc S comparator i).2 + 1) := by
   classical
   unfold assoc
   rw [dif_pos ⟨hi, h⟩]
@@ -235,19 +235,22 @@ theorem assoc_mem_intervalEvents {i : ℕ} (hi : i < S.count) (h : Dropped S com
   rw [Finset.mem_sigma, Finset.mem_range, Finset.mem_Ico]
   exact ⟨hj, hjlow, hjhigh⟩
 
-/-- **The offline gains pay for the dropped payments.** -/
-theorem sum_gain_ge : S.cacheSize * (droppedSet S comparator).card ≤ totalGain S comparator := by
+/-- **The offline gains pay for the dropped payments**, `g` units each when
+every associated event has gain at least `g`. -/
+theorem sum_gain_ge_of {g : ℕ} (hg : ∀ i, i < S.count → Dropped S comparator i →
+      g ≤ gainAt S comparator (assoc S comparator i).1 (assoc S comparator i).2) :
+    g * (droppedSet S comparator).card ≤ totalGain S comparator := by
   classical
   rw [totalGain_eq]
-  calc S.cacheSize * (droppedSet S comparator).card
-      = ∑ i ∈ droppedSet S comparator, S.cacheSize := by
+  calc g * (droppedSet S comparator).card
+      = ∑ i ∈ droppedSet S comparator, g := by
         rw [Finset.sum_const, smul_eq_mul, mul_comm]
     _ ≤ ∑ i ∈ droppedSet S comparator,
           gainAt S comparator (assoc S comparator i).1 (assoc S comparator i).2 := by
         apply Finset.sum_le_sum
         intro i hi
         simp only [droppedSet, Finset.mem_filter, Finset.mem_range] at hi
-        exact gain_assoc_ge hi.1 hi.2
+        exact hg i hi.1 hi.2
     _ = ∑ x ∈ (droppedSet S comparator).image (assoc S comparator),
           gainAt S comparator x.1 x.2 := by
         rw [Finset.sum_image assoc_injOn]
@@ -366,23 +369,79 @@ theorem neverSet_delay_le (feasible : comparator.Feasible S.input) :
 
 /-! ### Payment accounting -/
 
-/-- **Payment accounting, combinatorial form.**  With `E` the number of offline
-events before the last payment and `C` the never-held payments,
-`M + Φ_0 ≤ (k+1)·E + (k+1)·|C| + Φ_final`. -/
-theorem payment_accounting_nat (feasible : comparator.Feasible S.input) :
+/-- **Payment accounting, combinatorial form, with a general fetch charge.**
+If every associated offline event has gain at least `g`, then with `c + g = 2k+1`
+— `c` is the charge per offline fetch, `k+1` in general and `k` on `k+1`
+pages — and `E` the number of offline events before the last payment and `C`
+the never-held payments, `M + Φ_0 ≤ c·E + (k+1)·|C| + Φ_final`. -/
+theorem payment_accounting_nat_of_gain (feasible : comparator.Feasible S.input)
+    {c g : ℕ} (hcg : c + g = 2 * S.cacheSize + 1) (hgk : g ≤ S.cacheSize + 1)
+    (hg : ∀ i, i < S.count → Dropped S comparator i →
+      g ≤ gainAt S comparator (assoc S comparator i).1 (assoc S comparator i).2) :
     S.count + potential S comparator 0 ≤
-      (S.cacheSize + 1) * eventIndex S comparator S.count +
+      c * eventIndex S comparator S.count +
         (S.cacheSize + 1) * (neverSet S comparator).card + potential S comparator S.count := by
   have h1 := sum_identity (S := S) (comparator := comparator)
   have h2 := sum_shared_le feasible
-  have h3 := sum_gain_ge (S := S) (comparator := comparator)
+  have h3 := sum_gain_ge_of hg
   have h4 := droppedSet_card_le (S := S) (comparator := comparator)
   have h5 := card_partition (S := S) (comparator := comparator)
   have h6 : S.cacheSize * S.count = S.cacheSize * (heldSet S comparator).card +
       S.cacheSize * (droppedSet S comparator).card +
       S.cacheSize * (neverSet S comparator).card := by
     rw [h5]; ring
+  have h7 : c * eventIndex S comparator S.count =
+      S.cacheSize * eventIndex S comparator S.count +
+        (S.cacheSize + 1 - g) * eventIndex S comparator S.count := by
+    rw [← Nat.add_mul]; congr 1; omega
+  have h8 : g * (droppedSet S comparator).card + (S.cacheSize + 1 - g) *
+      (droppedSet S comparator).card = (S.cacheSize + 1) * (droppedSet S comparator).card := by
+    rw [← Nat.add_mul]; congr 1; omega
+  have h9 : (S.cacheSize + 1 - g) * (droppedSet S comparator).card ≤
+      (S.cacheSize + 1 - g) * eventIndex S comparator S.count := Nat.mul_le_mul_left _ h4
   nlinarith
+
+/-- **Payment accounting, combinatorial form.**  With `E` the number of offline
+events before the last payment and `C` the never-held payments,
+`M + Φ_0 ≤ (k+1)·E + (k+1)·|C| + Φ_final`. -/
+theorem payment_accounting_nat (feasible : comparator.Feasible S.input) :
+    S.count + potential S comparator 0 ≤
+      (S.cacheSize + 1) * eventIndex S comparator S.count +
+        (S.cacheSize + 1) * (neverSet S comparator).card + potential S comparator S.count :=
+  payment_accounting_nat_of_gain feasible (c := S.cacheSize + 1) (g := S.cacheSize) (by ring) (Nat.le_succ _)
+    (fun i hi h => gain_assoc_ge hi h)
+
+/-- **Payment accounting with a general fetch charge**:
+`M + Φ_0 ≤ c·S + ((k+1)/δ)·D + Φ_final` whenever every associated offline
+event has gain at least `g = 2k+1-c`. -/
+theorem payment_accounting_of_gain (feasible : comparator.Feasible S.input)
+    {c g : ℕ} (hcg : c + g = 2 * S.cacheSize + 1) (hgk : g ≤ S.cacheSize + 1)
+    (hg : ∀ i, i < S.count → Dropped S comparator i →
+      g ≤ gainAt S comparator (assoc S comparator i).1 (assoc S comparator i).2) :
+    (S.count : Cost) + potential S comparator 0 ≤
+      (c : ℕ) * comparator.fetchCount +
+        ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input +
+        potential S comparator S.count := by
+  have hnat := payment_accounting_nat_of_gain feasible hcg hgk hg
+  have hE : (eventIndex S comparator S.count : Cost) ≤ comparator.fetchCount := by
+    exact_mod_cast eventIndex_le_length (S := S) (comparator := comparator) S.count
+  have hC : ((neverSet S comparator).card : Cost) ≤
+      comparator.totalDelay S.input / S.threshold := by
+    rw [le_div_iff₀ S.threshold_pos]
+    exact neverSet_delay_le feasible
+  have hcast : (S.count : Cost) + potential S comparator 0 ≤
+      (c : ℕ) * (eventIndex S comparator S.count : Cost) +
+        (S.cacheSize + 1 : ℕ) * ((neverSet S comparator).card : Cost) +
+        potential S comparator S.count := by
+    exact_mod_cast hnat
+  calc (S.count : Cost) + potential S comparator 0
+      ≤ (c : ℕ) * (eventIndex S comparator S.count : Cost) +
+          (S.cacheSize + 1 : ℕ) * ((neverSet S comparator).card : Cost) +
+          potential S comparator S.count := hcast
+    _ ≤ (c : ℕ) * comparator.fetchCount +
+          (S.cacheSize + 1 : ℕ) * (comparator.totalDelay S.input / S.threshold) +
+          potential S comparator S.count := by gcongr
+    _ = _ := by rw [mul_div_assoc']; ring
 
 /-- **Payment accounting** (the write-up's lemma, general threshold):
 `M + Φ_0 ≤ (k+1)·S + ((k+1)/δ)·D + Φ_final`, with `S` the comparator's fetch
@@ -391,27 +450,9 @@ theorem payment_accounting (feasible : comparator.Feasible S.input) :
     (S.count : Cost) + potential S comparator 0 ≤
       (S.cacheSize + 1 : ℕ) * comparator.fetchCount +
         ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input +
-        potential S comparator S.count := by
-  have hnat := payment_accounting_nat feasible
-  have hE : (eventIndex S comparator S.count : Cost) ≤ comparator.fetchCount := by
-    exact_mod_cast eventIndex_le_length (S := S) (comparator := comparator) S.count
-  have hC : ((neverSet S comparator).card : Cost) ≤
-      comparator.totalDelay S.input / S.threshold := by
-    rw [le_div_iff₀ S.threshold_pos]
-    exact neverSet_delay_le feasible
-  have hcast : (S.count : Cost) + potential S comparator 0 ≤
-      (S.cacheSize + 1 : ℕ) * (eventIndex S comparator S.count : Cost) +
-        (S.cacheSize + 1 : ℕ) * ((neverSet S comparator).card : Cost) +
-        potential S comparator S.count := by
-    exact_mod_cast hnat
-  calc (S.count : Cost) + potential S comparator 0
-      ≤ (S.cacheSize + 1 : ℕ) * (eventIndex S comparator S.count : Cost) +
-          (S.cacheSize + 1 : ℕ) * ((neverSet S comparator).card : Cost) +
-          potential S comparator S.count := hcast
-    _ ≤ (S.cacheSize + 1 : ℕ) * comparator.fetchCount +
-          (S.cacheSize + 1 : ℕ) * (comparator.totalDelay S.input / S.threshold) +
-          potential S comparator S.count := by gcongr
-    _ = _ := by rw [mul_div_assoc']; ring
+        potential S comparator S.count :=
+  payment_accounting_of_gain feasible (c := S.cacheSize + 1) (g := S.cacheSize) (by ring) (Nat.le_succ _)
+    (fun i hi h => gain_assoc_ge hi h)
 
 /-! ### The potentials at both ends -/
 
@@ -427,19 +468,34 @@ theorem potential_le_triangular {i : ℕ} (hi : i ≤ S.count) :
     potential S comparator i ≤ triangular S.cacheSize := by
   unfold potential
   have := rankPotential_le_triangular (S.queue_nodup hi)
-    (Analysis.lazyCache S.cacheSize comparator (eventIndex S comparator i))
+    (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (eventIndex S comparator i))
   rwa [S.queue_length hi] at this
+
+/-- `Φ_final ≤ Φ_0`. -/
+theorem potential_final_le_zero (feasible : comparator.Feasible S.input) :
+    (potential S comparator S.count : Cost) ≤ potential S comparator 0 := by
+  rw [potential_zero_eq_triangular feasible]
+  exact_mod_cast potential_le_triangular (comparator := comparator) le_rfl
+
+/-- **`M ≤ c·S + ((k+1)/δ)·D`** whenever every associated offline event has
+gain at least `2k+1-c`. -/
+theorem paymentCount_le_of_gain (feasible : comparator.Feasible S.input)
+    {c g : ℕ} (hcg : c + g = 2 * S.cacheSize + 1) (hgk : g ≤ S.cacheSize + 1)
+    (hg : ∀ i, i < S.count → Dropped S comparator i →
+      g ≤ gainAt S comparator (assoc S comparator i).1 (assoc S comparator i).2) :
+    (S.count : Cost) ≤
+      (c : ℕ) * comparator.fetchCount +
+        ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input :=
+  le_of_add_le_add_right ((payment_accounting_of_gain feasible hcg hgk hg).trans
+    (by have := potential_final_le_zero feasible; gcongr))
 
 /-- **`M ≤ (k+1)·S + ((k+1)/δ)·D`** for every positive threshold. -/
 theorem paymentCount_le (feasible : comparator.Feasible S.input) :
     (S.count : Cost) ≤
       (S.cacheSize + 1 : ℕ) * comparator.fetchCount +
-        ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input := by
-  have h := payment_accounting feasible
-  have hfin : (potential S comparator S.count : Cost) ≤ potential S comparator 0 := by
-    rw [potential_zero_eq_triangular feasible]
-    exact_mod_cast potential_le_triangular (comparator := comparator) le_rfl
-  exact le_of_add_le_add_right (h.trans (by gcongr))
+        ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input :=
+  paymentCount_le_of_gain feasible (c := S.cacheSize + 1) (g := S.cacheSize) (by ring) (Nat.le_succ _)
+    (fun i hi h => gain_assoc_ge hi h)
 
 end
 

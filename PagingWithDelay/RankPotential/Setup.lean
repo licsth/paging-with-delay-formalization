@@ -304,6 +304,37 @@ theorem served_arrival_gt {i j : ℕ} (hi : i < S.count) (hj : j < S.cacheSize +
   rw [timeAt_eq S (hlt.trans hi)]
   simpa using hbound
 
+/-- With a positive threshold every payment serves at least one request. -/
+theorem served_ne_nil {i : ℕ} (hi : i < S.count) : (S.payments[i]).served ≠ [] := by
+  intro hempty
+  have hcost := payment_delayCost S hi
+  rw [FIFO.Payment.delayCost, hempty] at hcost
+  simp only [List.map_nil, List.sum_nil] at hcost
+  exact absurd hcost.symm (ne_of_gt S.threshold_pos)
+
+/-! ### The page universe -/
+
+/-- Every fetched page was requested, hence lies in the page universe. -/
+theorem pageAt_mem_pageUniverse {i : ℕ} (hi : i < S.count) :
+    S.pageAt i ∈ S.input.pageUniverse := by
+  obtain ⟨occurrence, ho⟩ := List.exists_mem_of_ne_nil _ (served_ne_nil S hi)
+  rw [← served_page S hi ho, Instance.pageUniverse, List.mem_toFinset, List.mem_append]
+  exact Or.inr (List.mem_map_of_mem (served_request_mem S hi ho))
+
+theorem seq_mem_pageUniverse {j : ℕ} (hj : j < S.cacheSize + S.count) :
+    S.seq j ∈ S.input.pageUniverse := by
+  by_cases hjk : j < S.cacheSize
+  · rw [seq_initial S hjk, Instance.pageUniverse, List.mem_toFinset, List.mem_append]
+    exact Or.inl (List.getElem_mem _)
+  · rw [show j = S.cacheSize + (j - S.cacheSize) by omega]
+    exact pageAt_mem_pageUniverse S (by omega)
+
+/-- FIFO's cache lies in the page universe. -/
+theorem queue_subset_pageUniverse {i : ℕ} (hi : i ≤ S.count) {x : Page} (hx : x ∈ S.queue i) :
+    x ∈ S.input.pageUniverse := by
+  obtain ⟨j, _, hj, rfl⟩ := exists_of_mem_queue S hi hx
+  exact seq_mem_pageUniverse S (by omega)
+
 /-- The served occurrences of distinct payments are disjoint, identifier-wise. -/
 theorem servedIds_nodup :
     ((S.payments.flatMap FIFO.Payment.served).map Occurrence.id).Nodup :=

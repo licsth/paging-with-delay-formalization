@@ -11,7 +11,8 @@ The comparator enters here.  Its events are counted by `eventIndex`: none at
 initialization, and `eventIndex (i+1)` events stamped no later than payment
 `i`, so that the events between `eventIndex i` and `eventIndex (i+1)` are
 those made while FIFO's cache is `queue i`.  The comparator's cache is read
-through the lazy cache `L n` of `LazyCache.lean`, and the rank potential is
+through the lazy cache `L n` of `LazyCache.lean`, over the instance's page
+universe, and the rank potential is
 
   `potential i = Φ(queue i, L (eventIndex i))`
 
@@ -58,21 +59,21 @@ def eventIndex : ℕ → ℕ
   | i + 1 => Analysis.eventCount comparator (S.timeAt i)
 
 /-- The potential at the boundary before interval `i`. -/
-def potential (i : ℕ) : ℕ := rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize comparator (eventIndex S comparator i))
+def potential (i : ℕ) : ℕ := rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (eventIndex S comparator i))
 
 /-- The potential immediately before payment `i`, after the offline events of
 its interval. -/
 def before (i : ℕ) : ℕ :=
-  rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize comparator (eventIndex S comparator (i + 1)))
+  rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (eventIndex S comparator (i + 1)))
 
 /-- `m`: the number of pages shared by both caches immediately before payment `i`. -/
 def shared (i : ℕ) : ℕ :=
-  (sharedPages (S.queue i) (Analysis.lazyCache S.cacheSize comparator (eventIndex S comparator (i + 1)))).card
+  (sharedPages (S.queue i) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (eventIndex S comparator (i + 1)))).card
 
 /-- `k + ΔΦ` at offline event `n`, measured against FIFO's cache `queue i`. -/
 def gainAt (i n : ℕ) : ℕ :=
-  rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize comparator (n + 1)) + S.cacheSize -
-    rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize comparator n)
+  rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (n + 1)) + S.cacheSize -
+    rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n)
 
 /-- The first comparator event of the window of payment `i`: the events after
 the last eviction of its page, or all events if it was never evicted. -/
@@ -82,19 +83,19 @@ def windowLow (i : ℕ) : ℕ :=
   | some j => eventIndex S comparator (j + 1)
 
 /-- **Case 1.**  The comparator holds the requested page just before the payment. -/
-def Held (i : ℕ) : Prop := S.pageAt i ∈ Analysis.lazyCache S.cacheSize comparator (eventIndex S comparator (i + 1))
+def Held (i : ℕ) : Prop := S.pageAt i ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (eventIndex S comparator (i + 1))
 
 /-- **Case 2.**  The comparator held the requested page during the window but
 no longer does. -/
 def Dropped (i : ℕ) : Prop :=
   ¬ Held S comparator i ∧
     ∃ n, windowLow S comparator i ≤ n ∧ n < eventIndex S comparator (i + 1) ∧
-      S.pageAt i ∈ Analysis.lazyCache S.cacheSize comparator n
+      S.pageAt i ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n
 
 /-- **Case 3.**  The comparator never holds the requested page during the window. -/
 def Never (i : ℕ) : Prop :=
   ∀ n, windowLow S comparator i ≤ n → n ≤ eventIndex S comparator (i + 1) →
-    S.pageAt i ∉ Analysis.lazyCache S.cacheSize comparator n
+    S.pageAt i ∉ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n
 
 variable {S comparator}
 
@@ -103,7 +104,7 @@ theorem cases_exhaustive (i : ℕ) :
   by_cases h1 : Held S comparator i
   · exact Or.inl h1
   by_cases h2 : ∃ n, windowLow S comparator i ≤ n ∧ n < eventIndex S comparator (i + 1) ∧
-      S.pageAt i ∈ Analysis.lazyCache S.cacheSize comparator n
+      S.pageAt i ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n
   · exact Or.inr (Or.inl ⟨h1, h2⟩)
   · refine Or.inr (Or.inr ?_)
     intro n hlow hhigh hmem
@@ -111,6 +112,12 @@ theorem cases_exhaustive (i : ℕ) :
     · exact h2 ⟨n, hlow, hlt, hmem⟩
     · have : n = eventIndex S comparator (i + 1) := by omega
       exact h1 (by unfold Held; rw [← this]; exact hmem)
+
+/-- The comparator's initial cache, hence the lazy cache, respects the capacity. -/
+theorem initialCache_card_le (feasible : comparator.Feasible S.input) :
+    comparator.initialCache.card ≤ S.cacheSize := by
+  rw [feasible.initialCache, ← S.size]
+  exact (List.toFinset_card_le _).trans S.valid.initialCache_full.le
 
 /-! ### Event indices -/
 
@@ -167,7 +174,7 @@ theorem potential_step_online_of_held {i : ℕ} (hi : i < S.count) (h : Held S c
   rw [S.queue_succ_full hi]
   have := rankPotential_fifo_step (S.queue_nodup hi.le) (S.queue_ne_nil hi.le)
     (S.pageAt_not_mem_queue hi)
-    (Analysis.lazyCache S.cacheSize comparator (eventIndex S comparator (i + 1)))
+    (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (eventIndex S comparator (i + 1)))
   rw [this, S.queue_length hi.le, if_pos (show S.pageAt i ∈ _ from h)]
 
 /-- **Potential changes, online.**  `Φ' + m = Φ + k·[pageAt i ∈ C_OPT]`: the
@@ -179,7 +186,7 @@ theorem potential_step_online_of_not_held {i : ℕ} (hi : i < S.count)
   rw [S.queue_succ_full hi]
   have := rankPotential_fifo_step (S.queue_nodup hi.le) (S.queue_ne_nil hi.le)
     (S.pageAt_not_mem_queue hi)
-    (Analysis.lazyCache S.cacheSize comparator (eventIndex S comparator (i + 1)))
+    (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (eventIndex S comparator (i + 1)))
   rw [this, if_neg (show S.pageAt i ∉ _ from h), add_zero]
 
 theorem shared_le (i : ℕ) (hi : i ≤ S.count) : shared S comparator i ≤ S.cacheSize := by
@@ -189,9 +196,8 @@ theorem shared_le (i : ℕ) (hi : i ≤ S.count) : shared S comparator i ≤ S.c
 theorem shared_lt_of_held (feasible : comparator.Feasible S.input) {i : ℕ} (hi : i < S.count)
     (h : Held S comparator i) : shared S comparator i + 1 ≤ S.cacheSize := by
   unfold shared
-  have hcard := Analysis.lazyCache_card_le (k := S.cacheSize) (schedule := comparator)
-    (by rw [feasible.initialCache, ← S.size]
-        exact (List.toFinset_card_le _).trans S.valid.initialCache_full.le)
+  have hcard := Analysis.lazyCache_card_le (k := S.cacheSize) (V := S.input.pageUniverse)
+    (schedule := comparator) (initialCache_card_le feasible)
     feasible.validTransitions (fun e he => S.size ▸ feasible.capacity e he)
     (eventIndex S comparator (i + 1))
   have := sharedPages_card_lt (S.queue i) h (S.pageAt_not_mem_queue hi)
@@ -202,23 +208,24 @@ theorem shared_lt_of_held (feasible : comparator.Feasible S.input) {i : ℕ} (hi
 /-- **Potential changes, offline.**  The lazy cache evicts at most one page
 per event, so `Φ' + k ≥ Φ`: `gainAt` is the nonnegative `k + ΔΦ`. -/
 theorem gainAt_spec {i : ℕ} (hi : i ≤ S.count) (n : ℕ) :
-    rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize comparator (n + 1)) + S.cacheSize =
-      rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize comparator n) + gainAt S comparator i n := by
+    rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (n + 1)) + S.cacheSize =
+      rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n) + gainAt S comparator i n := by
   unfold gainAt
   have := rankPotential_le_add_length_of_card_sdiff_le_one (S.queue i)
-    (Analysis.card_sdiff_lazyCache_succ_le (k := S.cacheSize) (schedule := comparator) n)
+    (Analysis.card_sdiff_lazyCache_succ_le (k := S.cacheSize) (V := S.input.pageUniverse)
+      (schedule := comparator) n)
   rw [S.queue_length hi] at this
   omega
 
 /-- An offline event that evicts a page outside FIFO's cache does not lower
 the potential: its gain is at least `k`. -/
 theorem gainAt_ge_of_evicted_outside {i n : ℕ} (hi : i ≤ S.count) {p : Page}
-    (hp : p ∈ Analysis.lazyCache S.cacheSize comparator n) (hp' : p ∉ Analysis.lazyCache S.cacheSize comparator (n + 1)) (hnot : p ∉ S.queue i) :
+    (hp : p ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n) (hp' : p ∉ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (n + 1)) (hnot : p ∉ S.queue i) :
     S.cacheSize ≤ gainAt S comparator i n := by
   unfold gainAt
   have := rankPotential_le_of_sdiff_subset_singleton (S.queue i)
-    (Analysis.sdiff_lazyCache_succ_subset_singleton (k := S.cacheSize) (schedule := comparator)
-      n hp hp')
+    (Analysis.sdiff_lazyCache_succ_subset_singleton (k := S.cacheSize)
+      (V := S.input.pageUniverse) (schedule := comparator) n hp hp')
   have hrank : rank (S.queue i) p = 0 := by simp [rank, hnot]
   rw [hrank, add_zero] at this
   have hspec := gainAt_spec (comparator := comparator) hi n
@@ -228,8 +235,8 @@ theorem gainAt_ge_of_evicted_outside {i n : ℕ} (hi : i ≤ S.count) {p : Page}
 /-- The offline changes of an interval telescope: over the events
 `a ≤ n < b`, `Φ` rises by the gains and falls by `k` per event. -/
 theorem potential_telescope {i : ℕ} (hi : i ≤ S.count) {a b : ℕ} (hab : a ≤ b) :
-    rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize comparator b) + S.cacheSize * (b - a) =
-      rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize comparator a) +
+    rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator b) + S.cacheSize * (b - a) =
+      rankPotential (S.queue i) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator a) +
         ∑ n ∈ Finset.Ico a b, gainAt S comparator i n := by
   induction b, hab using Nat.le_induction with
   | base => simp
@@ -254,11 +261,11 @@ theorem potential_interval {i : ℕ} (hi : i ≤ S.count) :
 offline event `n` of the window at which the lazy cache loses the page. -/
 theorem dropped_event {i : ℕ} (h : Dropped S comparator i) :
     ∃ n, windowLow S comparator i ≤ n ∧ n < eventIndex S comparator (i + 1) ∧
-      S.pageAt i ∈ Analysis.lazyCache S.cacheSize comparator n ∧ S.pageAt i ∉ Analysis.lazyCache S.cacheSize comparator (n + 1) := by
+      S.pageAt i ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n ∧ S.pageAt i ∉ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (n + 1) := by
   obtain ⟨hnot, hex⟩ := h
   classical
   set candidates := (Finset.range (eventIndex S comparator (i + 1))).filter fun n =>
-    windowLow S comparator i ≤ n ∧ S.pageAt i ∈ Analysis.lazyCache S.cacheSize comparator n with hc
+    windowLow S comparator i ≤ n ∧ S.pageAt i ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n with hc
   have hne : candidates.Nonempty := by
     obtain ⟨n, hlow, hhigh, hmem⟩ := hex
     exact ⟨n, by simp [hc, hlow, hhigh, hmem]⟩
@@ -297,9 +304,9 @@ theorem pageAt_not_mem_queue_of_mem_window {i j n : ℕ} (hi : i < S.count)
 one page, so both payments fetch it; their windows are disjoint. -/
 theorem dropped_event_injective {i i' n : ℕ} (hi : i < S.count) (hi' : i' < S.count)
     (hlow : windowLow S comparator i ≤ n) (hhigh : n < eventIndex S comparator (i + 1))
-    (hmem : S.pageAt i ∈ Analysis.lazyCache S.cacheSize comparator n) (hnot : S.pageAt i ∉ Analysis.lazyCache S.cacheSize comparator (n + 1))
+    (hmem : S.pageAt i ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n) (hnot : S.pageAt i ∉ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (n + 1))
     (hlow' : windowLow S comparator i' ≤ n) (hhigh' : n < eventIndex S comparator (i' + 1))
-    (hmem' : S.pageAt i' ∈ Analysis.lazyCache S.cacheSize comparator n) (hnot' : S.pageAt i' ∉ Analysis.lazyCache S.cacheSize comparator (n + 1)) :
+    (hmem' : S.pageAt i' ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n) (hnot' : S.pageAt i' ∉ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (n + 1)) :
     i = i' := by
   have hpage : S.pageAt i = S.pageAt i' := Analysis.eq_of_evicted_at n hmem hnot hmem' hnot'
   -- windows of one page are disjoint: the later one starts after the earlier payment
@@ -318,13 +325,15 @@ theorem dropped_event_injective {i i' n : ℕ} (hi : i < S.count) (hi' : i' < S.
 
 /-! ### Case 3: the delay charge -/
 
-/-- Lazy-cache membership implies real-cache membership, contrapositively. -/
+/-- Within the universe, lazy-cache membership implies real-cache membership,
+contrapositively. -/
 theorem notMem_cacheAfterCount_of_notMem_L (feasible : comparator.Feasible S.input)
-    {n : ℕ} {p : Page} (h : p ∉ Analysis.lazyCache S.cacheSize comparator n) : p ∉ Analysis.cacheAfterCount comparator n :=
-  fun hmem => h (Analysis.cacheAfterCount_subset_lazyCache (k := S.cacheSize)
-    (by rw [feasible.initialCache, ← S.size]
-        exact (List.toFinset_card_le _).trans S.valid.initialCache_full.le)
-    feasible.validTransitions (fun e he => S.size ▸ feasible.capacity e he) n hmem)
+    {n : ℕ} {p : Page} (hV : p ∈ S.input.pageUniverse)
+    (h : p ∉ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n) :
+    p ∉ Analysis.cacheAfterCount comparator n :=
+  fun hmem => h (Analysis.cacheAfterCount_inter_subset_lazyCache (k := S.cacheSize)
+    (initialCache_card_le feasible) feasible.validTransitions
+    (fun e he => S.size ▸ feasible.capacity e he) n (Finset.mem_inter.mpr ⟨hmem, hV⟩))
 
 /-- A request served at payment `i` arrives inside the window, in terms of
 event indices: the events before its arrival number at least `windowLow i`. -/
@@ -365,7 +374,7 @@ theorem no_early_service (feasible : comparator.Feasible S.input)
   have hnothit : occurrence.request.page ∉
       comparator.cacheBefore occurrence.request.arrival := by
     rw [Analysis.cacheBefore_eq_cacheAfterCount feasible.chronological, hpage]
-    apply notMem_cacheAfterCount_of_notMem_L feasible
+    apply notMem_cacheAfterCount_of_notMem_L feasible (S.pageAt_mem_pageUniverse hi)
     exact hnever _ (windowLow_le_eventCountLT_served hi ho)
       (Analysis.eventCountLT_le_eventCount comparator hbefore)
   -- hence the only service candidates are fetches of the page
@@ -397,10 +406,10 @@ theorem no_early_service (feasible : comparator.Feasible S.input)
     rw [hntime]
     exact (S.served_arrival_gt_lastEviction hi hj ho).trans_le (htime ▸ hcond.1)
   apply hnever (n + 1) (by omega) (by omega)
-  apply Analysis.cacheAfterCount_subset_lazyCache (k := S.cacheSize)
-    (by rw [feasible.initialCache, ← S.size]
-        exact (List.toFinset_card_le _).trans S.valid.initialCache_full.le)
-    feasible.validTransitions (fun e he => S.size ▸ feasible.capacity e he)
+  apply Analysis.cacheAfterCount_inter_subset_lazyCache (k := S.cacheSize)
+    (initialCache_card_le feasible) feasible.validTransitions
+    (fun e he => S.size ▸ feasible.capacity e he)
+  refine Finset.mem_inter.mpr ⟨?_, S.pageAt_mem_pageUniverse hi⟩
   rw [← hpage, hcond.2, ← hgetElem]
   exact Analysis.fetched_mem_cacheAfterCount comparator feasible.validTransitions hn
 
