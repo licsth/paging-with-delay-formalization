@@ -24,6 +24,13 @@ The lemmas are the write-up's "Potential changes":
   evicts at most one page `e`, `Φ ≥ Φ_before - rank e`, so `Φ` drops by at
   most `k`, and not at all when `e` is outside the FIFO queue.
 
+The current write-up uses the complementary potential
+`Φ = ∑_{q ∈ C_ALG \ C_OPT} rank q`, with `Φ_0 = 0`.  It is `missingPotential`,
+equal to `K - rankPotential` (`missingPotential_add_rankPotential`); the
+lemmas at the end of this file restate the potential changes for it, with the
+signs of the write-up (`ΔΦ ≤ k` at an offline fetch, `ΔΦ = m - k·[p ∈ C_OPT]`
+at a payment).
+
 These are pure list and finset facts about `rank`, reusable for any FIFO
 potential argument.
 -/
@@ -255,5 +262,86 @@ theorem rankPotential_fifo_step {queue : List α} (hnodup : queue.Nodup) (hne : 
           Finset.sum_add_distrib, Finset.sum_const]
         simp only [nsmul_eq_mul, Nat.cast_id, mul_one]
         omega
+
+
+/-! ### The write-up's potential over the complement
+
+The write-up now measures the pages of FIFO's cache that the offline cache
+*lacks*: `Φ = ∑_{q ∈ C_ALG \ C_OPT} rank q`, which starts at `0`.  The ranks
+of a full queue sum to `K = k(k+1)/2`, so this is `K - rankPotential`
+(`missingPotential_add_rankPotential`), and every statement about one is a
+statement about the other.  The lemmas below restate "Potential changes" in
+the write-up's direction. -/
+
+/-- The pages of the FIFO queue that the offline cache does not hold. -/
+def missingPages (queue : List α) (cache : Finset α) : Finset α :=
+  queue.toFinset \ cache
+
+/-- The write-up's rank potential `∑_{q ∈ C_ALG \ C_OPT} rank queue q`. -/
+def missingPotential (queue : List α) (cache : Finset α) : ℕ :=
+  ∑ q ∈ missingPages queue cache, rank queue q
+
+/-- The two potentials are complementary: `Φ_missing + Φ_shared = K`. -/
+theorem missingPotential_add_rankPotential {queue : List α} (hnodup : queue.Nodup)
+    (cache : Finset α) :
+    missingPotential queue cache + rankPotential queue cache = triangular queue.length := by
+  unfold missingPotential missingPages rankPotential sharedPages
+  rw [← Finset.sdiff_inter_self_left,
+    Finset.sum_sdiff Finset.inter_subset_left, sum_rank_toFinset hnodup]
+
+/-- Both caches equal: the write-up's potential is `0`. -/
+theorem missingPotential_toFinset (queue : List α) :
+    missingPotential queue queue.toFinset = 0 := by
+  simp [missingPotential, missingPages]
+
+/-- `Φ ≤ K`. -/
+theorem missingPotential_le_triangular {queue : List α} (hnodup : queue.Nodup)
+    (cache : Finset α) : missingPotential queue cache ≤ triangular queue.length := by
+  have := missingPotential_add_rankPotential hnodup cache
+  omega
+
+/-- **Potential changes at an offline fetch**, write-up direction: evicting at
+most the page `evicted` raises `Φ` by at most `rank queue evicted` — at most
+`k`, and not at all when the evicted page is outside the FIFO queue. -/
+theorem missingPotential_le_of_sdiff_subset_singleton {queue : List α} (hnodup : queue.Nodup)
+    {cache cache' : Finset α} {evicted : α} (h : cache \ cache' ⊆ {evicted}) :
+    missingPotential queue cache' ≤ missingPotential queue cache + rank queue evicted := by
+  have := rankPotential_le_of_sdiff_subset_singleton queue h
+  have h1 := missingPotential_add_rankPotential hnodup cache
+  have h2 := missingPotential_add_rankPotential hnodup cache'
+  omega
+
+/-- An offline fetch that evicts at most one page raises `Φ` by at most `k`. -/
+theorem missingPotential_le_add_length_of_card_sdiff_le_one {queue : List α}
+    (hnodup : queue.Nodup) {cache cache' : Finset α} (h : (cache \ cache').card ≤ 1) :
+    missingPotential queue cache' ≤ missingPotential queue cache + queue.length := by
+  have := rankPotential_le_add_length_of_card_sdiff_le_one queue h
+  have h1 := missingPotential_add_rankPotential hnodup cache
+  have h2 := missingPotential_add_rankPotential hnodup cache'
+  omega
+
+/-- **Potential changes at a FIFO payment**, write-up direction:
+`Φ' = Φ + m - k·[page ∈ cache]`, with `m = |C_ALG ∩ C_OPT|` before the payment
+(equation `ΔΦ = m - k·𝟙[v_i ∈ C_OPT]`).  Stated additively in `ℕ`. -/
+theorem missingPotential_fifo_step {queue : List α} (hnodup : queue.Nodup) (hne : queue ≠ [])
+    {page : α} (hpage : page ∉ queue) (cache : Finset α) :
+    missingPotential (queue.tail ++ [page]) cache +
+        (if page ∈ cache then queue.length else 0) =
+      missingPotential queue cache + (sharedPages queue cache).card := by
+  have hnodup' : (queue.tail ++ [page]).Nodup :=
+    List.nodup_append.mpr ⟨hnodup.sublist (List.tail_sublist _), List.nodup_singleton _,
+      fun a ha b hb hab => hpage (by
+        rw [List.mem_singleton] at hb
+        subst hb hab
+        exact List.mem_of_mem_tail ha)⟩
+  have hlen : (queue.tail ++ [page]).length = queue.length := by
+    cases queue with
+    | nil => exact absurd rfl hne
+    | cons _ _ => simp
+  have hstep := rankPotential_fifo_step hnodup hne hpage cache
+  have h1 := missingPotential_add_rankPotential hnodup cache
+  have h2 := missingPotential_add_rankPotential hnodup' cache
+  rw [hlen] at h2
+  split_ifs at hstep ⊢ <;> omega
 
 end PagingWithDelay.Analysis

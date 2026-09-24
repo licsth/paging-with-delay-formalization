@@ -19,16 +19,16 @@ final theorem specialises to `δ = 1`.
 | Windows, property 1 (requests arrive in `W_i`) | `Setup.served_arrival_gt_lastEviction`, `Setup.served_arrival_le` |
 | Windows, property 2 (delay sums to `δ`) | `Setup.payment_delayCost` |
 | Windows, property 3 (windows of one page are disjoint) | `Setup.lastEviction_ge_of_same_page` |
-| Rank potential `Φ`, `0 ≤ Φ ≤ K` | `Analysis.rankPotential`, `rankPotential_le_triangular` (`Analysis/RankPotential.lean`); `potential`, `potential_le_triangular` |
-| `Φ_0 = K` | `potential_zero_eq_triangular` |
-| Potential changes, offline fetch (`ΔΦ ≥ -k`; `ΔΦ ≥ 0` if the evicted page is outside FIFO's cache; `ΔΦ ≥ 1` on `k+1` pages) | `Analysis.rankPotential_le_add_length_of_card_sdiff_le_one`, `rankPotential_le_of_sdiff_subset_singleton`; in the run: `gainAt_spec`, `gainAt_ge_of_evicted_outside`, `KPlusOne.gainAt_ge_succ_of_evicted_outside` |
-| Potential changes, online payment (`ΔΦ = -m + k·[p ∈ C_OPT]`) | `Analysis.rankPotential_fifo_step`; in the run: `potential_step_online_of_held`, `potential_step_online_of_not_held`, with `shared_le`, `shared_lt_of_held` |
+| Rank potential `Φ = Σ_{C_ALG \ C_OPT} rank`, `0 ≤ Φ ≤ K` | `Analysis.missingPotential`, `missingPotential_le_triangular`; in the run: `missing`. The proof runs on the complement `K - Φ = Σ_{C_ALG ∩ C_OPT} rank`: `Analysis.rankPotential`, `potential`, related by `missingPotential_add_rankPotential`, `missing_add_potential` |
+| `Φ_0 = 0` | `missing_zero` (complement: `potential_zero_eq_triangular`) |
+| Potential changes, offline fetch (`ΔΦ ≤ k`; `ΔΦ ≤ 0` if the evicted page is outside FIFO's cache; `ΔΦ ≤ -1` on `k+1` pages) | `Analysis.missingPotential_le_add_length_of_card_sdiff_le_one`, `missingPotential_le_of_sdiff_subset_singleton`, `KPlusOne.missingPotential_succ_add_one_le_of_evicted_outside`; complement form used by the proof: `rankPotential_le_add_length_of_card_sdiff_le_one`, `rankPotential_le_of_sdiff_subset_singleton`, `gainAt_spec`, `gainAt_ge_of_evicted_outside`, `KPlusOne.gainAt_ge_succ_of_evicted_outside` |
+| Potential changes, online payment (`ΔΦ = m - k·[p ∈ C_OPT]`) | `Analysis.missingPotential_fifo_step`; complement form: `rankPotential_fifo_step`, in the run `potential_step_online_of_held`, `potential_step_online_of_not_held`, with `shared_le`, `shared_lt_of_held` |
 | Case 1, page held | `Held`, `potential_step_online_of_held` |
 | Case 2, page dropped in the window; the associated fetch; no fetch used twice | `Dropped`, `dropped_event`, `gain_assoc_ge`, `dropped_event_injective` / `assoc_injOn`, `droppedSet_card_le` |
 | Case 3, never held; delay charge `≥ δ`; charges disjoint | `Never`, `no_early_service`, `threshold_le_delay_of_never`, `neverSet_delay_le` |
 | The cases are exhaustive | `cases_exhaustive`, `card_partition` |
-| Payment accounting `M ≤ (k+1)S + ((k+1)/δ)D + Φ_final − Φ_0` | `payment_accounting` (general charge: `payment_accounting_of_gain`; combinatorial core: `payment_accounting_nat_of_gain`, `sum_identity`) |
-| Payment accounting on `k+1` pages, `M ≤ kS + ((k+1)/δ)D + Φ_final − Φ_0` | `KPlusOne.paymentCount_le_k_plus_one` (via `paymentCount_le_of_gain`) |
+| Payment accounting `M + Φ_final − Φ_0 ≤ (k+1)S + ((k+1)/δ)D` | `payment_accounting_missing`; complement form `payment_accounting` (general charge: `payment_accounting_of_gain`; combinatorial core: `payment_accounting_nat_of_gain`, `sum_identity`) |
+| Payment accounting on `k+1` pages, `M + Φ_final − Φ_0 ≤ kS + ((k+1)/δ)D` | `KPlusOne.payment_accounting_missing_k_plus_one`; without potentials `KPlusOne.paymentCount_le_k_plus_one` (via `paymentCount_le_of_gain`) |
 | `M ≤ (k+1)S + ((k+1)/δ)D` | `paymentCount_le` |
 | Theorem: `ALG ≤ (2k+2)·OPT` | `competitiveRatio` |
 | Theorem: `ALG ≤ (2k+1)·OPT` on `k+1` pages | `KPlusOne.competitive_of_pageUniverse` |
@@ -60,8 +60,9 @@ is exactly the one the statement quantifies over.
 
 The accounting is stated with a general charge `c` per offline fetch
 (`payment_accounting_of_gain`, `paymentCount_le_of_gain`): it holds whenever
-every associated case-2 event has gain `k + ΔΦ ≥ 2k+1-c`. The general bound
-takes `c = k+1` from `ΔΦ ≥ 0`. On `k+1` pages
+every associated case-2 event has gain `k + ΔΦ ≥ 2k+1-c`, with `ΔΦ` the change
+of the complement potential `Σ_{C_ALG ∩ C_OPT} rank` (the write-up's `-ΔΦ`).
+The general bound takes `c = k+1` from `ΔΦ ≥ 0`. On `k+1` pages
 `PagingWithDelay/KPlusOne/Final.lean` proves the write-up's stronger
 `ΔΦ ≥ 1` at those events (`gainAt_ge_succ_of_evicted_outside`: the evicted
 page is the one page outside FIFO's cache, so the fetched page is inside it),

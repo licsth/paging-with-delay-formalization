@@ -174,4 +174,14 @@ theorem resetEvents_length_le (initial target : Finset Page) :
   rw [resetEvents, fillEvents_length, Finset.length_toList]
   exact Finset.card_le_card Finset.sdiff_subset
 
+
+/-- The reset fetches exactly the pages of the target outside the initial cache. -/
+theorem resetEvents_length (initial target : Finset Page) :
+    (resetEvents initial target).length = (target \ initial).card := by
+  rw [resetEvents, fillEvents_length, Finset.length_toList]
+
+/-- Nothing to reset when the target is the initial cache. -/
+@[simp] theorem resetEvents_self (cache : Finset Page) : resetEvents cache cache = [] := by
+  rw [← List.length_eq_zero_iff, resetEvents_length, Finset.sdiff_self, Finset.card_empty]
+
 end PagingWithDelay.Analysis

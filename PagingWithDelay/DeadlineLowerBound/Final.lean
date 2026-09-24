@@ -10,12 +10,15 @@ feasible online algorithm, `Loop.exists_run` builds an input on which
 * the algorithm pays at least one unit per request (`Online.length_le_totalCost`,
   through the misses and the separation the run maintains);
 * the certificate supplies a feasible comparator of cost at most
-  `k + m + 1` (`Bridge.certificate_totalCost_le`); and
+  `m + 1` (`Bridge.certificate_totalCost_le`) — the construction starts at
+  time `0` from the initial cache, so no start-up fetches are needed; and
 * the certificate's budget obeys `(2k+1) m ≤ 2T + 2k` (`PhaseCount`, through
   the potential the run maintains).
 
 `PhaseCount.no_ratio_below_k_add_half` turns those three into the statement
-that no ratio below `k + 1/2` survives.
+that no ratio below `k + 1/2` survives.  `exists_input_quantitative` states
+them directly, as the write-up's theorem does: for every `N ≥ 1` there is an
+input with `ALG ≥ N` and `OPT ≤ (2N + 2k)/(2k+1) + 1`.
 
 `competitive_ratio_lower_bound_pageUniverse` is the form the public theorem
 quotes: the page restriction is a bound on `Instance.pageUniverse` of the input
@@ -52,7 +55,7 @@ theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
           (algorithm input valid).totalCost input := by
   classical
   obtain ⟨steps, hsteps⟩ :=
-    PhaseCount.no_ratio_below_k_add_half k ratio additive ((k : Cost) + 1) hratio
+    PhaseCount.no_ratio_below_k_add_half k ratio additive 1 hratio
   obtain ⟨c, d, hc, hd, hcd, run, hrunSteps⟩ :=
     exists_run algorithm online feasible hk hcard steps
   -- the algorithm pays at least one unit for every request
@@ -74,7 +77,7 @@ theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
       (PhaseCount.refill_nonempty hcard hk run.cert.distinguished_mem hzV
         (fun heq => hzc heq.symm))
       run.valid run.size (PhaseCount.card_refill hcard hc hd hcd)
-      run.deadline run.positive run.free run.link
+      run.deadline run.startEq run.free run.link
   -- the certificate's budget is small
   have hbudget : (2 * k + 1) * run.state.budget ≤ 2 * steps + 2 * k := by
     have hpotential := run.stateValid.potential_le
@@ -86,9 +89,7 @@ theorem competitive_ratio_lower_bound (algorithm : Algorithm Page)
   · refine hsteps (run.state.budget : Cost) _ (comparator.totalCost run.input)
       (hlength.trans halg) ?_ ?_
     · exact_mod_cast hbudget
-    · refine hcost.trans (le_of_eq ?_)
-      push_cast
-      ring
+    · exact_mod_cast hcost
 
 /-- The lower bound as the public theorem states it: the universe restriction is
 a bound on the page universe of the input the construction produces, the `k+2`
@@ -117,6 +118,64 @@ theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
       (V := Finset.univ.map pages) (by simp) ratio additive hratio
   exact ⟨input, valid, comparator, hsize,
     (Instance.card_pageUniverse_le hinitial hpages).trans_eq (by simp), hfeasible, hdelay, hcost⟩
+
+
+/-- **The quantitative form of the write-up's theorem.**  For every `N ≥ 1`
+there is an input of `N` requests on at most `k + 2` pages on which the
+algorithm pays at least `N`, while a feasible comparator that serves every
+request at no delay cost pays at most `(2N + 2k)/(2k+1) + 1`, stated without
+dividing as `(2k+1)·OPT ≤ 2N + 2k + (2k+1)`. -/
+theorem exists_input_quantitative {algorithm : Algorithm Page}
+    (online : algorithm.Online) (feasible : algorithm.Feasible)
+    {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page) {N : ℕ} (hN : 1 ≤ N) :
+    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+      input.cacheSize = k ∧
+      input.pageUniverse.card ≤ k + 2 ∧
+      input.requests.length = N ∧
+      comparator.Feasible input ∧
+      (∀ request ∈ input.requests, comparator.requestCost request = 0) ∧
+      (N : Cost) ≤ (algorithm input valid).totalCost input ∧
+      (2 * k + 1 : Cost) * comparator.totalCost input ≤ 2 * N + 2 * k + (2 * k + 1) := by
+  classical
+  set V : Finset Page := Finset.univ.map pages with hV
+  have hcard : V.card = k + 2 := by simp [hV]
+  obtain ⟨c, d, hc, hd, hcd, run, hrunSteps⟩ :=
+    exists_run algorithm online feasible hk hcard (N - 1)
+  have hlengthN : run.input.requests.length = N := by
+    rw [run.lengthEq, hrunSteps]
+    omega
+  -- the algorithm pays at least one unit for every request
+  have halg : ((run.input.requests.length : ℕ) : Cost) ≤
+      (algorithm run.input run.valid).totalCost run.input :=
+    length_le_totalCost _ (feasible.scheduleFeasible _ _) run.chargeWindow run.penalty
+      run.misses run.ordered
+  -- the certificate supplies the comparator
+  obtain ⟨z, hz⟩ := run.cert.cheap_nonempty
+  have hzV : z ∈ V := (run.cert.cheap_mem_V hz).1
+  have hzc : z ≠ run.state.distinguished := (run.cert.cheap_mem_V hz).2
+  obtain ⟨comparator, hfeasible, hcost, hcomparatorDelay⟩ :=
+    certificate_totalCost_le run.cert hz
+      (PhaseCount.refill_nonempty hcard hk run.cert.distinguished_mem hzV
+        (fun heq => hzc heq.symm))
+      run.valid run.size (PhaseCount.card_refill hcard hc hd hcd)
+      run.deadline run.startEq run.free run.link
+  -- the certificate's budget is small: `(2k+1) B ≤ 2(N-1) + 2k`
+  have hbudget : (2 * k + 1) * run.state.budget ≤ 2 * (N - 1) + 2 * k := by
+    have hpotential := run.stateValid.potential_le
+    have hbound := run.potentialBound
+    rw [hrunSteps] at hbound
+    omega
+  have hnat : (2 * k + 1) * (run.state.budget + 1) ≤ 2 * N + 2 * k + (2 * k + 1) := by
+    rw [Nat.mul_succ]
+    omega
+  refine ⟨run.input, run.valid, comparator, run.size,
+    (Instance.card_pageUniverse_le run.initialPages run.pages).trans_eq hcard, hlengthN,
+    hfeasible, hcomparatorDelay, by rw [← hlengthN]; exact halg, ?_⟩
+  calc (2 * k + 1 : Cost) * comparator.totalCost run.input
+      ≤ (2 * k + 1 : Cost) * ((run.state.budget + 1 : ℕ) : Cost) := by gcongr
+    _ = (((2 * k + 1) * (run.state.budget + 1) : ℕ) : Cost) := by push_cast; ring
+    _ ≤ ((2 * N + 2 * k + (2 * k + 1) : ℕ) : Cost) := by exact_mod_cast hnat
+    _ = 2 * N + 2 * k + (2 * k + 1) := by push_cast; ring
 
 end
 end PagingWithDelay.DeadlineLowerBound

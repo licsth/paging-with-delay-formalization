@@ -12,16 +12,15 @@ translation: `buildSchedule` turns a move list into a `Schedule` of
 instance whose requests the moves serve, with
 
 ```text
-totalCost ≤ cacheSize + (number of moves)
+totalCost ≤ |start \ C₀| + (number of moves)
 ```
 
-The additive `cacheSize` pays for turning the instance's initial cache into
-the certificate's start configuration: the drafts start both schedules on a
-common set of `k` nodes, but the certificate picks that set from the
-algorithm's cache just before the first request, which need not be the initial
-cache it was given.  Those at most `k` fetches are stamped at time `0`, which
-is why the translation asks for every request to arrive, and every move to
-happen, strictly after `0`.
+The first term pays for turning the instance's initial cache `C₀` into the
+certificate's start configuration, with fetches stamped at time `0`; that is
+why the translation asks every request either to arrive strictly after `0`
+or to find the start configuration equal to `C₀`.  The construction of
+`Loop.lean` starts from `C₀` itself, so this term vanishes and the comparator
+costs exactly its moves (`certificate_totalCost_le`).
 
 The delay side costs nothing: a request whose delay curve still vanishes at the
 end of its window contributes `0`, whether it is served by a cache hit at
@@ -176,11 +175,14 @@ theorem foldl_moveEvents (t : Time) :
           hlate candidate (List.mem_cons_of_mem _ hcandidate)
 
 /-- The translation computes the same cache as the offline model. -/
-private theorem foldl_resetEvents {t : Time} (ht : 0 < t) (initial start : Finset Page)
-    (hcard : initial.card ≤ start.card) :
+private theorem foldl_resetEvents {t : Time} {initial start : Finset Page}
+    (ht : 0 < t ∨ initial = start) (hcard : initial.card ≤ start.card) :
     (Analysis.resetEvents initial start).foldl
         (fun current event => if event.time < t then event.cacheAfter else current) initial =
       start := by
+  rcases ht with ht | rfl
+  swap
+  · rw [Analysis.resetEvents_self]; rfl
   have h : ∀ (events : List (FetchEvent Page)) (init : Finset Page),
       (∀ e ∈ events, e.time = 0) →
       events.foldl (fun current event => if event.time < t then event.cacheAfter else current)
@@ -196,10 +198,10 @@ private theorem foldl_resetEvents {t : Time} (ht : 0 < t) (initial start : Finse
 theorem cacheBefore_buildSchedule {initial start : Finset Page} {moves : List (Move Page)}
     (hcard : initial.card ≤ start.card)
     (hchrono : moves.Pairwise fun earlier later => earlier.time < later.time)
-    {t : Time} (ht : 0 < t) :
+    {t : Time} (ht : 0 < t ∨ initial = start) :
     (buildSchedule initial start moves).cacheBefore t = cacheBefore start moves t := by
   unfold Schedule.cacheBefore buildSchedule
-  rw [List.foldl_append, foldl_resetEvents ht initial start hcard,
+  rw [List.foldl_append, foldl_resetEvents ht hcard,
     foldl_moveEvents t start moves hchrono]
   rfl
 
@@ -304,7 +306,7 @@ theorem pairwise_moveEvents : ∀ (cache : Finset Page) (moves : List (Move Page
 theorem serves_buildSchedule {initial start : Finset Page} {moves : List (Move Page)}
     (hcard : initial.card ≤ start.card)
     (hchrono : moves.Pairwise fun earlier later => earlier.time < later.time)
-    (request : Request Page) {deadline : Time} (harrival : 0 < request.arrival)
+    (request : Request Page) {deadline : Time} (harrival : 0 < request.arrival ∨ initial = start)
     (hzero : request.delay (deadline - request.arrival) = 0)
     (hserves : Serves start moves ⟨request.page, request.arrival, deadline⟩) :
     ((buildSchedule initial start moves).serviceCandidates request).Nonempty ∧
@@ -349,14 +351,15 @@ theorem feasible_buildSchedule {k : ℕ} {start : Finset Page} {moves : List (Mo
     (hvalid : ValidMoves start moves)
     (hchrono : moves.Pairwise fun earlier later => earlier.time < later.time)
     (deadline : Request Page → Time)
-    (harrival : ∀ request ∈ input.requests, 0 < request.arrival)
+    (harrival : ∀ request ∈ input.requests,
+      0 < request.arrival ∨ input.initialCache.toFinset = start)
     (hzero : ∀ request ∈ input.requests,
       request.delay (deadline request - request.arrival) = 0)
     (hserves : ∀ request ∈ input.requests,
       Serves start moves ⟨request.page, request.arrival, deadline request⟩) :
     (buildSchedule input.initialCache.toFinset start moves).Feasible input ∧
       (buildSchedule input.initialCache.toFinset start moves).totalCost input ≤
-        ((k + moves.length : ℕ) : Cost) ∧
+        (((start \ input.initialCache.toFinset).card + moves.length : ℕ) : Cost) ∧
       ∀ request ∈ input.requests,
         (buildSchedule input.initialCache.toFinset start moves).requestCost request = 0 := by
   have hinit : input.initialCache.toFinset.card ≤ start.card := by
@@ -401,10 +404,8 @@ theorem feasible_buildSchedule {k : ℕ} {start : Finset Page} {moves : List (Mo
       obtain ⟨request, hrequest, rfl⟩ := List.mem_map.mp hcost
       exact (hservice request hrequest).2
     rw [Schedule.totalCost, hdelay, add_zero, Schedule.fetchCount, buildSchedule]
-    have := Analysis.resetEvents_length_le input.initialCache.toFinset start
-    rw [hcard] at this
-    simp only [List.length_append, length_moveEvents]
-    exact_mod_cast Nat.add_le_add_right this _
+    simp only [List.length_append, length_moveEvents, Analysis.resetEvents_length]
+    exact le_rfl
 
 /-! ## Deadline-shaped requests
 
@@ -463,18 +464,18 @@ theorem deadlineRequest_delay_penalty (page : Page) (arrival window rate oversho
 /-- **The offline certificate, discharged into the trusted definitions.**  At
 any checkpoint, the certificate yields a schedule that `Model.lean` calls
 feasible for the instance it has served, of total cost at most
-`cacheSize + m + 1`.
+`m + 1`.
 
 The schedule serves every request at no delay cost, which is what makes the
 bound transfer to the hard-deadline reading of the instance: the comparator
 never buys its way out of a deadline.
 
-This is the drafts' `OPT ≤ m_T + 1`, plus the `cacheSize` that turning the
-instance's initial cache into the certificate's start configuration costs.
-The hypotheses are: the instance's cache has the size of the certificate's
-configurations (`hsize`, `hcard`), every request arrives after time `0`
-(`harrival`), every request is free inside its window (`hzero`), and every
-request of the instance is one the certificate has served (`hmem`). -/
+This is the write-up's `OPT ≤ B + 1`, with no additive start-up cost: the
+certificate starts from the instance's initial cache (`hstart`), so no fetch
+is needed to reach its start configuration.  The other hypotheses are: the
+instance's cache has the size of the certificate's configurations (`hsize`,
+`hcard`), every request is free inside its window (`hzero`), and every request
+of the instance is one the certificate has served (`hmem`). -/
 theorem certificate_totalCost_le {k : ℕ} {V start : Finset Page}
     {processed : List (Window Page)} {alpha : Window Page} {c : Page} {L : Finset Page}
     {q : Option Page} {m : ℕ} {now : Time}
@@ -483,22 +484,24 @@ theorem certificate_totalCost_le {k : ℕ} {V start : Finset Page}
     {input : Instance Page} (valid : input.Valid)
     (hsize : input.cacheSize = k) (hcard : start.card = k)
     (deadline : Request Page → Time)
-    (harrival : ∀ request ∈ input.requests, 0 < request.arrival)
+    (hstart : input.initialCache.toFinset = start)
     (hzero : ∀ request ∈ input.requests,
       request.delay (deadline request - request.arrival) = 0)
     (hmem : ∀ request ∈ input.requests,
       (⟨request.page, request.arrival, deadline request⟩ : Window Page) ∈ alpha :: processed) :
     ∃ schedule : Schedule Page, schedule.Feasible input ∧
-      schedule.totalCost input ≤ ((k + (m + 1) : ℕ) : Cost) ∧
+      schedule.totalCost input ≤ ((m + 1 : ℕ) : Cost) ∧
       ∀ request ∈ input.requests, schedule.requestCost request = 0 := by
   obtain ⟨t, cfg, moves, hvalid, hchrono, _, hlength, hserves, _⟩ :=
     hcert.exists_final_schedule hz hne
   obtain ⟨hfeasible, hcost, hdelay⟩ :=
-    feasible_buildSchedule valid hsize hcard hvalid hchrono deadline harrival hzero
+    feasible_buildSchedule valid hsize hcard hvalid hchrono deadline
+      (fun _ _ => Or.inr hstart) hzero
       (fun request hrequest => hserves _ (hmem request hrequest))
   refine ⟨buildSchedule input.initialCache.toFinset start moves, hfeasible, ?_, hdelay⟩
   refine hcost.trans ?_
-  exact_mod_cast Nat.add_le_add_left hlength k
+  rw [hstart, Finset.sdiff_self, Finset.card_empty, zero_add]
+  exact_mod_cast hlength
 
 /-! ## The translation is not vacuous
 
@@ -510,7 +513,8 @@ no delay, the request being served by a cache hit at its arrival. -/
 example :
     (buildSchedule ({0} : Finset ℕ) {0} []).Feasible ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ ∧
       (buildSchedule ({0} : Finset ℕ) {0} []).totalCost
-          ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ ≤ ((1 + 0 : ℕ) : Cost) ∧
+          ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ ≤
+        (((({0} : Finset ℕ) \ ([0] : List ℕ).toFinset).card + 0 : ℕ) : Cost) ∧
       ∀ request ∈ (⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ : Instance ℕ).requests,
         (buildSchedule ({0} : Finset ℕ) {0} []).requestCost request = 0 := by
   refine feasible_buildSchedule (k := 1)
@@ -520,7 +524,7 @@ example :
   · intro request hrequest
     simp only [List.mem_singleton] at hrequest
     subst hrequest
-    norm_num
+    exact Or.inl (by norm_num)
   · intro request hrequest
     simp only [List.mem_singleton] at hrequest
     subst hrequest

@@ -93,14 +93,16 @@ formalization derives termination, feasibility, onlineness, nonclairvoyance,
 and the identity
 `ALG = (1+δ)M`, where `M` is the number of payments.
 
-For the main upper bound, the write-up's rank potential
-`Φ = Σ_{q ∈ C_ALG ∩ C_OPT} rank(q)` is run against the comparator, read through
+For the main upper bound, a rank potential is run against the comparator, read through
 a *lazy cache* that evicts a page only when its slot is needed (the write-up's
 "we may assume that OPT evicts a page only when fetching"; `Schedule.Feasible`
 itself allows an event to evict several pages). Payment windows, the potential
 changes at online payments and offline fetches, and the three charging cases
-give the payment accounting `M <= (k+1) S + ((k+1)/δ) D + Φ_final - Φ_0` for
+give the payment accounting `M + Φ_final - Φ_0 <= (k+1) S + ((k+1)/δ) D` for
 every positive threshold, and at `δ = 1`, `ALG = 2M <= (2k+2) OPT`. The
+write-up's potential is `Φ = Σ_{q ∈ C_ALG \ C_OPT} rank(q)`, with `Φ_0 = 0`;
+the proof runs on its complement `K - Φ = Σ_{q ∈ C_ALG ∩ C_OPT} rank(q)`, and
+`payment_accounting_missing` restates the accounting in the write-up's form. The
 implementation is in `PagingWithDelay/RankPotential/`; see the
 [README](PagingWithDelay/RankPotential/README.md) there for the correspondence
 with the write-up's lemmas.

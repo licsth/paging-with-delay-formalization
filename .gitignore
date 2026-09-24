@@ -1,2 +1,8 @@
 .DS_Store
 .lake
+*.pdf
+*.aux
+*.fdb_latexmk
+*.log
+*.fls
+*.tex

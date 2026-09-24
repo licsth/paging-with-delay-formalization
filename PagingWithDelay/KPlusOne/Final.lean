@@ -9,8 +9,11 @@ same payment accounting as the general bound, with the stronger offline
 potential change: at an offline fetch that evicts a page outside FIFO's cache,
 `ΔΦ ≥ 1` rather than `ΔΦ ≥ 0`, because on `k+1` pages the evicted page is the
 one page outside FIFO's cache, so the fetched page is inside it and
-contributes a rank of at least `1` (`gain_assoc_ge_succ`).  The accounting
-then charges only `k` per offline fetch (`payment_accounting_k_plus_one`),
+contributes a rank of at least `1` (`gain_assoc_ge_succ`); in the write-up's
+potential `Φ = ∑_{q ∈ C_ALG \ C_OPT} rank q` this is `ΔΦ ≤ -1`
+(`missingPotential_succ_add_one_le_of_evicted_outside`).  The accounting
+then charges only `k` per offline fetch (`paymentCount_le_k_plus_one`, and
+`payment_accounting_missing_k_plus_one` with the potentials),
 and at `δ = (k+1)/k` both coefficients are `k`: `M ≤ k·OPT` and
 `ALG = (1+δ)·M ≤ (2k+1)·OPT` (`competitive`).
 -/
@@ -92,6 +95,37 @@ theorem gain_assoc_ge_succ
   have := pageAt_not_mem_queue_of_mem_window hi hlow hhigh hjlow hjhigh
   exact gainAt_ge_succ_of_evicted_outside huniverse hj.le
     (S.pageAt_mem_pageUniverse hi) hmem hnot this.2
+
+/-- **Potential changes, offline, on `k+1` pages**, in the write-up's potential
+`Φ = ∑_{q ∈ C_ALG \ C_OPT} rank q`: an offline event that evicts a page outside
+FIFO's cache lowers `Φ` by at least one. -/
+theorem missingPotential_succ_add_one_le_of_evicted_outside
+    (huniverse : S.input.pageUniverse.card ≤ S.cacheSize + 1)
+    {j n : ℕ} (hj : j ≤ S.count) {p : Page} (hV : p ∈ S.input.pageUniverse)
+    (hp : p ∈ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n)
+    (hp' : p ∉ Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (n + 1))
+    (hnot : p ∉ S.queue j) :
+    missingPotential (S.queue j) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (n + 1)) + 1 ≤
+      missingPotential (S.queue j) (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n) := by
+  have hgain := gainAt_ge_succ_of_evicted_outside huniverse hj hV hp hp' hnot
+  have hspec := gainAt_spec (comparator := comparator) hj n
+  have h1 := missingPotential_add_rankPotential (S.queue_nodup hj)
+    (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator n)
+  have h2 := missingPotential_add_rankPotential (S.queue_nodup hj)
+    (Analysis.lazyCache S.cacheSize S.input.pageUniverse comparator (n + 1))
+  omega
+
+/-- **Payment accounting on `k+1` pages** exactly as the write-up states it:
+`M + Φ_final - Φ_0 ≤ k·S + ((k+1)/δ)·D`, stated additively, with
+`Φ = ∑_{q ∈ C_ALG \ C_OPT} rank q`. -/
+theorem payment_accounting_missing_k_plus_one (feasible : comparator.Feasible S.input)
+    (huniverse : S.input.pageUniverse.card ≤ S.cacheSize + 1) :
+    (S.count : Cost) + missing S comparator S.count ≤
+      (S.cacheSize : ℕ) * comparator.fetchCount +
+        ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input +
+        missing S comparator 0 :=
+  payment_accounting_missing_of_gain feasible (c := S.cacheSize) (g := S.cacheSize + 1)
+    (by ring) le_rfl (fun i hi h => gain_assoc_ge_succ huniverse hi h)
 
 /-- **Payment accounting on `k+1` pages**: `M ≤ k·S + ((k+1)/δ)·D`. -/
 theorem paymentCount_le_k_plus_one (feasible : comparator.Feasible S.input)

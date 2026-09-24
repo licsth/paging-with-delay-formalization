@@ -29,13 +29,15 @@ unbounded. Three things change as a result.
    need the algorithm to serve a request before its page is reused. Here two
    requests are charged separately as soon as they ask for different pages *or*
    have disjoint charging windows, which the release rule provides directly.
-3. **The comparator's start configuration is not the initial cache.** Both
-   schedules start from the instance's common initial cache `C₀`, but the
-   certificate's start configuration is read off the algorithm's cache just
-   before the first request, which the algorithm may already have changed.
-   The comparator therefore turns `C₀` into that configuration at time `0`,
-   at most `k` fetches — an additive constant, absorbed into the additive
-   constant of the competitive claim.
+3. **The construction starts at time `0`, from the initial cache.** As in the
+   write-up, the initial cache is `k` pages of the universe and the first
+   distinguished request is released at time `0` on one of the two pages
+   outside it. Arrivals at time `0` precede every cache action, so the
+   algorithm cannot move first, and the certificate's start configuration is
+   the instance's initial cache itself. The comparator therefore needs no
+   start-up fetches and costs at most `B + 1`, which gives the write-up's
+   quantitative bound `OPT ≤ (2N+2k)/(2k+1) + 1` with no further additive
+   constant (`exists_input_quantitative`).
 
 The certificate itself needed no change, and it needs less than the drafts ask:
 no deadline constraint on auxiliary requests at all, and `k >= 1` rather than

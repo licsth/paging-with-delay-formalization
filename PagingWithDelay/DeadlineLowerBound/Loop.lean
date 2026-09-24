@@ -126,7 +126,9 @@ structure Run (algorithm : Algorithm Page) (k : ℕ) (V start : Finset Page) whe
   alphaLate : clock < alpha.deadline
   /-- The initial cache is drawn from the universe. -/
   initialPages : ∀ page ∈ input.initialCache, page ∈ V
-  positive : ∀ request ∈ input.requests, 0 < request.arrival
+  /-- The certificate starts from the instance's initial cache, so the
+  comparator needs no start-up fetches. -/
+  startEq : input.initialCache.toFinset = start
   arrivals : ∀ request ∈ input.requests, request.arrival ≤ clock
   /-- Every request was a miss when it arrived. -/
   shaped : ∀ request ∈ input.requests, IsDeadlineShaped request
@@ -153,9 +155,24 @@ structure Run (algorithm : Algorithm Page) (k : ℕ) (V start : Finset Page) whe
 
 /-! ## Starting the construction -/
 
-/-- The construction starts by releasing the first distinguished request, at
-time `1`, on a page the algorithm does not hold then. -/
-theorem exists_initial (algorithm : Algorithm Page) (online : algorithm.Online)
+private theorem foldl_before_zero (events : List (FetchEvent Page)) (init : Finset Page) :
+    events.foldl (fun current event => if event.time < 0 then event.cacheAfter else current)
+      init = init := by
+  induction events generalizing init with
+  | nil => rfl
+  | cons event rest ih => simpa only [List.foldl_cons, not_lt_zero', if_false] using ih init
+
+/-- Before time `0` every schedule still holds its initial cache. -/
+theorem cacheBefore_zero (schedule : Schedule Page) :
+    schedule.cacheBefore 0 = schedule.initialCache :=
+  foldl_before_zero _ _
+
+/-- The construction starts, as in the write-up, at time `0`: the initial
+cache is `k` pages of the universe, `c` and `d` are the two pages outside it,
+and the first distinguished request is released at `c` at time `0`, before the
+algorithm can act.  The certificate therefore starts from the initial cache
+itself, `V \ {c, d}`. -/
+theorem exists_initial (algorithm : Algorithm Page) (_online : algorithm.Online)
     (feasible : algorithm.Feasible) {k : ℕ} (hk : 1 ≤ k) {V : Finset Page}
     (hcard : V.card = k + 2) :
     ∃ (c d : Page), c ∈ V ∧ d ∈ V ∧ c ≠ d ∧
@@ -167,14 +184,24 @@ theorem exists_initial (algorithm : Algorithm Page) (online : algorithm.Online)
     (Finset.nodup_toList V).sublist (List.take_sublist _ _), by simp [hempty, hcard]⟩
   have hinitial : ∀ page ∈ empty.initialCache, page ∈ V :=
     fun page hpage => Finset.mem_toList.mp (List.mem_of_mem_take hpage)
-  -- two pages the algorithm does not hold just before time 1
-  obtain ⟨c, hcmem, d, hdmem, hcd⟩ :=
-    Finset.one_lt_card.mp (two_le_card_uncovered emptyValid (algorithm empty emptyValid)
-      (feasible.scheduleFeasible empty emptyValid) (show empty.cacheSize = k from rfl) hcard.ge 1)
-  obtain ⟨hcV, hcmiss⟩ := Finset.mem_sdiff.mp hcmem
-  obtain ⟨hdV, _⟩ := Finset.mem_sdiff.mp hdmem
-  -- the first distinguished request
-  set alphaRequest : Request Page := releaseRequest c 1 2 1 zero_lt_one with halphaRequest
+  have hsub : empty.initialCache.toFinset ⊆ V :=
+    fun page hpage => hinitial page (List.mem_toFinset.mp hpage)
+  have hcardInit : empty.initialCache.toFinset.card = k := by
+    rw [List.toFinset_card_of_nodup emptyValid.initialCache_nodup,
+      emptyValid.initialCache_full]
+  -- the two pages outside the initial cache
+  have hcardOut : (V \ empty.initialCache.toFinset).card = 2 := by
+    have := Finset.card_sdiff_add_card_eq_card hsub
+    omega
+  obtain ⟨c, d, hcd, hout⟩ := Finset.card_eq_two.mp hcardOut
+  have hcOut : c ∈ V \ empty.initialCache.toFinset := by rw [hout]; simp
+  have hdOut : d ∈ V \ empty.initialCache.toFinset := by rw [hout]; simp
+  obtain ⟨hcV, hcmiss⟩ := Finset.mem_sdiff.mp hcOut
+  obtain ⟨hdV, _⟩ := Finset.mem_sdiff.mp hdOut
+  have hstart : empty.initialCache.toFinset = V \ {c, d} := by
+    rw [← hout, Finset.sdiff_sdiff_eq_self hsub]
+  -- the first distinguished request, at time `0`
+  set alphaRequest : Request Page := releaseRequest c 0 2 1 zero_lt_one with halphaRequest
   have extendedValid : (empty.appendRequest alphaRequest).Valid :=
     emptyValid.appendRequest alphaRequest (by simp [hempty])
   have hrequests : (empty.appendRequest alphaRequest).requests = [alphaRequest] := by
@@ -182,7 +209,8 @@ theorem exists_initial (algorithm : Algorithm Page) (online : algorithm.Online)
   have hmiss : alphaRequest.page ∉
       (algorithm (empty.appendRequest alphaRequest) extendedValid).cacheBefore
         alphaRequest.arrival := by
-    rw [online.appendRequest_cacheBefore feasible empty emptyValid alphaRequest extendedValid]
+    have hfeas := feasible.scheduleFeasible _ extendedValid
+    rw [show alphaRequest.arrival = 0 from rfl, cacheBefore_zero, hfeas.initialCache]
     exact hcmiss
   have hsingle : ∀ {motive : Request Page → Prop},
       motive alphaRequest → ∀ request ∈ (empty.appendRequest alphaRequest).requests,
@@ -195,29 +223,29 @@ theorem exists_initial (algorithm : Algorithm Page) (online : algorithm.Online)
     { input := empty.appendRequest alphaRequest
       valid := extendedValid
       size := rfl
-      deadline := fun _ => 1 + 2
+      deadline := fun _ => 0 + 2
       chargeWindow := fun _ => 2 + 1
       state := PhaseCount.initial c d
       stateValid := PhaseCount.initial_valid hk hcV hdV hcd
-      clock := 2
-      checkpoint := 1
+      clock := 1
+      checkpoint := 0
       processed := []
-      alpha := ⟨c, 1, 1 + 2⟩
+      alpha := ⟨c, 0, 0 + 2⟩
       cert := Certificate.initial hcV hdV hcd rfl le_rfl (by norm_num)
       clockPos := by norm_num
       checkpointLe := by norm_num
       alphaLate := by norm_num
       initialPages := hinitial
-      positive := hsingle (by simp [halphaRequest])
+      startEq := hstart
       arrivals := hsingle (by simp [halphaRequest])
       shaped := hsingle (by
         rw [halphaRequest]
-        exact releaseRequest_shaped c 1 2 1 zero_lt_one)
+        exact releaseRequest_shaped c 0 2 1 zero_lt_one)
       pages := hsingle (by simp [halphaRequest, hcV])
       misses := hsingle hmiss
-      penalty := hsingle (releaseRequest_penalty c 1 2 1 zero_lt_one)
+      penalty := hsingle (releaseRequest_penalty c 0 2 1 zero_lt_one)
       free := hsingle (by
-        simpa [halphaRequest] using releaseRequest_free c 1 2 1 zero_lt_one)
+        simpa [halphaRequest] using releaseRequest_free c 0 2 1 zero_lt_one)
       ordered := by rw [hrequests]; exact List.pairwise_singleton _ _
       closed := hsingle (Or.inr (by simp [halphaRequest, PhaseCount.initial]))
       alphaClosed := by
@@ -317,7 +345,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       checkpointLe := le_self_add
       alphaLate := show D + 1 < D + 2 from add_lt_add_of_le_of_lt le_rfl one_lt_two
       initialPages := run.initialPages
-      positive := ?_
+      startEq := run.startEq
       arrivals := ?_
       shaped := ?_
       pages := ?_
@@ -331,11 +359,6 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       steps := run.steps + 1
       potentialBound := ?_
       lengthEq := ?_ }, rfl⟩
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · exact run.positive request hrequest
-      · rw [List.mem_singleton.mp hrequest]
-        exact hapos
     · intro request hrequest
       rcases List.mem_append.mp hrequest with hrequest | hrequest
       · exact ((run.arrivals request hrequest).trans run.alphaLate.le).trans le_self_add
@@ -482,7 +505,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       checkpointLe := le_rfl
       alphaLate := heD
       initialPages := run.initialPages
-      positive := ?_
+      startEq := run.startEq
       arrivals := ?_
       shaped := ?_
       pages := ?_
@@ -496,11 +519,6 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       steps := run.steps + 1
       potentialBound := ?_
       lengthEq := ?_ }, rfl⟩
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · exact run.positive request hrequest
-      · rw [List.mem_singleton.mp hrequest]
-        exact hapos
     · intro request hrequest
       rcases List.mem_append.mp hrequest with hrequest | hrequest
       · exact (run.arrivals request hrequest).trans (hta.le.trans hae)
