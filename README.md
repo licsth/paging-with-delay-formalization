@@ -8,8 +8,8 @@ The formalization also includes four refinements:
 
 - the analysis is tight for threshold FIFO on page universes of size at least
   `k+2`;
-- on a universe of exactly `k+1` pages, FIFO with threshold `(k+1)/k` has
-  competitive ratio `2k+1`, with no additive constant; and
+- on a universe of at most `k+1` pages, FIFO with threshold `(k+1)/k` has
+  competitive ratio `2k+1`, with no additive constant;
 - that ratio is optimal: no deterministic online algorithm is better than
   `(2k+1)`-competitive, already on `k+1` pages; and
 - on `k+2` pages, no deterministic online algorithm is better than
@@ -70,19 +70,19 @@ the delay curves producing it. `Algorithm.Nonclairvoyant` states this by
 comparing two instances that have revealed the same thing by `t`, so no
 continuation of a truncated delay curve has to be named or assumed to exist.
 Nonclairvoyance implies onlineness (`Algorithm.Nonclairvoyant.online`) and is
-strictly stronger; `OnlineExamples.lean` exhibits an algorithm separating
+strictly stronger; `Checks/OnlineExamples.lean` exhibits an algorithm separating
 them.
 
 For readers auditing the statement rather than the proof, the essential files
 are:
 
-- [`PagingWithDelay.lean`](PagingWithDelay.lean), containing the three public
+- [`PagingWithDelay.lean`](PagingWithDelay.lean), containing the five public
   theorem statements; and
-- [`PagingWithDelay/Model.lean`](PagingWithDelay/Model.lean), containing the
+- [`Model.lean`](Model.lean), containing the
   definitions appearing in those statements.
 
 To verify that the algorithm named by the results is the intended FIFO event
-loop, also read [`PagingWithDelay/Algorithm.lean`](PagingWithDelay/Algorithm.lean).
+loop, also read [`Algorithm.lean`](Algorithm.lean).
 The remaining files are machine-checked proof implementation.
 
 ## Proof overview
@@ -103,8 +103,8 @@ every positive threshold, and at `δ = 1`, `ALG = 2M <= (2k+2) OPT`. The
 write-up's potential is `Φ = Σ_{q ∈ C_ALG \ C_OPT} rank(q)`, with `Φ_0 = 0`;
 the proof runs on its complement `K - Φ = Σ_{q ∈ C_ALG ∩ C_OPT} rank(q)`, and
 `payment_accounting_missing` restates the accounting in the write-up's form. The
-implementation is in `PagingWithDelay/RankPotential/`; see the
-[README](PagingWithDelay/RankPotential/README.md) there for the correspondence
+implementation is in `Proofs/RankPotential/`; see the
+[README](Proofs/RankPotential/README.md) there for the correspondence
 with the write-up's lemmas.
 
 No behavioral property of FIFO is assumed: the cache invariant, threshold
@@ -115,12 +115,12 @@ all proved from the implementation in `Algorithm.lean`.
 
 ### Tightness of threshold FIFO
 
-`paging_with_delay_lower_bound` proves that for every positive threshold,
+`FIFO_lower_bound` proves that for every positive threshold,
 cache size `k >= 1`, and page type with at least `k+2` pages, threshold FIFO
 cannot achieve a competitive ratio below `2k+2`, even with an arbitrary
 additive constant. The proof constructs a family of adversarial instances,
 replays FIFO on them, and exhibits a feasible offline comparator. Its
-implementation is in `PagingWithDelay/LowerBound/`.
+implementation is in `Proofs/LowerBound/`.
 
 The restriction to positive thresholds is intentional: at threshold zero,
 payments occur on arrival and the construction no longer describes the run.
@@ -138,28 +138,29 @@ for every feasible comparator on every input with
 `input.pageUniverse.card <= k + 1`, that is, involving at most `k+1` distinct
 pages: the `k` initially cached ones and at most one more.
 `Instance.pageUniverse`, defined in `Model.lean`, is the finite set of pages
-in the initial cache or requested; the embedding `Fin (k+1) ↪ Page` in the
-hypotheses only says that the page type has room for `k+1` pages, exactly as
-naming a set of that size did before. There is no additive term: both
-schedules start from the common full initial cache, so the rank potential
-starts at its maximum. The proof, in `PagingWithDelay/KPlusOne/Final.lean`, is
-the payment accounting of `PagingWithDelay/RankPotential/` with the write-up's
+in the initial cache or requested. No assumption on the size of the page type
+is needed. There is no additive term: both
+schedules start from the common full initial cache, so the write-up's rank
+potential starts at `Φ_0 = 0`. The proof, in `Proofs/KPlusOne/Final.lean`, is
+the payment accounting of `Proofs/RankPotential/` with the write-up's
 stronger offline potential change on `k+1` pages: an offline fetch that evicts
-the one page outside FIFO's cache raises the potential by at least one, so
+the one page outside FIFO's cache lowers the write-up's potential by at
+least one, so
 only `k` is charged per offline fetch, and at threshold `(k+1)/k` this gives
 `M <= k * OPT` and `ALG <= (2k+1) * OPT`.
 
 ### The general lower bound
 
-`paging_with_delay_general_lower_bound` proves that for `k >= 1` and a universe
-of exactly `k+1` pages, _every_ algorithm that is `Algorithm.Online` and
+`paging_with_delay_general_lower_bound` proves that for `k >= 1` and a page type
+with at least `k+1` pages, _every_ algorithm that is `Algorithm.Online` and
 `Algorithm.Feasible` fails every competitive claim below `2k+1`, with an
-arbitrary additive constant. The adversarial input is built adaptively from the algorithm's own
+arbitrary additive constant, already on inputs with
+`input.pageUniverse.card <= k + 1`. The adversarial input is built adaptively from the algorithm's own
 run: each phase requests a page the algorithm does not currently hold and ends
 when the algorithm serves that request. The algorithm is then compared against
 the `k+1` static and `k` dynamic offline strategies of the write-up by
-averaging. The implementation is in `PagingWithDelay/GeneralLowerBound/`; see
-the [README](PagingWithDelay/GeneralLowerBound/README.md) there.
+averaging. The implementation is in `Proofs/GeneralLowerBound/`; see
+the [README](Proofs/GeneralLowerBound/README.md) there.
 
 Together with the previous result this is tight: on `k+1` pages the competitive
 ratio of paging with delay is exactly `2k+1`: both statements restrict the
@@ -181,7 +182,7 @@ that serves every request inside its window: the comparator misses no deadline.
 The algorithm is under no such restriction — it may miss a deadline and pay for
 it, which a hard-deadline algorithm cannot do. So even an algorithm allowed to
 buy its way out of deadlines cannot beat `k+1/2` against a comparator that never
-does. `StatementChecks.lean` derives the specialisation to algorithms that never
+does. `Checks/StatementChecks.lean` derives the specialisation to algorithms that never
 miss a deadline, where both costs are simply fetch counts.
 
 The bound on the universe is `<=` and not `=` because the adversary is not
@@ -198,29 +199,31 @@ either processes it for free or pays one unit and refills its candidate set. A
 payment out of a marked candidate refills `k` candidates and clears the mark, an
 unmarked one refills `k+1` and sets it, so two short phases cannot be
 consecutive and phases average `k+1/2` operations per payment. The
-implementation is in `PagingWithDelay/DeadlineLowerBound/`; see the
-[README](PagingWithDelay/DeadlineLowerBound/README.md) there.
+implementation is in `Proofs/DeadlineLowerBound/`; see the
+[README](Proofs/DeadlineLowerBound/README.md) there.
 
 ## Repository layout
 
-| Path                                      | Purpose                                         |
-| ----------------------------------------- | ----------------------------------------------- |
-| `PagingWithDelay.lean`                    | Public theorem statements                       |
-| `PagingWithDelay/Model.lean`              | Problem and schedule semantics                  |
-| `PagingWithDelay/PageUniverse.lean`       | Lemmas about `Instance.pageUniverse`            |
-| `PagingWithDelay/Algorithm.lean`          | Threshold-parameterized FIFO event loop         |
-| `PagingWithDelay/EventLoop/`              | Run invariants and service accounting           |
-| `PagingWithDelay/Competitive/`            | `ALG = (1+δ)M` and delay bookkeeping            |
-| `PagingWithDelay/RankPotential/`          | Rank-potential proof of the main upper bound    |
-| `PagingWithDelay/FIFOFeasible.lean`       | Feasibility of FIFO for every threshold         |
-| `PagingWithDelay/FIFOOnline.lean`         | Onlineness of FIFO for every threshold          |
-| `PagingWithDelay/Nonclairvoyant.lean`     | Nonclairvoyance and its relation to onlineness  |
-| `PagingWithDelay/FIFONonclairvoyant.lean` | Nonclairvoyance of FIFO for every threshold     |
-| `PagingWithDelay/LowerBound/`             | Tightness construction and comparator           |
-| `PagingWithDelay/GeneralLowerBound/`      | General `2k+1` lower bound for all algorithms   |
-| `PagingWithDelay/DeadlineLowerBound/`     | `k+1/2` lower bound for deadline delays         |
-| `PagingWithDelay/KPlusOne/`               | Improved bound for `k+1` pages, same accounting |
-| `PagingWithDelay/Analysis/`               | Reusable potential, rank, and cache-trace tools |
+The three files a reader of the statements needs are at the top level; all
+proofs are under `Proofs/`, and sanity checks on the statements under
+`Checks/`.
+
+| Path                         | Purpose                                         |
+| ---------------------------- | ----------------------------------------------- |
+| `PagingWithDelay.lean`       | Public theorem statements                       |
+| `Model.lean`                 | Problem and schedule semantics (trusted)        |
+| `Algorithm.lean`             | Threshold-parameterized FIFO event loop         |
+| `Proofs/Basic/`              | `pageUniverse` lemmas; onlineness and nonclairvoyance in general |
+| `Proofs/FIFO/`               | Feasibility, onlineness and nonclairvoyance of FIFO, for every threshold |
+| `Proofs/EventLoop/`          | Run invariants and service accounting of the event loop |
+| `Proofs/Competitive/`        | `ALG = (1+δ)M` and delay bookkeeping            |
+| `Proofs/RankPotential/`      | Rank-potential proof of the main upper bound    |
+| `Proofs/KPlusOne/`           | Improved bound for `k+1` pages, same accounting |
+| `Proofs/LowerBound/`         | Tightness construction and comparator           |
+| `Proofs/GeneralLowerBound/`  | General `2k+1` lower bound for all algorithms   |
+| `Proofs/DeadlineLowerBound/` | `k+1/2` lower bound for deadline delays         |
+| `Proofs/Analysis/`           | Reusable potential, rank, and cache-trace tools |
+| `Checks/`                    | Sanity checks on the statements (not part of the library) |
 
 ## Formalization status
 
@@ -228,11 +231,10 @@ The project builds without `sorry`, added axioms, `native_decide`, or `unsafe`.
 For the five public results, `#print axioms` reports only the standard
 foundational dependencies `propext`, `Classical.choice`, and `Quot.sound`.
 
-Small examples in `OnlineExamples.lean` check that the definitions of
+Small examples in [`Checks/OnlineExamples.lean`](Checks/OnlineExamples.lean) check that the definitions of
 onlineness and nonclairvoyance are neither vacuous nor trivial — including an
 algorithm that is online but clairvoyant, which separates the two — and
-`StatementChecks.lean` derives the earlier phrasing of the two universe-
-restricted theorems from their current `pageUniverse` phrasing. Neither file is
-reachable from the library root, so `lake build` does not compile them; check
-them with `lake build PagingWithDelay.OnlineExamples` and
-`lake build PagingWithDelay.StatementChecks`.
+[`Checks/StatementChecks.lean`](Checks/StatementChecks.lean) derives the
+earlier phrasing of the two universe-restricted theorems from their current
+`pageUniverse` phrasing. They form the separate library `Checks`, which
+`lake build` does not compile; check them with `lake build Checks`.
