@@ -102,3 +102,7 @@ The adversary keeps an offline _certificate_ (a distinguished node, a set of che
 The project builds without `sorry`, added axioms, `native_decide`, or `unsafe`. For the seven public results, `#print axioms` reports only `propext`, `Classical.choice`, and `Quot.sound`.
 
 The separate library `Checks` (built with `lake build Checks`, not by `lake build`) contains sanity checks on the statements. [`Checks/OnlineExamples.lean`](Checks/OnlineExamples.lean) shows that onlineness and nonclairvoyance are neither vacuous nor trivial, including an online but clairvoyant algorithm separating the two. [`Checks/StatementChecks.lean`](Checks/StatementChecks.lean) derives explicit forms of the public statements from their `Competitive` phrasing: bounds against every feasible comparator schedule, and for deadlines against every feasible schedule meeting all deadlines.
+
+## Use of AI
+
+This formalization, as well its documentation, was written in large part using Claude Code, specifically Claude Opus 5.5. The human-checked files `PagingWithDelay.lean`, `Model.lean`, `EventLoop.lean`, and `Algorithm.lean` were coauthored by human authors and AI. We aimed to ensure that the formalized model of paging with delay and deadlines coincides with the intended one, and that the files are easy to understand and check. All proofs and formalization models were conceptualized by humans.
