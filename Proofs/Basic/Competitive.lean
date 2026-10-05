@@ -76,6 +76,17 @@ theorem Algorithm.strictlyCompetitive_of_schedules {algorithm : Algorithm Page}
     algorithm.StrictlyCompetitive ratio inputs :=
   fun comparator input hinput => h input hinput _ (comparator.feasible input)
 
+/-- An upper bound against every feasible comparator schedule meeting every
+deadline is strict competitiveness for deadlines. -/
+theorem DeadlineAlgorithm.strictlyCompetitive_of_schedules {algorithm : DeadlineAlgorithm Page}
+    {ratio : ℕ → Cost} {inputs : Instance Page → Prop}
+    (h : ∀ input, inputs input → ∀ comparator : Schedule Page, comparator.Feasible input →
+      (∀ request ∈ input.requests, comparator.requestCost request = 0) →
+      (algorithm input).totalCost input ≤ ratio input.cacheSize * comparator.totalCost input) :
+    algorithm.StrictlyCompetitive ratio inputs :=
+  fun comparator input hinput =>
+    h input hinput _ (comparator.feasible input) (comparator.meetsDeadlines input)
+
 /-- If every choice of additive constants is beaten by some feasible comparator schedule,
 the algorithm is not competitive. -/
 theorem Algorithm.not_competitive_of_schedules {algorithm : Algorithm Page}
@@ -118,6 +129,17 @@ theorem Algorithm.StrictlyCompetitive.le_of_feasible {algorithm : Algorithm Page
     {comparator : Schedule Page} (feasible : comparator.Feasible input) :
     (algorithm input).totalCost input ≤ ratio input.cacheSize * comparator.totalCost input := by
   simpa using competitive (algorithm.patch input comparator feasible) input hinput
+
+/-- Strict competitiveness for deadlines bounds the cost against every
+feasible comparator schedule meeting every deadline. -/
+theorem DeadlineAlgorithm.StrictlyCompetitive.le_of_feasible
+    {algorithm : DeadlineAlgorithm Page} {ratio : ℕ → Cost} {inputs : Instance Page → Prop}
+    (competitive : algorithm.StrictlyCompetitive ratio inputs)
+    {input : Instance Page} (hinput : inputs input)
+    {comparator : Schedule Page} (feasible : comparator.Feasible input)
+    (meets : ∀ request ∈ input.requests, comparator.requestCost request = 0) :
+    (algorithm input).totalCost input ≤ ratio input.cacheSize * comparator.totalCost input := by
+  simpa using competitive (algorithm.patch input comparator feasible meets) input hinput
 
 /-- A non-competitive algorithm is beaten, for every choice of additive constants, by some
 feasible comparator schedule. -/

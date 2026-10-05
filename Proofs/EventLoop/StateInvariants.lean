@@ -1,7 +1,7 @@
 import Proofs.EventLoop.RunInvariants
 
 namespace PagingWithDelay.FIFO
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 noncomputable section
 
 /-- The purely combinatorial part of the FIFO state invariant. -/
@@ -50,7 +50,7 @@ omit [DecidableEq Page] in private theorem mem_insertPage
 theorem step_cacheInvariant (input : Instance Page)
     (state : State Page) (action : Action Page)
     (hinv : CacheInvariant input state)
-    (haction : nextAction? δ state = some action) :
+    (haction : nextAction? trigger state = some action) :
     CacheInvariant input (step input state action) := by
   cases action with
   | arrival occurrence =>
@@ -66,18 +66,18 @@ theorem step_cacheInvariant (input : Instance Page)
         · exact hinv.pending_miss pending hpending
         · assumption
   | payment time page =>
-    have hselected : nextPayment? δ state = some (time, page) := by
+    have hselected : nextPayment? trigger state = some (time, page) := by
       unfold nextAction? at haction
       cases hu : state.unseen with
       | nil =>
-        cases hp : nextPayment? δ state with
+        cases hp : nextPayment? trigger state with
         | none => simp [hu, hp] at haction
         | some pair =>
           rcases pair with ⟨paymentTime, paymentPage⟩
           simp only [hu, hp] at haction
           simpa using haction
       | cons occurrence unseen =>
-        cases hp : nextPayment? δ state with
+        cases hp : nextPayment? trigger state with
         | none => simp [hu, hp] at haction
         | some pair =>
           rcases pair with ⟨paymentTime, paymentPage⟩

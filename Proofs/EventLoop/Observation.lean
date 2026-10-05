@@ -4,89 +4,116 @@ import Proofs.EventLoop.RunComparison
 /-!
 # What the event loop reads of a request by time `t`
 
-FIFO inspects a request through `pendingCost`, which evaluates its delay curve
-at the time already waited, and through nothing else.  This file makes that
-precise for two states whose pending requests have revealed the same thing by
-time `t` (`Request.AgreeUpTo`, from `Model.lean`):
+FIFO inspects a request through its page, its arrival, and its trigger: the
+threshold trigger reads the delay curve at the time already waited
+(`pendingCost`), the deadline trigger reads its deadline.  This file makes
+precise that two states whose pending requests have revealed the same thing by
+time `t` select the same payment, or else both select payments strictly after
+`t` (`PaymentAgree`):
 
-* `pendingCost_agree`: their pending costs agree at every instant up to `t`;
-* `thresholdTime_agree`: consequently their threshold times agree, *provided*
-  one of them lies at or before `t`.  Past `t` the two states may of course
-  disagree, since there the curves themselves may;
-* `nextPayment?_agree`: consequently the payments they select are the same
-  payment, or else both fall strictly after `t`.
+* `nextPayment?_agree_threshold`: for the threshold trigger, where requests
+  reveal their delay so far (`Request.AgreeUpTo`, from `Model.lean`);
+* `nextPayment?_agree_deadline`: for the deadline trigger, where requests reveal
+  their deadline once it is reached (`Request.DeadlineAgreeUpTo`).
 
-The last statement is the one the simulation uses, and the reason its
-conclusion is a disjunction: a run may well diverge from its twin after `t`,
-and all that matters is that it does not do so before.
+The conclusion is a disjunction because a run may well diverge from its twin
+after `t`; all that matters is that it does not do so before.  The relation on
+requests is a parameter `R` of the generic part (`OccurrenceRel R`), of which
+only page and arrival are used.
 -/
 
 namespace PagingWithDelay.FIFO
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page]
 
 noncomputable section
 
-/-- Occurrences whose requests have revealed the same thing by time `t`.  Their
-identifiers play no part: the event loop never reads them. -/
-def OccurrenceAgree (t : Time) (first second : Occurrence Page) : Prop :=
-  Request.AgreeUpTo t first.request second.request
+/-- Occurrences whose requests are related by `R`.  Their identifiers play no
+part: the event loop never reads them. -/
+def OccurrenceRel (R : Request Page → Request Page → Prop) (first second : Occurrence Page) :
+    Prop :=
+  R first.request second.request
 
-omit [DecidableEq Page] in
-theorem OccurrenceAgree.page {t : Time} {first second : Occurrence Page}
-    (agree : OccurrenceAgree t first second) :
-    first.request.page = second.request.page :=
-  Request.AgreeUpTo.page agree
-
-omit [DecidableEq Page] in
-theorem OccurrenceAgree.arrival {t : Time} {first second : Occurrence Page}
-    (agree : OccurrenceAgree t first second) :
-    first.request.arrival = second.request.arrival :=
-  Request.AgreeUpTo.arrival agree
+/-- Occurrences whose requests have revealed the same delay by time `t`. -/
+abbrev OccurrenceAgree (t : Time) : Occurrence Page → Occurrence Page → Prop :=
+  OccurrenceRel (Request.AgreeUpTo t)
 
 /-! ## Lists of occurrences -/
 
+section Generic
+
+variable {R : Request Page → Request Page → Prop}
+  (hpage : ∀ {first second}, R first second → first.page = second.page)
+include hpage
+
 omit [DecidableEq Page] in
-theorem map_page_agree {t : Time} {first second : List (Occurrence Page)}
-    (agree : List.Forall₂ (OccurrenceAgree t) first second) :
+theorem map_page_agree {first second : List (Occurrence Page)}
+    (agree : List.Forall₂ (OccurrenceRel R) first second) :
     first.map (fun occurrence => occurrence.request.page) =
       second.map (fun occurrence => occurrence.request.page) := by
   induction agree with
   | nil => rfl
-  | cons hhead _ ih => simp [OccurrenceAgree.page hhead, ih]
+  | cons hhead _ ih => simp [hpage hhead, ih]
 
 omit [DecidableEq Page] in
-theorem exists_pending_agree {t : Time} {first second : List (Occurrence Page)}
-    (agree : List.Forall₂ (OccurrenceAgree t) first second) {page : Page}
+theorem exists_pending_agree {first second : List (Occurrence Page)}
+    (agree : List.Forall₂ (OccurrenceRel R) first second) {page : Page}
     (hexists : ∃ occurrence ∈ first, occurrence.request.page = page) :
     ∃ occurrence ∈ second, occurrence.request.page = page := by
   induction agree with
   | nil => simp at hexists
   | @cons head other tail others hhead _ ih =>
-      obtain ⟨occurrence, hmem, hpage⟩ := hexists
+      obtain ⟨occurrence, hmem, hpage'⟩ := hexists
       rcases List.mem_cons.mp hmem with rfl | hmem
-      · exact ⟨other, by simp, by rw [← OccurrenceAgree.page hhead]; exact hpage⟩
-      · obtain ⟨witness, hwitness, hwitness_page⟩ := ih ⟨occurrence, hmem, hpage⟩
+      · exact ⟨other, by simp, by rw [← hpage hhead]; exact hpage'⟩
+      · obtain ⟨witness, hwitness, hwitness_page⟩ := ih ⟨occurrence, hmem, hpage'⟩
         exact ⟨witness, List.mem_cons_of_mem _ hwitness, hwitness_page⟩
 
 omit [DecidableEq Page] in
-theorem filter_agree {t : Time} {first second : List (Occurrence Page)}
-    (agree : List.Forall₂ (OccurrenceAgree t) first second) (keep : Page → Bool) :
-    List.Forall₂ (OccurrenceAgree t) (first.filter fun occurrence => keep occurrence.request.page)
+theorem filter_agree {first second : List (Occurrence Page)}
+    (agree : List.Forall₂ (OccurrenceRel R) first second) (keep : Page → Bool) :
+    List.Forall₂ (OccurrenceRel R) (first.filter fun occurrence => keep occurrence.request.page)
       (second.filter fun occurrence => keep occurrence.request.page) := by
   induction agree with
   | nil => simp
   | @cons head other tail others hhead _ ih =>
-      have hpage : keep head.request.page = keep other.request.page := by
-        rw [OccurrenceAgree.page hhead]
-      rw [List.filter_cons, List.filter_cons, ← hpage]
+      have hkeep' : keep head.request.page = keep other.request.page := by
+        rw [hpage hhead]
+      rw [List.filter_cons, List.filter_cons, ← hkeep']
       by_cases hkeep : keep head.request.page
       · rw [if_pos hkeep, if_pos hkeep]
         exact List.Forall₂.cons hhead ih
       · rw [if_neg hkeep, if_neg hkeep]
         exact ih
 
-/-! ## Pending cost -/
+theorem pendingPages_agree {first second : State Page}
+    (agree : List.Forall₂ (OccurrenceRel R) first.pending second.pending) :
+    pendingPages first = pendingPages second := by
+  unfold pendingPages
+  rw [map_page_agree hpage agree]
+
+end Generic
+
+omit [DecidableEq Page] in
+/-- Every occurrence of the first list has a related counterpart in the second. -/
+theorem exists_rel_of_mem {R : Request Page → Request Page → Prop}
+    {first second : List (Occurrence Page)}
+    (agree : List.Forall₂ (OccurrenceRel R) first second) {occurrence : Occurrence Page}
+    (hmem : occurrence ∈ first) :
+    ∃ other ∈ second, OccurrenceRel R occurrence other := by
+  induction agree with
+  | nil => simp at hmem
+  | @cons head other tail others hhead _ ih =>
+      rcases List.mem_cons.mp hmem with rfl | hmem
+      · exact ⟨other, by simp, hhead⟩
+      · obtain ⟨witness, hwitness, hrel⟩ := ih hmem
+        exact ⟨witness, List.mem_cons_of_mem _ hwitness, hrel⟩
+
+/-! ## The threshold trigger -/
+
+section Threshold
+
+variable {δ : Cost}
 
 private theorem sum_delay_agree {t : Time} {first second : List (Occurrence Page)}
     (agree : List.Forall₂ (OccurrenceAgree t) first second) (page : Page)
@@ -99,12 +126,12 @@ private theorem sum_delay_agree {t : Time} {first second : List (Occurrence Page
   | nil => rfl
   | @cons head other tail others hhead _ ih =>
       have hpage : decide (head.request.page = page) = decide (other.request.page = page) := by
-        rw [OccurrenceAgree.page hhead]
+        rw [Request.AgreeUpTo.page hhead]
       rw [List.filter_cons, List.filter_cons, ← hpage]
       by_cases hkeep : head.request.page = page
       · have hdelay : head.request.delay (instant - head.request.arrival) =
             other.request.delay (instant - other.request.arrival) := by
-          rw [← OccurrenceAgree.arrival hhead]
+          rw [← Request.AgreeUpTo.arrival hhead]
           exact Request.AgreeUpTo.delay hhead _ (tsub_le_tsub_right hinstant _)
         rw [if_pos (by simpa using hkeep), if_pos (by simpa using hkeep)]
         simp only [List.map_cons, List.sum_cons, hdelay, ih]
@@ -120,13 +147,7 @@ theorem pendingCost_agree {t : Time} {first second : State Page}
     pendingCost first page instant = pendingCost second page instant :=
   sum_delay_agree agree page hinstant
 
-theorem pendingPages_agree {t : Time} {first second : State Page}
-    (agree : List.Forall₂ (OccurrenceAgree t) first.pending second.pending) :
-    pendingPages first = pendingPages second := by
-  unfold pendingPages
-  rw [map_page_agree agree]
-
-/-! ## Threshold times -/
+/-! ### Threshold times -/
 
 /-- At the threshold time the cost has indeed reached the threshold. -/
 theorem thresholdTime_crossing {state : State Page} {page : Page}
@@ -168,7 +189,7 @@ theorem thresholdTime_agree {t : Time} {first second : State Page} {page : Page}
     apply List.Forall₂.flip
     exact agree.imp fun _ _ hagree => Request.AgreeUpTo.symm hagree
   have hpending' : ∃ occurrence ∈ second.pending, occurrence.request.page = page :=
-    exists_pending_agree agree hpending
+    exists_pending_agree Request.AgreeUpTo.page agree hpending
   rcases hle with hfirst | hsecond
   · have hsecond : thresholdTime δ second page ≤ t :=
       (thresholdTime_le_of_le hnow agree hbelow₁ hpending hfirst).trans hfirst
@@ -180,6 +201,8 @@ theorem thresholdTime_agree {t : Time} {first second : State Page} {page : Page}
     exact le_antisymm
       (thresholdTime_le_of_le hnow.symm agree' hbelow₂ hpending' hsecond)
       (thresholdTime_le_of_le hnow agree hbelow₁ hpending hfirst)
+
+end Threshold
 
 /-! ## Selecting a payment -/
 
@@ -306,15 +329,17 @@ private theorem forall₂_map_of_forall {t : Time} (first second : Page → Time
       exact List.Forall₂.cons (hpages page (by simp))
         (ih fun other hother => hpages other (List.mem_cons_of_mem _ hother))
 
-/-- **What the two runs select agrees before `t`.**  Two states that have been
-told the same story up to `t` select the same payment, unless both selected
-payments fall after `t`, where the stories may already differ. -/
-theorem nextPayment?_agree {t : Time} {first second : State Page}
+/-- **What the two runs select agrees before `t`**, for the threshold
+trigger.  Two states that have been told the same story up to `t` select the
+same payment, unless both selected payments fall after `t`, where the stories
+may already differ. -/
+theorem nextPayment?_agree_threshold {δ : Cost} {t : Time} {first second : State Page}
     (hnow : first.now = second.now)
     (agree : List.Forall₂ (OccurrenceAgree t) first.pending second.pending)
     (hbelow₁ : BelowThreshold δ first) (hbelow₂ : BelowThreshold δ second) :
-    PaymentAgree t (nextPayment? δ first) (nextPayment? δ second) := by
-  have hpages : pendingPages first = pendingPages second := pendingPages_agree agree
+    PaymentAgree t (nextPayment? (.threshold δ) first) (nextPayment? (.threshold δ) second) := by
+  have hpages : pendingPages first = pendingPages second :=
+    pendingPages_agree Request.AgreeUpTo.page agree
   unfold nextPayment?
   rw [hpages]
   refine foldPayment_agree t (forall₂_map_of_forall _ _ _ ?_) (Or.inl rfl)
@@ -322,7 +347,77 @@ theorem nextPayment?_agree {t : Time} {first second : State Page}
   have hpending : ∃ occurrence ∈ first.pending, occurrence.request.page = page :=
     pending_of_mem_pendingPages (hpages ▸ hpage)
   by_cases hle : thresholdTime δ first page ≤ t ∨ thresholdTime δ second page ≤ t
-  · exact Or.inl (by rw [thresholdTime_agree hnow agree hbelow₁ hbelow₂ hpending hle])
+  · exact Or.inl (by
+      simp only [Trigger.dueTime]
+      rw [thresholdTime_agree hnow agree hbelow₁ hbelow₂ hpending hle])
+  · push_neg at hle
+    exact Or.inr ⟨hle.1, hle.2⟩
+
+/-! ## The deadline trigger -/
+
+/-- Occurrences whose requests have revealed the same by time `t` under
+deadlines: page, arrival, and the deadline once it is reached. -/
+abbrev OccurrenceDeadlineAgree (t : Time) : Occurrence Page → Occurrence Page → Prop :=
+  OccurrenceRel (Request.DeadlineAgreeUpTo t)
+
+private theorem deadlineTime_le_of_le {t : Time} {first second : State Page} {page : Page}
+    (hnow : first.now = second.now)
+    (agree : List.Forall₂ (OccurrenceDeadlineAgree t) first.pending second.pending)
+    (hpending : ∃ occurrence ∈ first.pending, occurrence.request.page = page)
+    (hle : deadlineTime first page ≤ t) :
+    deadlineTime second page ≤ deadlineTime first page := by
+  obtain ⟨occurrence, hmem, hpage, hdeadline⟩ :=
+    exists_deadline_le_deadlineTime first page hpending
+  obtain ⟨other, hother, hrel⟩ := exists_rel_of_mem agree hmem
+  have hsame : occurrence.request.deadline = other.request.deadline :=
+    hrel.deadline (Or.inl (hdeadline.trans hle))
+  refine deadlineTime_le ?_ hother (hrel.page ▸ hpage) (hsame ▸ hdeadline)
+  rw [← hnow]
+  exact deadlineTime_ge_now first page hpending
+
+/-- Two states that have been told the same story up to `t` under deadlines
+schedule a page at the same time, unless that time lies beyond `t`. -/
+theorem deadlineTime_agree {t : Time} {first second : State Page} {page : Page}
+    (hnow : first.now = second.now)
+    (agree : List.Forall₂ (OccurrenceDeadlineAgree t) first.pending second.pending)
+    (hpending : ∃ occurrence ∈ first.pending, occurrence.request.page = page)
+    (hle : deadlineTime first page ≤ t ∨ deadlineTime second page ≤ t) :
+    deadlineTime first page = deadlineTime second page := by
+  have agree' : List.Forall₂ (OccurrenceDeadlineAgree t) second.pending first.pending := by
+    apply List.Forall₂.flip
+    exact agree.imp fun _ _ hagree =>
+      ⟨hagree.page.symm, hagree.arrival.symm, fun h => (hagree.deadline h.symm).symm⟩
+  have hpending' : ∃ occurrence ∈ second.pending, occurrence.request.page = page :=
+    exists_pending_agree Request.DeadlineAgreeUpTo.page agree hpending
+  rcases hle with hfirst | hsecond
+  · have hsecond : deadlineTime second page ≤ t :=
+      (deadlineTime_le_of_le hnow agree hpending hfirst).trans hfirst
+    exact le_antisymm
+      (deadlineTime_le_of_le hnow.symm agree' hpending' hsecond)
+      (deadlineTime_le_of_le hnow agree hpending hfirst)
+  · have hfirst : deadlineTime first page ≤ t :=
+      (deadlineTime_le_of_le hnow.symm agree' hpending' hsecond).trans hsecond
+    exact le_antisymm
+      (deadlineTime_le_of_le hnow.symm agree' hpending' hsecond)
+      (deadlineTime_le_of_le hnow agree hpending hfirst)
+
+/-- **What the two runs select agrees before `t`**, for the deadline trigger. -/
+theorem nextPayment?_agree_deadline {t : Time} {first second : State Page}
+    (hnow : first.now = second.now)
+    (agree : List.Forall₂ (OccurrenceDeadlineAgree t) first.pending second.pending) :
+    PaymentAgree t (nextPayment? .deadline first) (nextPayment? .deadline second) := by
+  have hpages : pendingPages first = pendingPages second :=
+    pendingPages_agree Request.DeadlineAgreeUpTo.page agree
+  unfold nextPayment?
+  rw [hpages]
+  refine foldPayment_agree t (forall₂_map_of_forall _ _ _ ?_) (Or.inl rfl)
+  intro page hpage
+  have hpending : ∃ occurrence ∈ first.pending, occurrence.request.page = page :=
+    pending_of_mem_pendingPages (hpages ▸ hpage)
+  by_cases hle : deadlineTime first page ≤ t ∨ deadlineTime second page ≤ t
+  · exact Or.inl (by
+      simp only [Trigger.dueTime]
+      rw [deadlineTime_agree hnow agree hpending hle])
   · push_neg at hle
     exact Or.inr ⟨hle.1, hle.2⟩
 

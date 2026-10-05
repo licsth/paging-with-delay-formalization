@@ -121,22 +121,22 @@ theorem missingPotential_succ_add_one_le_of_evicted_outside
 and `Φ_final` read as in `RankPotential.payment_accounting_missing`):
 `M + Φ_final - Φ_0 ≤ k·S + ((k+1)/δ)·D`, stated additively, with
 `Φ = ∑_{q ∈ C_ALG \ C_OPT} rank q`. -/
-theorem payment_accounting_missing_k_plus_one (feasible : comparator.Feasible S.input)
+theorem payment_accounting_missing_k_plus_one (hδ : 0 < S.threshold) (feasible : comparator.Feasible S.input)
     (huniverse : S.input.pageUniverse.card ≤ S.cacheSize + 1) :
     (S.count : Cost) + missing S comparator S.count ≤
       (S.cacheSize : ℕ) * comparator.fetchCount +
         ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input +
         missing S comparator 0 :=
-  payment_accounting_missing_of_gain feasible (c := S.cacheSize) (g := S.cacheSize + 1)
+  payment_accounting_missing_of_gain hδ feasible (c := S.cacheSize) (g := S.cacheSize + 1)
     (by ring) le_rfl (fun i hi h => gain_assoc_ge_succ huniverse hi h)
 
 /-- **Payment accounting on `k+1` pages**: `M ≤ k·S + ((k+1)/δ)·D`. -/
-theorem paymentCount_le_k_plus_one (feasible : comparator.Feasible S.input)
+theorem paymentCount_le_k_plus_one (hδ : 0 < S.threshold) (feasible : comparator.Feasible S.input)
     (huniverse : S.input.pageUniverse.card ≤ S.cacheSize + 1) :
     (S.count : Cost) ≤
       (S.cacheSize : ℕ) * comparator.fetchCount +
         ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input :=
-  paymentCount_le_of_gain feasible (c := S.cacheSize) (g := S.cacheSize + 1) (by ring) le_rfl
+  paymentCount_le_of_gain hδ feasible (c := S.cacheSize) (g := S.cacheSize + 1) (by ring) le_rfl
     (fun i hi h => gain_assoc_ge_succ huniverse hi h)
 
 /-- The setup of FIFO with threshold `(k+1)/k` on a instance with cache
@@ -145,8 +145,7 @@ def setup {k : ℕ} (hk : 0 < k) (input : Instance Page)
     (hsize : input.cacheSize = k) : Setup Page where
   cacheSize := k
   positive := hk
-  threshold := ((k : Cost) + 1) / (k : Cost)
-  threshold_pos := div_pos (by positivity) (by exact_mod_cast hk)
+  trigger := .threshold (((k : Cost) + 1) / (k : Cost))
   input := input
   size := hsize
 
@@ -157,16 +156,17 @@ theorem competitive_of_pageUniverse {k : ℕ} (hk : 0 < k)
     (input : Instance Page) (hsize : input.cacheSize = k)
     (huniverse : input.pageUniverse.card ≤ k + 1)
     (comparator : Schedule Page) (feasible : comparator.Feasible input) :
-    (FIFO.schedule (((k : Cost) + 1) / (k : Cost)) input).totalCost input ≤
+    (FIFO.schedule (.threshold (((k : Cost) + 1) / (k : Cost))) input).totalCost input ≤
       (2 * k + 1 : ℕ) * comparator.totalCost input := by
   set S := setup hk input hsize with hS
   have hk' : (k : Cost) ≠ 0 := by exact_mod_cast hk.ne'
-  have hM := paymentCount_le_k_plus_one (S := S) feasible huniverse
-  have hcost := FIFO.algorithmCostClaim S.threshold input
+  have hM := paymentCount_le_k_plus_one (S := S)
+    (div_pos (by positivity) (by exact_mod_cast hk)) feasible huniverse
+  have hcost := FIFO.algorithmCostClaim S.trigger input
   unfold FIFO.AlgorithmCostClaim FIFO.algorithmCost at hcost
-  change (FIFO.schedule S.threshold input).totalCost input ≤ _
+  change (FIFO.schedule S.trigger input).totalCost input ≤ _
   rw [hcost]
-  have hcount : (FIFO.paymentCount S.threshold input : Cost) = (S.count : Cost) := rfl
+  have hcount : (FIFO.paymentCount S.trigger input : Cost) = (S.count : Cost) := rfl
   rw [hcount]
   have hcoef : ((k + 1 : ℕ) : Cost) / (((k : Cost) + 1) / (k : Cost)) = k := by
     push_cast

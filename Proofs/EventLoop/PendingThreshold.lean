@@ -2,7 +2,7 @@ import Proofs.EventLoop.Threshold
 import Proofs.EventLoop.RunInvariants
 
 namespace PagingWithDelay.FIFO
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 noncomputable section
 
 theorem pendingCost_continuous (state : State Page) (page : Page) :
@@ -53,7 +53,7 @@ theorem pendingCost_unbounded_of_pending (state : State Page) (page : Page)
       exact ⟨hpending, by simp [heq]⟩
     · simp [time]
 
-theorem thresholdTime_value (state : State Page) (page : Page)
+theorem thresholdTime_value {δ : Cost} (state : State Page) (page : Page)
     (hpending : ∃ occurrence ∈ state.pending,
       occurrence.request.page = page)
     (hnow : pendingCost state page state.now ≤ δ) :
@@ -64,10 +64,10 @@ theorem thresholdTime_value (state : State Page) (page : Page)
     (pendingCost_monotone state page) hnow
     (pendingCost_unbounded_of_pending state page hpending)
 
-/-- A selected payment carries exactly the threshold time of its page. -/
+/-- A selected payment carries exactly the due time of its page. -/
 theorem nextPayment_time_eq {state : State Page} {time : Time} {page : Page}
-    (hselected : nextPayment? δ state = some (time, page)) :
-    thresholdTime δ state page = time := by
+    (hselected : nextPayment? trigger state = some (time, page)) :
+    trigger.dueTime state page = time := by
   unfold nextPayment? at hselected
   obtain hmem | impossible := foldPayment_mem _ none hselected
   · simp only [List.mem_map] at hmem
@@ -113,14 +113,14 @@ omit [DecidableEq Page] in private theorem foldPayment_le_each
 
 /-- The selected payment time is no later than the threshold time of any
 currently pending page. -/
-theorem nextPayment_time_le_thresholdTime {state : State Page}
+theorem nextPayment_time_le_dueTime {state : State Page}
     {time : Time} {selected page : Page}
-    (hselected : nextPayment? δ state = some (time, selected))
+    (hselected : nextPayment? trigger state = some (time, selected))
     (hpage : page ∈ pendingPages state) :
-    time ≤ thresholdTime δ state page := by
+    time ≤ trigger.dueTime state page := by
   let candidates := (pendingPages state).map fun page =>
-    (thresholdTime δ state page, page)
-  have hcandidate0 : (thresholdTime δ state page, page) ∈ candidates := by
+    (trigger.dueTime state page, page)
+  have hcandidate0 : (trigger.dueTime state page, page) ∈ candidates := by
     simp [candidates, hpage]
   obtain ⟨head, tail, hcandidates⟩ : ∃ head tail, candidates = head :: tail := by
     cases hc : candidates with
@@ -143,7 +143,7 @@ theorem nextPayment_time_le_thresholdTime {state : State Page}
   have hfold : tail.foldl earlierPayment head = (time, selected) := by
     unfold nextPayment? at hselected
     rw [show (pendingPages state).map (fun page =>
-      (thresholdTime δ state page, page)) = candidates from rfl, hcandidates] at hselected
+      (trigger.dueTime state page, page)) = candidates from rfl, hcandidates] at hselected
     simp only [List.foldl_cons] at hselected
     change tail.foldl
       (fun current candidate =>
@@ -153,7 +153,7 @@ theorem nextPayment_time_le_thresholdTime {state : State Page}
       (some head) = some (time, selected) at hselected
     rw [optionFold tail head] at hselected
     exact Option.some.inj hselected
-  have hcandidate : (thresholdTime δ state page, page) ∈ head :: tail := by
+  have hcandidate : (trigger.dueTime state page, page) ∈ head :: tail := by
     rw [← hcandidates]
     exact hcandidate0
   have hall : ∀ candidate ∈ head :: tail,
@@ -167,16 +167,8 @@ theorem nextPayment_time_le_thresholdTime {state : State Page}
   have htime := congrArg Prod.fst hfold
   calc
     time = (tail.foldl earlierPayment head).1 := htime.symm
-    _ ≤ (thresholdTime δ state page, page).1 := hall _ hcandidate
-    _ = thresholdTime δ state page := rfl
-
-theorem selectedPayment_value {state : State Page} {time : Time} {page : Page}
-    (hselected : nextPayment? δ state = some (time, page))
-    (hnow : pendingCost state page state.now ≤ δ) :
-    pendingCost state page time = δ := by
-  rw [← nextPayment_time_eq hselected]
-  exact thresholdTime_value state page
-    (pending_of_mem_pendingPages (nextPayment_mem_pendingPages hselected)) hnow
+    _ ≤ (trigger.dueTime state page, page).1 := hall _ hcandidate
+    _ = trigger.dueTime state page := rfl
 
 end
 end PagingWithDelay.FIFO

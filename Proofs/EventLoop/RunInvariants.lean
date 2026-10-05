@@ -1,7 +1,7 @@
 import EventLoop
 
 namespace PagingWithDelay.FIFO
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 noncomputable section
 
 def potential (state : State Page) : ℕ :=
@@ -33,7 +33,7 @@ omit [DecidableEq Page] in theorem foldPayment_mem
           · exact Or.inr heq
 
 theorem nextPayment_mem_pendingPages {state : State Page} {time : Time} {page : Page}
-    (h : nextPayment? δ state = some (time, page)) : page ∈ pendingPages state := by
+    (h : nextPayment? trigger state = some (time, page)) : page ∈ pendingPages state := by
   unfold nextPayment? at h
   obtain hm | impossible := foldPayment_mem _ none h
   · simp only [List.mem_map] at hm
@@ -100,12 +100,12 @@ private theorem length_filter_lt_of_exists {state : State Page} {page : Page}
   exact aux state.pending h
 
 theorem nextAction_step_potential_lt (input : Instance Page) (state : State Page)
-    (action : Action Page) (haction : nextAction? δ state = some action) :
+    (action : Action Page) (haction : nextAction? trigger state = some action) :
     potential (step input state action) < potential state := by
   unfold nextAction? at haction
   cases hu : state.unseen with
   | nil =>
-    cases hp : nextPayment? δ state with
+    cases hp : nextPayment? trigger state with
     | none => simp [hu, hp] at haction
     | some payment =>
       simp only [hu, hp] at haction
@@ -117,7 +117,7 @@ theorem nextAction_step_potential_lt (input : Instance Page) (state : State Page
       simp only [potential, step, hu, List.length_nil]
       omega
   | cons occurrence unseen =>
-    cases hp : nextPayment? δ state with
+    cases hp : nextPayment? trigger state with
     | none =>
       simp only [hu, hp] at haction
       injection haction with haction
@@ -143,7 +143,7 @@ theorem nextAction_step_potential_lt (input : Instance Page) (state : State Page
 
 theorem run_finished_of_potential_le (input : Instance Page) (state : State Page) :
     ∀ fuel, potential state ≤ fuel →
-      nextAction? δ (run δ input fuel state) = none := by
+      nextAction? trigger (run trigger input fuel state) = none := by
   intro fuel
   induction fuel generalizing state with
   | zero =>
@@ -151,7 +151,7 @@ theorem run_finished_of_potential_le (input : Instance Page) (state : State Page
       have hz : potential state = 0 := Nat.eq_zero_of_le_zero hpotential
       cases hu : state.unseen with
       | nil =>
-        cases hp : nextPayment? δ state with
+        cases hp : nextPayment? trigger state with
         | none => simp [run, nextAction?, hu, hp]
         | some payment =>
           have hpage := nextPayment_mem_pendingPages hp
@@ -169,7 +169,7 @@ theorem run_finished_of_potential_le (input : Instance Page) (state : State Page
   | succ fuel ih =>
       intro hpotential
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => simp [ha]
       | some action =>
         simp only
@@ -178,7 +178,7 @@ theorem run_finished_of_potential_le (input : Instance Page) (state : State Page
         omega
 
 theorem run_initial_finished (input : Instance Page) :
-    nextAction? δ (run δ input (2 * input.requests.length) (initialState input)) = none := by
+    nextAction? trigger (run trigger input (2 * input.requests.length) (initialState input)) = none := by
   apply run_finished_of_potential_le
   suffices ∀ n, (enumerateFrom n input.requests).length = input.requests.length by
     simp [potential, initialState, enumerate, this]

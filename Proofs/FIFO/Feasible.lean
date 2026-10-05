@@ -1,21 +1,21 @@
 import Proofs.EventLoop.ServiceSemantics
 
 /-!
-# Feasibility of the schedule produced by FIFO, for every threshold
+# Feasibility of the schedule produced by FIFO, for every trigger
 
 An `Algorithm` in `Model.lean` must produce a feasible schedule on every
 instance.  This file proves that FIFO's emitted trace is feasible, for *every*
-threshold `δ : Cost`,
+trigger, threshold or deadline,
 
 ```text
-(FIFO.schedule δ input).Feasible input
+(FIFO.schedule trigger input).Feasible input
 ```
 
 which `Algorithm.lean` uses to package the event loop as the algorithm
 `FIFO.algorithm` that the public theorems name.
 
-Nothing in the argument constrains `δ`: a payment is legal wherever the
-threshold happens to be crossed, so feasibility is a fact about the shape of
+Nothing in the argument constrains the trigger: a payment is legal whenever
+it is made, so feasibility is a fact about the shape of
 the event loop, not about the amount of delay it tolerates.
 
 Nothing here is new mathematics.  Each of the five checks in
@@ -39,7 +39,7 @@ admissible paging solution.
 
 namespace PagingWithDelay.FIFO
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 
 noncomputable section
 
@@ -166,25 +166,25 @@ private theorem queueAfter_toFinset_card_le {capacity : ℕ} (hpositive : 0 < ca
 
 /-- The public schedule is exactly the erasure of the final payment log. -/
 private theorem schedule_events (input : Instance Page) :
-    (schedule δ input).events =
-      (run δ input (2 * input.requests.length) (initialState input)).payments.map
+    (schedule trigger input).events =
+      (run trigger input (2 * input.requests.length) (initialState input)).payments.map
         Payment.fetchEvent :=
   rfl
 
 private theorem schedule_chronological (input : Instance Page) :
-    (schedule δ input).events.Pairwise fun earlier later =>
+    (schedule trigger input).events.Pairwise fun earlier later =>
       earlier.time ≤ later.time := by
   rw [schedule_events, List.pairwise_map]
   exact final_payment_times_chronological input
 
 private theorem schedule_validTransitions (input : Instance Page) :
-    Schedule.ValidTransitionsFrom (schedule δ input).initialCache
-      (schedule δ input).events := by
+    Schedule.ValidTransitionsFrom (schedule trigger input).initialCache
+      (schedule trigger input).events := by
   rw [schedule_events]
   exact validTransitionsFrom_map_fetchEvent (final_freshPayments input)
 
 private theorem schedule_capacity (input : Instance Page) :
-    ∀ event ∈ (schedule δ input).events,
+    ∀ event ∈ (schedule trigger input).events,
       event.cacheAfter.card ≤ input.cacheSize := by
   rw [schedule_events]
   intro event hevent
@@ -198,9 +198,9 @@ candidate.  This is the same partition that `FIFO.algorithmCostClaim` uses to
 regroup the delay cost. -/
 private theorem exists_serviceCandidate (input : Instance Page)
     {occurrence : Occurrence Page} (hinput : occurrence ∈ enumerate input.requests) :
-    ((schedule δ input).serviceCandidates occurrence.request).Nonempty := by
+    ((schedule trigger input).serviceCandidates occurrence.request).Nonempty := by
   by_cases hserved : occurrence ∈
-      (run δ input (2 * input.requests.length) (initialState input)).payments.flatMap
+      (run trigger input (2 * input.requests.length) (initialState input)).payments.flatMap
         Payment.served
   · obtain ⟨payment, hpayment, hbatch⟩ := List.mem_flatMap.mp hserved
     obtain ⟨hpage, harrival⟩ :=
@@ -214,15 +214,15 @@ private theorem exists_serviceCandidate (input : Instance Page)
 
 private theorem schedule_eventuallyServed (input : Instance Page) :
     ∀ request ∈ input.requests,
-      ((schedule δ input).serviceCandidates request).Nonempty := by
+      ((schedule trigger input).serviceCandidates request).Nonempty := by
   intro request hrequest
   rw [← enumerate_map_request input.requests] at hrequest
   obtain ⟨occurrence, hoccurrence, rfl⟩ := List.mem_map.mp hrequest
   exact exists_serviceCandidate input hoccurrence
 
-/-- **The FIFO schedule is a legal paging solution, for every threshold `δ`.** -/
-theorem schedule_feasible (δ : Cost) (input : Instance Page) :
-    (schedule δ input).Feasible input where
+/-- **The FIFO schedule is a legal paging solution, for every trigger.** -/
+theorem schedule_feasible (trigger : Trigger) (input : Instance Page) :
+    (schedule trigger input).Feasible input where
   initialCache := rfl
   chronological := schedule_chronological input
   validTransitions := schedule_validTransitions input

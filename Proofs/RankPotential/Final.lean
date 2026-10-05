@@ -421,7 +421,7 @@ theorem payment_accounting_nat (feasible : comparator.Feasible S.input) :
 /-- **Payment accounting with a general fetch charge**:
 `M + Φ_0 ≤ c·S + ((k+1)/δ)·D + Φ_final` whenever every associated offline
 event has gain at least `g = 2k+1-c`. -/
-theorem payment_accounting_of_gain (feasible : comparator.Feasible S.input)
+theorem payment_accounting_of_gain (hδ : 0 < S.threshold) (feasible : comparator.Feasible S.input)
     {c g : ℕ} (hcg : c + g = 2 * S.cacheSize + 1) (hgk : g ≤ S.cacheSize + 1)
     (hg : ∀ i, i < S.count → Dropped S comparator i →
       g ≤ gainAt S comparator (assoc S comparator i).1 (assoc S comparator i).2) :
@@ -434,7 +434,7 @@ theorem payment_accounting_of_gain (feasible : comparator.Feasible S.input)
     exact_mod_cast eventIndex_le_length (S := S) (comparator := comparator) S.count
   have hC : ((neverSet S comparator).card : Cost) ≤
       comparator.totalDelay S.input / S.threshold := by
-    rw [le_div_iff₀ S.threshold_pos]
+    rw [le_div_iff₀ hδ]
     exact neverSet_delay_le feasible
   have hcast : (S.count : Cost) + potential S comparator 0 ≤
       (c : ℕ) * (eventIndex S comparator S.count : Cost) +
@@ -453,12 +453,12 @@ theorem payment_accounting_of_gain (feasible : comparator.Feasible S.input)
 /-- **Payment accounting** (the write-up's lemma, general threshold):
 `M + Φ_0 ≤ (k+1)·S + ((k+1)/δ)·D + Φ_final`, with `S` the comparator's fetch
 count and `D` its delay cost. -/
-theorem payment_accounting (feasible : comparator.Feasible S.input) :
+theorem payment_accounting (hδ : 0 < S.threshold) (feasible : comparator.Feasible S.input) :
     (S.count : Cost) + potential S comparator 0 ≤
       (S.cacheSize + 1 : ℕ) * comparator.fetchCount +
         ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input +
         potential S comparator S.count :=
-  payment_accounting_of_gain feasible (c := S.cacheSize + 1) (g := S.cacheSize) (by ring) (Nat.le_succ _)
+  payment_accounting_of_gain hδ feasible (c := S.cacheSize + 1) (g := S.cacheSize) (by ring) (Nat.le_succ _)
     (fun i hi h => gain_assoc_ge hi h)
 
 /-! ### The potentials at both ends -/
@@ -512,7 +512,7 @@ theorem missing_zero (feasible : comparator.Feasible S.input) : missing S compar
 
 /-- **Payment accounting with a general fetch charge**, in the write-up's
 potential: `M + Φ_final ≤ c·S + ((k+1)/δ)·D + Φ_0`. -/
-theorem payment_accounting_missing_of_gain (feasible : comparator.Feasible S.input)
+theorem payment_accounting_missing_of_gain (hδ : 0 < S.threshold) (feasible : comparator.Feasible S.input)
     {c g : ℕ} (hcg : c + g = 2 * S.cacheSize + 1) (hgk : g ≤ S.cacheSize + 1)
     (hg : ∀ i, i < S.count → Dropped S comparator i →
       g ≤ gainAt S comparator (assoc S comparator i).1 (assoc S comparator i).2) :
@@ -520,7 +520,7 @@ theorem payment_accounting_missing_of_gain (feasible : comparator.Feasible S.inp
       (c : ℕ) * comparator.fetchCount +
         ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input +
         missing S comparator 0 := by
-  have h := payment_accounting_of_gain feasible hcg hgk hg
+  have h := payment_accounting_of_gain hδ feasible hcg hgk hg
   have e1 : (missing S comparator S.count : Cost) + potential S comparator S.count =
       triangular S.cacheSize := by exact_mod_cast missing_add_potential le_rfl
   have e0 : (missing S comparator 0 : Cost) + potential S comparator 0 =
@@ -544,32 +544,32 @@ theorem payment_accounting_missing_of_gain (feasible : comparator.Feasible S.inp
 `Φ = ∑_{q ∈ C_ALG \ C_OPT} rank q`.  Here `C_OPT` is the comparator's lazy
 cache, and `Φ_final` is taken just after the last FIFO payment, counting the
 comparator events stamped no later than it. -/
-theorem payment_accounting_missing (feasible : comparator.Feasible S.input) :
+theorem payment_accounting_missing (hδ : 0 < S.threshold) (feasible : comparator.Feasible S.input) :
     (S.count : Cost) + missing S comparator S.count ≤
       (S.cacheSize + 1 : ℕ) * comparator.fetchCount +
         ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input +
         missing S comparator 0 :=
-  payment_accounting_missing_of_gain feasible (c := S.cacheSize + 1) (g := S.cacheSize)
+  payment_accounting_missing_of_gain hδ feasible (c := S.cacheSize + 1) (g := S.cacheSize)
     (by ring) (Nat.le_succ _) (fun i hi h => gain_assoc_ge hi h)
 
 /-- **`M ≤ c·S + ((k+1)/δ)·D`** whenever every associated offline event has
 gain at least `2k+1-c`. -/
-theorem paymentCount_le_of_gain (feasible : comparator.Feasible S.input)
+theorem paymentCount_le_of_gain (hδ : 0 < S.threshold) (feasible : comparator.Feasible S.input)
     {c g : ℕ} (hcg : c + g = 2 * S.cacheSize + 1) (hgk : g ≤ S.cacheSize + 1)
     (hg : ∀ i, i < S.count → Dropped S comparator i →
       g ≤ gainAt S comparator (assoc S comparator i).1 (assoc S comparator i).2) :
     (S.count : Cost) ≤
       (c : ℕ) * comparator.fetchCount +
         ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input :=
-  le_of_add_le_add_right ((payment_accounting_of_gain feasible hcg hgk hg).trans
+  le_of_add_le_add_right ((payment_accounting_of_gain hδ feasible hcg hgk hg).trans
     (by have := potential_final_le_zero feasible; gcongr))
 
 /-- **`M ≤ (k+1)·S + ((k+1)/δ)·D`** for every positive threshold. -/
-theorem paymentCount_le (feasible : comparator.Feasible S.input) :
+theorem paymentCount_le (hδ : 0 < S.threshold) (feasible : comparator.Feasible S.input) :
     (S.count : Cost) ≤
       (S.cacheSize + 1 : ℕ) * comparator.fetchCount +
         ((S.cacheSize + 1 : ℕ) / S.threshold) * comparator.totalDelay S.input :=
-  paymentCount_le_of_gain feasible (c := S.cacheSize + 1) (g := S.cacheSize) (by ring) (Nat.le_succ _)
+  paymentCount_le_of_gain hδ feasible (c := S.cacheSize + 1) (g := S.cacheSize) (by ring) (Nat.le_succ _)
     (fun i hi h => gain_assoc_ge hi h)
 
 end
@@ -580,8 +580,7 @@ end
 noncomputable def setupOne (input : Instance Page) : Setup Page where
   cacheSize := input.cacheSize
   positive := input.positiveCapacity
-  threshold := 1
-  threshold_pos := zero_lt_one
+  trigger := .threshold 1
   input := input
   size := rfl
 
@@ -589,16 +588,16 @@ noncomputable def setupOne (input : Instance Page) : Setup Page where
 additive constant: `ALG = 2M` and `M ≤ (k+1)·(S + D) = (k+1)·OPT`. -/
 theorem competitiveRatio (input : Instance Page) :
     ∀ comparator : Schedule Page, comparator.Feasible input →
-      (FIFO.schedule 1 input).totalCost input ≤
+      (FIFO.schedule (.threshold 1) input).totalCost input ≤
         (2 * input.cacheSize + 2 : ℕ) * comparator.totalCost input := by
   intro comparator feasible
-  have hM := paymentCount_le (S := setupOne input) feasible
-  have hcost := FIFO.algorithmCostClaim 1 input
+  have hM := paymentCount_le (S := setupOne input) zero_lt_one feasible
+  have hcost := FIFO.algorithmCostClaim (.threshold 1) input
   unfold FIFO.AlgorithmCostClaim FIFO.algorithmCost at hcost
-  rw [hcost]
-  have hcount : (FIFO.paymentCount 1 input : Cost) = ((setupOne input).count : Cost) := rfl
+  rw [hcost, FIFO.Trigger.level_threshold]
+  have hcount : (FIFO.paymentCount (.threshold 1) input : Cost) = ((setupOne input).count : Cost) := rfl
   rw [hcount]
-  simp only [setupOne, div_one] at hM
+  simp only [setupOne, Setup.threshold, FIFO.Trigger.level_threshold, div_one] at hM
   calc (1 + 1 : Cost) * ((setupOne input).count : Cost)
       ≤ (1 + 1 : Cost) * ((input.cacheSize + 1 : ℕ) * comparator.fetchCount +
           (input.cacheSize + 1 : ℕ) * comparator.totalDelay input) :=

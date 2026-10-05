@@ -190,7 +190,26 @@ structure Algorithm.Nonclairvoyant (algorithm : Algorithm Page) : Prop where
 /-! ## Deadlines
 
 A request is served by its *deadline* exactly when it incurs no delay cost. Paging with deadlines asks to always do so with the fewest fetches.
+A nonclairvoyant deadline algorithm learns a deadline only when it is reached.
 -/
+
+/-- The deadline of a request: the last time at which its delay is still zero. -/
+def Request.deadline (request : Request Page) : Time :=
+  request.arrival + sInf {wait | 0 < request.delay wait}
+
+/-- Two requests agree on what they have revealed by time `t` when paging with deadlines: page, arrival, and the deadline once it has been reached. -/
+structure Request.DeadlineAgreeUpTo (t : Time) (first second : Request Page) : Prop where
+  page : first.page = second.page
+  arrival : first.arrival = second.arrival
+  /-- A deadline is revealed when it is reached. -/
+  deadline : first.deadline ≤ t ∨ second.deadline ≤ t → first.deadline = second.deadline
+
+/-- Two instances indistinguishable at time `t` when paging with deadlines: same cache size and initial cache, and arrived requests matched one for one by `Request.DeadlineAgreeUpTo`. -/
+structure Instance.DeadlineAgreeUpTo (first second : Instance Page) (t : Time) : Prop where
+  cacheSize : first.cacheSize = second.cacheSize
+  initialCache : first.initialCache = second.initialCache
+  requests : List.Forall₂ (Request.DeadlineAgreeUpTo t)
+    (first.upTo t).requests (second.upTo t).requests
 
 /-- A deterministic algorithm that meets every deadline on every instance. -/
 structure DeadlineAlgorithm (Page : Type*) [DecidableEq Page] extends Algorithm Page where
@@ -201,6 +220,13 @@ structure DeadlineAlgorithm (Page : Type*) [DecidableEq Page] extends Algorithm 
 /-- The same coercion for deadline algorithms; Lean does not inherit it through `extends`. -/
 instance : CoeFun (DeadlineAlgorithm Page) fun _ => Instance Page → Schedule Page :=
   ⟨fun algorithm => algorithm.run⟩
+
+/-- A deadline algorithm is **nonclairvoyant** when its behaviour up to any time `t` depends only on which requests have arrived by `t` and which of their deadlines have been reached by `t`.
+`Algorithm.Nonclairvoyant` cannot hold here: a deadline at `t` shows in the delay only after `t`. -/
+structure DeadlineAlgorithm.Nonclairvoyant (algorithm : DeadlineAlgorithm Page) : Prop where
+  /-- Instances indistinguishable at time `t` receive schedules agreeing up to `t`. -/
+  observationDetermined : ∀ (first second : Instance Page) (t : Time),
+    first.DeadlineAgreeUpTo second t → (algorithm first).upTo t = (algorithm second).upTo t
 
 /-! ## Competitiveness
 
@@ -229,6 +255,12 @@ def DeadlineAlgorithm.Competitive (algorithm : DeadlineAlgorithm Page) (ratio : 
     inputs input →
       (algorithm input).totalCost input ≤
         ratio input.cacheSize * (comparator input).totalCost input + additive input.cacheSize
+
+/-- Strict competitiveness for paging with deadlines: competitive with additive constant `0`. -/
+def DeadlineAlgorithm.StrictlyCompetitive (algorithm : DeadlineAlgorithm Page) (ratio : ℕ → Cost)
+    (inputs : Instance Page → Prop := fun _ => True) : Prop :=
+  ∀ (comparator : DeadlineAlgorithm Page) (input : Instance Page), inputs input →
+    (algorithm input).totalCost input ≤ ratio input.cacheSize * (comparator input).totalCost input
 
 end
 

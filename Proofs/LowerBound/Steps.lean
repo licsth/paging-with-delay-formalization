@@ -149,39 +149,39 @@ theorem thresholdTime_single {δ : Cost} (hδ : 0 < δ) (state : State Page) (p 
 /-! ## Selecting the next action -/
 
 theorem nextPayment_none {δ : Cost} {state : State Page} (h : state.pending = []) :
-    nextPayment? δ state = none := by
+    nextPayment? (.threshold δ) state = none := by
   simp [nextPayment?, pendingPages, h]
 
 theorem nextPayment_single {δ : Cost} {state : State Page} {occ : Occurrence Page}
     (h : state.pending = [occ]) :
-    nextPayment? δ state = some (thresholdTime δ state occ.request.page, occ.request.page) := by
+    nextPayment? (.threshold δ) state = some (thresholdTime δ state occ.request.page, occ.request.page) := by
   simp [nextPayment?, pendingPages, h, List.eraseDups, List.eraseDupsBy,
     List.eraseDupsBy.loop]
 
 theorem nextPayment_pair {δ : Cost} {state : State Page} {o1 o2 : Occurrence Page}
     (h : state.pending = [o1, o2]) (hne : o1.request.page ≠ o2.request.page)
     (hlt : thresholdTime δ state o2.request.page < thresholdTime δ state o1.request.page) :
-    nextPayment? δ state = some (thresholdTime δ state o2.request.page, o2.request.page) := by
+    nextPayment? (.threshold δ) state = some (thresholdTime δ state o2.request.page, o2.request.page) := by
   have hne' : (o2.request.page == o1.request.page) = false := by simp [Ne.symm hne]
   simp [nextPayment?, pendingPages, h, List.eraseDups, List.eraseDupsBy,
     List.eraseDupsBy.loop, hne', earlierPayment, hlt]
 
 theorem nextAction_arrival {δ : Cost} {state : State Page} {occ : Occurrence Page}
     {rest : List (Occurrence Page)} (hu : state.unseen = occ :: rest)
-    (hp : nextPayment? δ state = none) :
-    nextAction? δ state = some (Action.arrival occ) := by
+    (hp : nextPayment? (.threshold δ) state = none) :
+    nextAction? (.threshold δ) state = some (Action.arrival occ) := by
   simp [nextAction?, hu, hp]
 
 theorem nextAction_arrival_of_le {δ : Cost} {state : State Page} {occ : Occurrence Page}
     {rest : List (Occurrence Page)} {t : Time} {p : Page} (hu : state.unseen = occ :: rest)
-    (hp : nextPayment? δ state = some (t, p)) (hle : occ.request.arrival ≤ t) :
-    nextAction? δ state = some (Action.arrival occ) := by
+    (hp : nextPayment? (.threshold δ) state = some (t, p)) (hle : occ.request.arrival ≤ t) :
+    nextAction? (.threshold δ) state = some (Action.arrival occ) := by
   simp [nextAction?, hu, hp, hle]
 
 theorem nextAction_payment {δ : Cost} {state : State Page} {t : Time} {p : Page}
-    (hp : nextPayment? δ state = some (t, p))
+    (hp : nextPayment? (.threshold δ) state = some (t, p))
     (hu : ∀ occ rest, state.unseen = occ :: rest → t < occ.request.arrival) :
-    nextAction? δ state = some (Action.payment t p) := by
+    nextAction? (.threshold δ) state = some (Action.payment t p) := by
   cases hs : state.unseen with
   | nil => simp [nextAction?, hs, hp]
   | cons occ rest =>
@@ -191,32 +191,32 @@ theorem nextAction_payment {δ : Cost} {state : State Page} {t : Time} {p : Page
 /-! ## Composing runs -/
 
 theorem run_zero (δ : Cost) (input : Instance Page) (state : State Page) :
-    run δ input 0 state = state := rfl
+    run (.threshold δ) input 0 state = state := rfl
 
 theorem run_step {δ : Cost} (input : Instance Page) (fuel : ℕ) {state : State Page}
-    {action : Action Page} (h : nextAction? δ state = some action) :
-    run δ input (fuel + 1) state = run δ input fuel (step input state action) := by
+    {action : Action Page} (h : nextAction? (.threshold δ) state = some action) :
+    run (.threshold δ) input (fuel + 1) state = run (.threshold δ) input fuel (step input state action) := by
   rw [run, h]
 
 theorem run_none {δ : Cost} (input : Instance Page) {state : State Page}
-    (h : nextAction? δ state = none) : ∀ fuel, run δ input fuel state = state := by
+    (h : nextAction? (.threshold δ) state = none) : ∀ fuel, run (.threshold δ) input fuel state = state := by
   intro fuel
   induction fuel with
   | zero => rfl
   | succ fuel _ => rw [run, h]
 
 theorem run_add {δ : Cost} (input : Instance Page) : ∀ (a b : ℕ) (state : State Page),
-    run δ input (a + b) state = run δ input b (run δ input a state) := by
+    run (.threshold δ) input (a + b) state = run (.threshold δ) input b (run (.threshold δ) input a state) := by
   intro a
   induction a with
   | zero => intro b state; rw [Nat.zero_add]; rfl
   | succ a ih =>
       intro b state
-      cases h : nextAction? δ state with
+      cases h : nextAction? (.threshold δ) state with
       | none =>
           rw [run_none input h (a + 1 + b), run_none input h (a + 1), run_none input h b]
       | some act =>
-          have e1 : run δ input (a + 1 + b) state = run δ input (a + b) (step input state act) := by
+          have e1 : run (.threshold δ) input (a + 1 + b) state = run (.threshold δ) input (a + b) (step input state act) := by
             rw [show a + 1 + b = (a + b) + 1 by omega]
             exact run_step input (a + b) h
           rw [e1, run_step input a h, ih b]

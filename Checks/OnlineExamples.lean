@@ -9,8 +9,8 @@ import Proofs.FIFO.Deadlines
 definition that everything satisfies, or that nothing satisfies, would carry no
 information, so this file pins both predicates down from both sides:
 
-* FIFO is online and nonclairvoyant for every threshold
-  (`FIFO.algorithm_online`, `FIFO.algorithm_nonclairvoyant`).  Since an
+* FIFO is online for every threshold and nonclairvoyant for every positive
+  threshold (`FIFO.algorithm_online`, `FIFO.algorithm_nonclairvoyant`).  Since an
   `Algorithm` must produce a feasible schedule on every instance, it cannot pass
   merely by ignoring the requests.
 * `clairvoyantAlgorithm_not_online` exhibits an algorithm that is rejected.  It
@@ -48,17 +48,29 @@ variable {Page : Type*} [DecidableEq Page]
 /-- With a positive threshold FIFO never fetches at time `0`: every payment
 releases `δ` units of delay, and none has accrued at time `0`. -/
 theorem zero_lt_time_of_mem_events {δ : Cost} (hδ : 0 < δ) (input : Instance Page)
-    {event : FetchEvent Page} (hevent : event ∈ (schedule δ input).events) :
+    {event : FetchEvent Page} (hevent : event ∈ (schedule (.threshold δ) input).events) :
     0 < event.time := by
   rw [schedule_events] at hevent
   obtain ⟨payment, hpayment, rfl⟩ := List.mem_map.mp hevent
-  have hcost := final_thresholdPayments (δ := δ) input payment hpayment
+  have hcost := final_thresholdPayments (trigger := .threshold δ) input payment hpayment
   show 0 < payment.time
   rw [pos_iff_ne_zero]
   intro hzero
   have : payment.delayCost = 0 := by
     simp [Payment.delayCost, hzero, Request.delay_zero]
   exact hδ.ne' (hcost.symm.trans this)
+
+/-- With threshold `0` FIFO meets every deadline: the cost identity
+`ALG = (1+0)·M` leaves no room for delay. -/
+theorem schedule_zero_meetsDeadlines (input : Instance Page) :
+    ∀ request ∈ input.requests, (schedule (.threshold 0) input).requestCost request = 0 := by
+  have hcost := algorithmCostClaim (.threshold 0) input
+  unfold AlgorithmCostClaim algorithmCost at hcost
+  rw [Schedule.totalCost, fetchCount_eq_paymentCount, Trigger.level_threshold, add_zero,
+    one_mul] at hcost
+  have hdelay : (schedule (.threshold 0) input).totalDelay input = 0 := by simpa using hcost
+  intro request hrequest
+  exact List.sum_eq_zero_iff.mp hdelay _ (List.mem_map_of_mem hrequest)
 
 /-- With threshold `0` FIFO serves a request arriving at time `0` on a page
 outside the initial cache at once, provided its delay grows as soon as it
@@ -67,16 +79,16 @@ theorem exists_event_at_zero (input : Instance Page) {request : Request Page}
     (hrequest : request ∈ input.requests) (harrival : request.arrival = 0)
     (hpage : request.page ∉ input.initialCache)
     (hgrows : ∀ wait, request.delay wait = 0 → wait = 0) :
-    ∃ event ∈ (schedule 0 input).events, event.time = 0 := by
+    ∃ event ∈ (schedule (.threshold 0) input).events, event.time = 0 := by
   have hwait := hgrows _ (schedule_zero_meetsDeadlines input request hrequest)
-  have hnonempty := (schedule_feasible 0 input).eventuallyServed request hrequest
-  set s := ((schedule 0 input).serviceCandidates request).min' hnonempty with hs
-  have hservice : (schedule 0 input).serviceTime request = some s := by
+  have hnonempty := (schedule_feasible (.threshold 0) input).eventuallyServed request hrequest
+  set s := ((schedule (.threshold 0) input).serviceCandidates request).min' hnonempty with hs
+  have hservice : (schedule (.threshold 0) input).serviceTime request = some s := by
     simp [Schedule.serviceTime, hnonempty, hs]
   have hszero : s = 0 := by
     simpa [Schedule.serviceDelay, hservice, harrival] using hwait
-  have hmem : s ∈ (schedule 0 input).serviceCandidates request := Finset.min'_mem _ _
-  have hcache : request.page ∉ (schedule 0 input).cacheBefore request.arrival := by
+  have hmem : s ∈ (schedule (.threshold 0) input).serviceCandidates request := Finset.min'_mem _ _
+  have hcache : request.page ∉ (schedule (.threshold 0) input).cacheBefore request.arrival := by
     simpa [Schedule.cacheBefore, harrival, schedule] using hpage
   simp only [Schedule.serviceCandidates, if_neg hcache, List.mem_toFinset,
     List.mem_map, List.mem_filter] at hmem
@@ -85,7 +97,7 @@ theorem exists_event_at_zero (input : Instance Page) {request : Request Page}
 
 /-- Without requests FIFO does nothing. -/
 theorem schedule_events_eq_nil {δ : Cost} {input : Instance Page} (h : input.requests = []) :
-    (schedule δ input).events = [] := by
+    (schedule (.threshold δ) input).events = [] := by
   simp [schedule, h, run, initialState]
 
 end FIFO
@@ -122,11 +134,11 @@ FIFO with threshold `1` otherwise.  It is a function of the input, but not of
 its past. -/
 def clairvoyantAlgorithm : Algorithm ℕ where
   run input :=
-    if 2 ≤ input.requests.length then FIFO.schedule 0 input else FIFO.schedule 1 input
+    if 2 ≤ input.requests.length then FIFO.schedule (.threshold 0) input else FIFO.schedule (.threshold 1) input
   feasible input := by
     split
-    · exact FIFO.schedule_feasible 0 input
-    · exact FIFO.schedule_feasible 1 input
+    · exact FIFO.schedule_feasible (.threshold 0) input
+    · exact FIFO.schedule_feasible (.threshold 1) input
 
 /-- Looking ahead is exactly what `Algorithm.Online` forbids: on `long` the
 algorithm fetches at time `0`, on `short` it does not. -/
@@ -173,20 +185,20 @@ instance : DecidablePred (Anticipates (Page := Page)) := fun _ => Classical.dec 
 FIFO with threshold `1` otherwise. -/
 def anticipatingAlgorithm : Algorithm Page where
   run input :=
-    if Anticipates input then FIFO.schedule 0 input else FIFO.schedule 1 input
+    if Anticipates input then FIFO.schedule (.threshold 0) input else FIFO.schedule (.threshold 1) input
   feasible input := by
     split
-    · exact FIFO.schedule_feasible 0 input
-    · exact FIFO.schedule_feasible 1 input
+    · exact FIFO.schedule_feasible (.threshold 0) input
+    · exact FIFO.schedule_feasible (.threshold 1) input
 
 /-- Up to time `t`, the run of either branch is the FIFO run on the input
 truncated at `t`. -/
 private theorem anticipating_upTo (input : Instance Page) (t : Time) :
     (anticipatingAlgorithm input).upTo t =
-      if Anticipates input then (FIFO.schedule 0 (input.upTo t)).upTo t
-      else (FIFO.schedule 1 (input.upTo t)).upTo t := by
+      if Anticipates input then (FIFO.schedule (.threshold 0) (input.upTo t)).upTo t
+      else (FIFO.schedule (.threshold 1) (input.upTo t)).upTo t := by
   unfold anticipatingAlgorithm
-  show (if Anticipates input then FIFO.schedule 0 input else FIFO.schedule 1 input).upTo t = _
+  show (if Anticipates input then FIFO.schedule (.threshold 0) input else FIFO.schedule (.threshold 1) input).upTo t = _
   split
   · exact FIFO.schedule_upTo_eq input t
   · exact FIFO.schedule_upTo_eq input t
@@ -197,7 +209,7 @@ theorem anticipatingAlgorithm_online :
     rw [anticipating_upTo first t, anticipating_upTo second t, heq]
     by_cases hempty : (second.upTo t).requests = []
     · -- nothing has arrived: both thresholds leave the truncated input alone
-      have hnil (δ : Cost) : (FIFO.schedule δ (second.upTo t)).upTo t =
+      have hnil (δ : Cost) : (FIFO.schedule (.threshold δ) (second.upTo t)).upTo t =
           ⟨second.initialCache.toFinset, []⟩ := by
         have hevents := FIFO.schedule_events_eq_nil (δ := δ) hempty
         simp only [Schedule.upTo, hevents, List.filter_nil]
@@ -296,7 +308,7 @@ theorem anticipatingAlgorithm_not_nonclairvoyant :
     exact hevent
   rw [← h] at hmem
   simp only [Schedule.upTo, List.mem_filter, decide_eq_true_eq] at hmem
-  have hevent' : event ∈ (FIFO.schedule 1 gentle).events := by
+  have hevent' : event ∈ (FIFO.schedule (.threshold 1) gentle).events := by
     have := hmem.1
     change event ∈ (if Anticipates gentle then _ else _ : Schedule ℕ).events at this
     rwa [if_neg hgentle] at this

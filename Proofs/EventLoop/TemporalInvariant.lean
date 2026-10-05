@@ -1,17 +1,17 @@
-import Proofs.EventLoop.PendingThreshold
+import Proofs.EventLoop.Trigger
 import Proofs.EventLoop.PaymentAccounting
 
 namespace PagingWithDelay.FIFO
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 noncomputable section
 
-/-- No pending page has yet accumulated the threshold `δ`. -/
+/-- No pending page has yet accumulated more than the level `δ` (`0` for deadlines). -/
 def BelowThreshold (δ : Cost) (state : State Page) : Prop :=
   ∀ page, (∃ occurrence ∈ state.pending, occurrence.request.page = page) →
     pendingCost state page state.now ≤ δ
 
 theorem initial_belowThreshold (input : Instance Page) :
-    BelowThreshold δ (initialState input) := by
+    BelowThreshold trigger.level (initialState input) := by
   intro page h; simp [initialState] at h
 
 theorem mem_eraseDups_of_mem (x : Page) : ∀ xs : List Page,
@@ -51,13 +51,13 @@ theorem mem_eraseDups_of_mem (x : Page) : ∀ xs : List Page,
 
 theorem nextPayment_exists_of_pending {state : State Page} {page : Page}
     (hpage : ∃ occurrence ∈ state.pending, occurrence.request.page = page) :
-    ∃ time selected, nextPayment? δ state = some (time, selected) := by
+    ∃ time selected, nextPayment? trigger state = some (time, selected) := by
   have hm : page ∈ pendingPages state := by
     unfold pendingPages
     apply mem_eraseDups_of_mem
     simpa only [List.mem_map] using hpage
   unfold nextPayment?
-  cases h : (pendingPages state).map (fun p => (thresholdTime δ state p, p)) with
+  cases h : (pendingPages state).map (fun p => (trigger.dueTime state p, p)) with
   | nil =>
       have he : pendingPages state = [] := List.map_eq_nil_iff.mp h
       simp [he] at hm
@@ -78,12 +78,12 @@ theorem nextPayment_exists_of_pending {state : State Page} {page : Page}
       exact aux tail head
 
 theorem nextAction_payment_selected {state : State Page} {time : Time} {page : Page}
-    (h : nextAction? δ state = some (.payment time page)) :
-    nextPayment? δ state = some (time, page) := by
+    (h : nextAction? trigger state = some (.payment time page)) :
+    nextPayment? trigger state = some (time, page) := by
   unfold nextAction? at h
   cases hu : state.unseen with
   | nil =>
-      cases hp : nextPayment? δ state with
+      cases hp : nextPayment? trigger state with
       | none => simp [hu, hp] at h
       | some pair =>
           rcases pair with ⟨t, p⟩
@@ -91,7 +91,7 @@ theorem nextAction_payment_selected {state : State Page} {time : Time} {page : P
           cases h
           rfl
   | cons occurrence unseen =>
-      cases hp : nextPayment? δ state with
+      cases hp : nextPayment? trigger state with
       | none => simp [hu, hp] at h
       | some pair =>
           rcases pair with ⟨t, p⟩
@@ -102,10 +102,10 @@ theorem nextAction_payment_selected {state : State Page} {time : Time} {page : P
             rfl
 
 private theorem arrival_le_thresholdTime {state : State Page} {occurrence : Occurrence Page}
-    (ha : nextAction? δ state = some (.arrival occurrence))
+    (ha : nextAction? trigger state = some (.arrival occurrence))
     {page : Page} (hpage : ∃ o ∈ state.pending, o.request.page = page) :
-    occurrence.request.arrival ≤ thresholdTime δ state page := by
-  obtain ⟨time, selected, hp⟩ := nextPayment_exists_of_pending (δ := δ) hpage
+    occurrence.request.arrival ≤ trigger.dueTime state page := by
+  obtain ⟨time, selected, hp⟩ := nextPayment_exists_of_pending (trigger := trigger) hpage
   have hm : page ∈ pendingPages state := by
     unfold pendingPages
     apply mem_eraseDups_of_mem
@@ -119,7 +119,7 @@ private theorem arrival_le_thresholdTime {state : State Page} {occurrence : Occu
         split at ha
         · injection ha with heq; cases heq; assumption
         · simp at ha
-  exact hat.trans (nextPayment_time_le_thresholdTime hp hm)
+  exact hat.trans (nextPayment_time_le_dueTime hp hm)
 
 private theorem pendingCost_append_arrival
     (state : State Page) (occurrence : Occurrence Page) (page : Page) :
@@ -136,9 +136,9 @@ private theorem pendingCost_append_arrival
 
 theorem step_belowThreshold (input : Instance Page)
     (state : State Page) (action : Action Page)
-    (hinv : BelowThreshold δ state)
-    (haction : nextAction? δ state = some action) :
-    BelowThreshold δ (step input state action) := by
+    (hinv : BelowThreshold trigger.level state)
+    (haction : nextAction? trigger state = some action) :
+    BelowThreshold trigger.level (step input state action) := by
   cases action with
   | arrival occurrence =>
       intro page hafter
@@ -146,14 +146,14 @@ theorem step_belowThreshold (input : Instance Page)
       · simp only [step, hhit, if_pos] at hafter ⊢
         have hle := arrival_le_thresholdTime haction hafter
         exact (pendingCost_monotone state page hle).trans_eq
-          (thresholdTime_value state page hafter (hinv page hafter))
+          (trigger.dueTime_value state page hafter (hinv page hafter))
       · simp only [step, hhit] at hafter ⊢
         change pendingCost
           ({ state with
              now := occurrence.request.arrival
              unseen := state.unseen.tail
              pending := state.pending ++ [occurrence] } : State Page)
-          page occurrence.request.arrival ≤ δ
+          page occurrence.request.arrival ≤ trigger.level
         have holdOrNew :
             (∃ o ∈ state.pending, o.request.page = page) ∨
               occurrence.request.page = page := by
@@ -166,11 +166,11 @@ theorem step_belowThreshold (input : Instance Page)
         rcases holdOrNew with hold | hnew
         · have hle := arrival_le_thresholdTime haction hold
           exact (pendingCost_monotone state page hle).trans_eq
-            (thresholdTime_value state page hold (hinv page hold))
+            (trigger.dueTime_value state page hold (hinv page hold))
         · by_cases hold : ∃ o ∈ state.pending, o.request.page = page
           · have hle := arrival_le_thresholdTime haction hold
             exact (pendingCost_monotone state page hle).trans_eq
-              (thresholdTime_value state page hold (hinv page hold))
+              (trigger.dueTime_value state page hold (hinv page hold))
           · unfold pendingCost
             have hempty : state.pending.filter (fun o => o.request.page = page) = [] := by
               apply List.eq_nil_iff_forall_not_mem.mpr
@@ -193,10 +193,10 @@ theorem step_belowThreshold (input : Instance Page)
         unfold pendingPages
         apply mem_eraseDups_of_mem
         simpa only [List.mem_map] using hold
-      have hcost : pendingCost state candidate time ≤ δ := by
+      have hcost : pendingCost state candidate time ≤ trigger.level := by
         exact (pendingCost_monotone state candidate
-          (nextPayment_time_le_thresholdTime hp hm)).trans_eq
-            (thresholdTime_value state candidate hold (hinv candidate hold))
+          (nextPayment_time_le_dueTime hp hm)).trans_eq
+            (trigger.dueTime_value state candidate hold (hinv candidate hold))
       unfold pendingCost at hcost ⊢
       simp only [List.filter_filter]
       convert hcost using 1
@@ -212,34 +212,34 @@ theorem step_belowThreshold (input : Instance Page)
 
 theorem selected_payment_delayCost
     (state : State Page) (time : Time) (page : Page)
-    (hinv : BelowThreshold δ state)
-    (haction : nextAction? δ state = some (.payment time page)) :
+    (hinv : BelowThreshold trigger.level state)
+    (haction : nextAction? trigger state = some (.payment time page)) :
     Payment.delayCost
       { time := time, page := page,
         served := state.pending.filter fun o => o.request.page = page,
-        queueAfter := [] } = δ := by
+        queueAfter := [] } = trigger.level := by
   rw [payment_delayCost_mk_eq_pendingCost]
   have hp := nextAction_payment_selected haction
   exact selectedPayment_value hp
     (hinv page (pending_of_mem_pendingPages (nextPayment_mem_pendingPages hp)))
 
-/-- Every payment made so far carries exactly the threshold `δ` of delay. -/
+/-- Every payment made so far carries exactly the level `δ` of delay. -/
 def ThresholdPayments (δ : Cost) (state : State Page) : Prop :=
   ∀ payment ∈ state.payments, payment.delayCost = δ
 
 theorem initial_thresholdPayments (input : Instance Page) :
-    ThresholdPayments δ (initialState input) := by simp [ThresholdPayments, initialState]
+    ThresholdPayments trigger.level (initialState input) := by simp [ThresholdPayments, initialState]
 
 theorem run_invariants (input : Instance Page) :
-    ∀ fuel state, BelowThreshold δ state → ThresholdPayments δ state →
-      BelowThreshold δ (run δ input fuel state) ∧ ThresholdPayments δ (run δ input fuel state) := by
+    ∀ fuel state, BelowThreshold trigger.level state → ThresholdPayments trigger.level state →
+      BelowThreshold trigger.level (run trigger input fuel state) ∧ ThresholdPayments trigger.level (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => exact fun state hb hu => ⟨hb, hu⟩
   | succ fuel ih =>
       intro state hb hu
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => exact ⟨hb, hu⟩
       | some action =>
           apply ih
@@ -254,9 +254,75 @@ theorem run_invariants (input : Instance Page) :
                 · exact selected_payment_delayCost state time page hb ha
 
 theorem final_thresholdPayments (input : Instance Page) :
-    ThresholdPayments δ (run δ input (2 * input.requests.length) (initialState input)) :=
+    ThresholdPayments trigger.level (run trigger input (2 * input.requests.length) (initialState input)) :=
   (run_invariants input _ _ (initial_belowThreshold input)
     (initial_thresholdPayments input)).2
+
+end
+end PagingWithDelay.FIFO
+
+/-! ## Payments serve their page, and deadline payments are due
+
+Every payment serves at least one request.  With the deadline trigger, strictly
+after a payment the requests it served have positive delay: the payment is made
+at the earliest deadline of the requests it serves. -/
+
+namespace PagingWithDelay.FIFO
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
+noncomputable section
+
+/-- Delay the occurrences served by a payment would have accrued at `t`. -/
+def Payment.delayCostAt (payment : Payment Page) (t : Time) : Cost :=
+  (payment.served.map fun occurrence =>
+    occurrence.request.delay (t - occurrence.request.arrival)).sum
+
+/-- Every payment made so far serves at least one request, and, for the deadline
+trigger, serves requests whose delay is positive strictly after the payment. -/
+structure DuePayments (trigger : Trigger) (state : State Page) : Prop where
+  served_ne_nil : ∀ payment ∈ state.payments, payment.served ≠ []
+  due : trigger = .deadline →
+    ∀ payment ∈ state.payments, ∀ t, payment.time < t → 0 < payment.delayCostAt t
+
+theorem step_duePayments (input : Instance Page) (state : State Page)
+    (action : Action Page) (hinv : DuePayments trigger state)
+    (haction : nextAction? trigger state = some action) :
+    DuePayments trigger (step input state action) := by
+  cases action with
+  | arrival occurrence => exact ⟨hinv.served_ne_nil, hinv.due⟩
+  | payment time page =>
+      have hp := nextAction_payment_selected haction
+      have hpending := pending_of_mem_pendingPages (nextPayment_mem_pendingPages hp)
+      constructor
+      · intro payment hmem
+        simp only [step, List.mem_append, List.mem_singleton] at hmem
+        rcases hmem with hold | rfl
+        · exact hinv.served_ne_nil payment hold
+        · obtain ⟨occurrence, ho, hpage⟩ := hpending
+          exact List.ne_nil_of_mem (List.mem_filter.mpr ⟨ho, by simpa using hpage⟩)
+      · intro hdeadline payment hmem t ht
+        simp only [step, List.mem_append, List.mem_singleton] at hmem
+        rcases hmem with hold | rfl
+        · exact hinv.due hdeadline payment hold t ht
+        · subst hdeadline
+          rw [← nextPayment_time_eq hp] at ht
+          exact pendingCost_pos_of_deadlineTime_lt state page hpending ht
+
+theorem run_duePayments (input : Instance Page) :
+    ∀ fuel state, DuePayments trigger state →
+      DuePayments trigger (run trigger input fuel state) := by
+  intro fuel
+  induction fuel with
+  | zero => exact fun _ h => h
+  | succ fuel ih =>
+      intro state h
+      rw [run]
+      cases ha : nextAction? trigger state with
+      | none => exact h
+      | some action => exact ih _ (step_duePayments input state action h ha)
+
+theorem final_duePayments (input : Instance Page) :
+    DuePayments trigger (run trigger input (2 * input.requests.length) (initialState input)) :=
+  run_duePayments input _ _ ⟨by simp [initialState], by simp [initialState]⟩
 
 end
 end PagingWithDelay.FIFO

@@ -9,7 +9,7 @@ behind Lemma `lem:windows` of `submission.tex`.
 
 namespace PagingWithDelay.FIFO
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 
 /-- Replay the concrete FIFO insertion rule on a payment history, starting from
 the queue `initial`.  For an arbitrary list this is deliberately not identified
@@ -69,7 +69,7 @@ theorem step_recentQueue (input : Instance Page)
     (state : State Page) (action : Action Page)
     (hrecent : RecentQueue input state)
     (_hcache : CacheInvariant input state)
-    (_haction : nextAction? δ state = some action) :
+    (_haction : nextAction? trigger state = some action) :
     RecentQueue input (step input state action) := by
   cases action with
   | arrival occurrence =>

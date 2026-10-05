@@ -5,20 +5,23 @@ import Proofs.FIFO.Deadlines
 # The public statements say what they should
 
 `PagingWithDelay.lean` states its results with `Algorithm.Competitive`,
-`Algorithm.StrictlyCompetitive` and `DeadlineAlgorithm.Competitive`, which
+`Algorithm.StrictlyCompetitive`, `DeadlineAlgorithm.Competitive` and
+`DeadlineAlgorithm.StrictlyCompetitive`, which
 compare an algorithm with every other algorithm.  The examples below unfold
 them into explicit statements about comparator schedules, so comparing with
 algorithms loses nothing:
 
 * the upper bounds hold against every feasible comparator *schedule*, and the
-  `k+1`-page bound covers every input drawn from a named set of `k + 1` pages;
+  `k+1`-page bounds cover every input drawn from a named set of `k + 1` pages;
+  for deadlines the comparator meets every deadline, and both costs are fetch
+  counts;
 * instantiated with a constant ratio and a constant additive term, each lower
   bound produces an explicit input and a feasible comparator schedule beating
   them; for the deadline bound the comparator meets every deadline, and both
   costs are fetch counts;
 * the hypotheses the lower bounds put on an algorithm are satisfiable: FIFO is
-  online and nonclairvoyant, and with threshold `0` an online deadline
-  algorithm.
+  online and nonclairvoyant, and deadline-triggered FIFO a nonclairvoyant,
+  online deadline algorithm.
 
 Like `Checks/OnlineExamples.lean`, this file is a check on the statements
 rather than part of the development; build it with `lake build Checks`.
@@ -55,6 +58,50 @@ example {Page : Type*} [DecidableEq Page] :
     competitive.le_of_feasible
       ((Instance.card_pageUniverse_le hinitial hrequests).trans_eq hcard) feasible⟩
 
+/-- A schedule meeting every deadline costs its number of fetches. -/
+private theorem totalCost_eq_fetchCount {Page : Type*} [DecidableEq Page]
+    {input : Instance Page} {schedule : Schedule Page}
+    (hzero : ∀ request ∈ input.requests, schedule.requestCost request = 0) :
+    schedule.totalCost input = (schedule.fetchCount : Cost) := by
+  have hsum : schedule.totalDelay input = 0 := by
+    refine List.sum_eq_zero ?_
+    intro cost hmem
+    obtain ⟨request, hrequest, rfl⟩ := List.mem_map.mp hmem
+    exact hzero request hrequest
+  rw [Schedule.totalCost, hsum, add_zero]
+
+/-- The deadline upper bound compares fetch counts with every feasible
+comparator schedule meeting every deadline. -/
+example {Page : Type*} [DecidableEq Page] :
+    ∃ algorithm : DeadlineAlgorithm Page, algorithm.Online ∧
+      ∀ (input : Instance Page) (comparator : Schedule Page), comparator.Feasible input →
+        (∀ request ∈ input.requests, comparator.requestCost request = 0) →
+          ((algorithm input).fetchCount : Cost) ≤
+            (input.cacheSize + 1) * (comparator.fetchCount : Cost) := by
+  obtain ⟨algorithm, _nonclairvoyant, online, competitive⟩ :=
+    paging_with_delay_deadline_upper_bound (Page := Page)
+  refine ⟨algorithm, online, fun input comparator feasible meets => ?_⟩
+  rw [← totalCost_eq_fetchCount meets, ← totalCost_eq_fetchCount (algorithm.meetsDeadlines input)]
+  exact competitive.le_of_feasible trivial feasible meets
+
+/-- The deadline upper bound on `k+1` pages covers every input drawn from a
+named universe of `k + 1` pages. -/
+example {Page : Type*} [DecidableEq Page] :
+    ∃ algorithm : DeadlineAlgorithm Page, algorithm.Online ∧
+      ∀ (input : Instance Page) (pages : Finset Page), pages.card = input.cacheSize + 1 →
+        (∀ page ∈ input.initialCache, page ∈ pages) →
+        (∀ request ∈ input.requests, request.page ∈ pages) →
+          ∀ comparator : Schedule Page, comparator.Feasible input →
+            (∀ request ∈ input.requests, comparator.requestCost request = 0) →
+              ((algorithm input).fetchCount : Cost) ≤
+                input.cacheSize * (comparator.fetchCount : Cost) := by
+  obtain ⟨algorithm, _nonclairvoyant, online, competitive⟩ :=
+    paging_with_delay_deadline_upper_bound_k_plus_one_pages (Page := Page)
+  refine ⟨algorithm, online, fun input pages hcard hinitial hrequests comparator feasible meets => ?_⟩
+  rw [← totalCost_eq_fetchCount meets, ← totalCost_eq_fetchCount (algorithm.meetsDeadlines input)]
+  exact competitive.le_of_feasible
+    ((Instance.card_pageUniverse_le hinitial hrequests).trans_eq hcard) feasible meets
+
 /-! ## The lower bounds, with explicit comparator schedules
 
 Instantiated with a constant ratio `ratio` and a constant additive term, each
@@ -67,7 +114,7 @@ example {Page : Type*} [DecidableEq Page]
     (ratio additive : Cost) (hratio : ratio < 2 * k + 2) :
     ∃ (input : Instance Page) (comparator : Schedule Page), comparator.Feasible input ∧
       ratio * comparator.totalCost input + additive <
-        (FIFO.schedule δ input).totalCost input := by
+        (FIFO.schedule (.threshold δ) input).totalCost input := by
   obtain ⟨input, comparator, _, hfeasible, hcost⟩ :=
     Algorithm.exists_schedule_of_not_competitive
       (FIFO_lower_bound (ratio := fun _ => ratio) hδ hk pages hratio) fun _ => additive
@@ -101,18 +148,8 @@ example {Page : Type*} [DecidableEq Page] {k : ℕ} (hk : 1 ≤ k) (pages : Fin 
     DeadlineAlgorithm.exists_schedule_of_not_competitive
       (paging_with_delay_deadline_lower_bound (ratio := fun _ => ratio) hk pages online hratio)
       fun _ => additive
-  have hfetches : ∀ schedule : Schedule Page,
-      (∀ request ∈ input.requests, schedule.requestCost request = 0) →
-        schedule.totalCost input = (schedule.fetchCount : Cost) := by
-    intro schedule hzero
-    have hsum : schedule.totalDelay input = 0 := by
-      refine List.sum_eq_zero ?_
-      intro cost hmem
-      obtain ⟨request, hrequest, rfl⟩ := List.mem_map.mp hmem
-      exact hzero request hrequest
-    rw [Schedule.totalCost, hsum, add_zero]
   refine ⟨input, comparator, hfeasible, hmeets, ?_⟩
-  rw [← hfetches comparator hmeets, ← hfetches _ (algorithm.meetsDeadlines input)]
+  rw [← totalCost_eq_fetchCount hmeets, ← totalCost_eq_fetchCount (algorithm.meetsDeadlines input)]
   exact hcost
 
 /-! ## The hypotheses on an algorithm are satisfiable -/
@@ -123,11 +160,12 @@ example {Page : Type*} [DecidableEq Page] :
       (FIFO.algorithm (Page := Page) fun _ => 1).Online :=
   ⟨FIFO.algorithm_nonclairvoyant _, FIFO.algorithm_online _⟩
 
-/-- FIFO with threshold `0` is an online deadline algorithm, so the deadline
-lower bound is not vacuous. -/
+/-- Deadline-triggered FIFO is an online deadline algorithm, and indeed
+nonclairvoyant, so the deadline lower bound is not vacuous. -/
 example {Page : Type*} [DecidableEq Page] :
-    (FIFO.deadlineAlgorithm (Page := Page)).Online :=
-  FIFO.algorithm_online fun _ => 0
+    (FIFO.deadlineAlgorithm (Page := Page)).Nonclairvoyant ∧
+      (FIFO.deadlineAlgorithm (Page := Page)).Online :=
+  ⟨FIFO.deadlineAlgorithm_nonclairvoyant, FIFO.deadlineAlgorithm_online⟩
 
 /-- The general lower bound applies to nonclairvoyant algorithms as it stands:
 a nonclairvoyant algorithm is online. -/

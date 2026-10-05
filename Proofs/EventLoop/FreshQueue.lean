@@ -14,7 +14,7 @@ page.
 
 namespace PagingWithDelay.FIFO
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 
 /-- Every payment page is absent from the queue obtained from the preceding
 payments.  This is the exact history property used by the FIFO suffix proof. -/
@@ -80,14 +80,14 @@ theorem initial_freshQueue (input : Instance Page) :
 theorem step_freshQueue (input : Instance Page)
     (state : State Page) (action : Action Page)
     (hfq : FreshQueue input state) (hcache : CacheInvariant input state)
-    (haction : nextAction? δ state = some action) :
+    (haction : nextAction? trigger state = some action) :
     FreshQueue input (step input state action) := by
   constructor
   · exact step_recentQueue input state action hfq.recent hcache haction
   · cases action with
     | arrival occurrence => simpa [step] using hfq.fresh
     | payment time page =>
-      have hselected : nextPayment? δ state = some (time, page) :=
+      have hselected : nextPayment? trigger state = some (time, page) :=
         nextAction_payment_selected haction
       obtain ⟨occurrence, hpending, hpage⟩ :=
         pending_of_mem_pendingPages (nextPayment_mem_pendingPages hselected)
@@ -109,14 +109,14 @@ theorem step_freshQueue (input : Instance Page)
 
 theorem run_freshQueue (input : Instance Page) :
     ∀ fuel state, FreshQueue input state → CacheInvariant input state →
-      FreshQueue input (run δ input fuel state) := by
+      FreshQueue input (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => exact fun _ h _ => h
   | succ fuel ih =>
       intro state hfq hcache
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => exact hfq
       | some action =>
           exact ih _ (step_freshQueue input state action hfq hcache ha)
@@ -124,7 +124,7 @@ theorem run_freshQueue (input : Instance Page) :
 
 theorem final_freshPayments (input : Instance Page) :
     FreshPayments input.cacheSize input.initialCache
-      (run δ input (2 * input.requests.length) (initialState input)).payments := by
+      (run trigger input (2 * input.requests.length) (initialState input)).payments := by
   exact (run_freshQueue input _ _ (initial_freshQueue input)
     (initial_cacheInvariant input)).fresh
 
@@ -265,14 +265,14 @@ capacity.  Equivalently, the earlier page is evicted by payment `i+k` before
 it can be fetched again. -/
 theorem samePage_spacing (input : Instance Page)
     {i j : ℕ}
-    (hi : i < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
-    (hj : j < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
+    (hi : i < (run trigger input (2 * input.requests.length) (initialState input)).payments.length)
+    (hj : j < (run trigger input (2 * input.requests.length) (initialState input)).payments.length)
     (hij : i < j)
     (hpage :
-      (run δ input (2 * input.requests.length) (initialState input)).payments[i].page =
-      (run δ input (2 * input.requests.length) (initialState input)).payments[j].page) :
+      (run trigger input (2 * input.requests.length) (initialState input)).payments[i].page =
+      (run trigger input (2 * input.requests.length) (initialState input)).payments[j].page) :
     i + input.cacheSize < j := by
-  let payments := (run δ input (2 * input.requests.length) (initialState input)).payments
+  let payments := (run trigger input (2 * input.requests.length) (initialState input)).payments
   by_contra hnot
   have hnear : j ≤ i + input.cacheSize := Nat.le_of_not_gt hnot
   have hmem : payments[i].page ∈

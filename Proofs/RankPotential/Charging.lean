@@ -362,12 +362,12 @@ theorem windowLow_le_of_timeAt_lt (feasible : comparator.Feasible S.input) {i n 
 
 /-- **The comparator does not serve a batch it never holds the page for.**
 If `pageAt i` is outside the lazy cache throughout the window, every request
-served at payment `i` is served by the comparator no earlier than `timeAt i`. -/
+served at payment `i` is served by the comparator strictly after `timeAt i`. -/
 theorem no_early_service (feasible : comparator.Feasible S.input)
     {i : ℕ} (hi : i < S.count) (hnever : Never S comparator i)
     {occurrence : Occurrence Page} (ho : occurrence ∈ (S.payments[i]).served)
     {time : Time} (hmem : time ∈ comparator.serviceTime occurrence.request) :
-    S.timeAt i ≤ time := by
+    S.timeAt i < time := by
   have hpage : occurrence.request.page = S.pageAt i := S.served_page hi ho
   have hbefore : occurrence.request.arrival ≤ S.timeAt i := S.served_arrival_le hi ho
   -- the comparator does not hold the page when the request arrives
@@ -399,7 +399,7 @@ theorem no_early_service (feasible : comparator.Feasible S.input)
   have hupper : n < eventIndex S comparator (i + 1) := by
     refine Analysis.lt_eventCount_of_time_le feasible.chronological hn ?_
     rw [hntime]
-    exact le_of_lt hlt
+    exact hlt
   have hlower : windowLow S comparator i ≤ n := by
     refine windowLow_le_of_timeAt_lt feasible hn ?_
     intro j hj
@@ -431,12 +431,52 @@ theorem threshold_le_delay_of_never (feasible : comparator.Feasible S.input)
     rw [Schedule.requestCost_eq_of_serviceTime _ _ _ hservice]
     apply occurrence.request.delay_mono
     apply tsub_le_tsub_right
-    exact no_early_service feasible hi hnever ho (by rw [hservice]; rfl)
+    exact (no_early_service feasible hi hnever ho (by rw [hservice]; rfl)).le
   calc S.threshold = (S.payments[i]).delayCost := (S.payment_delayCost hi).symm
     _ = ((S.payments[i]).served.map fun occurrence =>
           occurrence.request.delay (S.timeAt i - occurrence.request.arrival)).sum := by
         rw [FIFO.Payment.delayCost, S.timeAt_eq hi]
     _ ≤ _ := List.sum_le_sum hterm
+
+omit [DecidableEq Page] in
+private theorem exists_lt_le_all {α : Type*} (l : List α) (g : α → Time) {T : Time}
+    (h : ∀ x ∈ l, T < g x) : ∃ t, T < t ∧ ∀ x ∈ l, t ≤ g x := by
+  induction l with
+  | nil => exact ⟨T + 1, lt_add_one T, by simp⟩
+  | cons a l ih =>
+      obtain ⟨t, ht, hall⟩ := ih fun x hx => h x (List.mem_cons_of_mem a hx)
+      refine ⟨min t (g a), lt_min ht (h a List.mem_cons_self), ?_⟩
+      intro x hx
+      rcases List.mem_cons.mp hx with rfl | hx
+      · exact min_le_right _ _
+      · exact (min_le_left _ _).trans (hall x hx)
+
+/-- **Case 3 costs the comparator delay**, for deadline-triggered FIFO: the
+comparator serves the requests of a never-held payment strictly after it, when
+one of them is past its deadline.  So a comparator meeting every deadline
+has no never-held payment. -/
+theorem delay_pos_of_never (hdeadline : S.trigger = .deadline)
+    (feasible : comparator.Feasible S.input) {i : ℕ} (hi : i < S.count) (hnever : Never S comparator i) :
+    0 < ((S.payments[i]).served.map fun occurrence =>
+      comparator.requestCost occurrence.request).sum := by
+  have hserved : ∀ occurrence ∈ (S.payments[i]).served,
+      (comparator.serviceCandidates occurrence.request).Nonempty :=
+    fun occurrence ho => feasible.eventuallyServed _ (S.served_request_mem hi ho)
+  let service : Occurrence Page → Time := fun occurrence =>
+    if h : (comparator.serviceCandidates occurrence.request).Nonempty then
+      (comparator.serviceCandidates occurrence.request).min' h
+    else 0
+  have hservice : ∀ occurrence ∈ (S.payments[i]).served,
+      comparator.serviceTime occurrence.request = some (service occurrence) := by
+    intro occurrence ho
+    simp [service, Schedule.serviceTime, hserved occurrence ho]
+  obtain ⟨t, ht, hle⟩ := exists_lt_le_all (S.payments[i]).served service
+    fun occurrence ho => no_early_service feasible hi hnever ho
+      (by rw [hservice occurrence ho]; rfl)
+  refine (S.payment_due hdeadline hi ht).trans_le (List.sum_le_sum ?_)
+  intro occurrence ho
+  rw [Schedule.requestCost_eq_of_serviceTime _ _ _ (hservice occurrence ho)]
+  exact occurrence.request.delay_mono (tsub_le_tsub_right (hle occurrence ho) _)
 
 end
 

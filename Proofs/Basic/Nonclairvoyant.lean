@@ -7,7 +7,8 @@ import Proofs.Basic.Online
 have revealed the same thing by a time `t`.  This file records the elementary
 facts about that comparison: `Request.AgreeUpTo` is an equivalence at each `t`,
 two instances with equal truncations agree in particular, and therefore every
-nonclairvoyant algorithm is online.
+nonclairvoyant algorithm is online.  The same holds for nonclairvoyant deadline
+algorithms (`DeadlineAlgorithm.Nonclairvoyant`).
 
 Stating nonclairvoyance by comparing two instances, rather than by comparing an
 instance with a canonical truncation of itself, keeps the definition free of
@@ -70,6 +71,19 @@ theorem AgreeUpTo.symm {first second : Instance Page} {t : Time}
     apply List.Forall₂.flip
     exact agree.requests.imp fun _ _ hrequest => hrequest.symm
 
+/-- Truncations that are literally equal agree under deadlines too. -/
+theorem DeadlineAgreeUpTo.of_upTo_eq {first second : Instance Page} {t : Time}
+    (heq : first.upTo t = second.upTo t) : first.DeadlineAgreeUpTo second t where
+  cacheSize := by
+    have hcache := congrArg Instance.cacheSize heq
+    exact hcache
+  initialCache := by
+    have hinitial := congrArg Instance.initialCache heq
+    exact hinitial
+  requests := by
+    rw [heq]
+    exact List.forall₂_same.mpr fun request _ => ⟨rfl, rfl, fun _ => rfl⟩
+
 end Instance
 
 variable [DecidableEq Page]
@@ -82,6 +96,15 @@ theorem Algorithm.Nonclairvoyant.online {algorithm : Algorithm Page}
   prefixDetermined first second t heq :=
     nonclairvoyant.observationDetermined first second t
       (Instance.AgreeUpTo.of_upTo_eq heq)
+
+/-- **Nonclairvoyance implies onlineness**, for deadline algorithms: an
+algorithm that cannot see a deadline before it is reached cannot see a request
+that has yet to arrive. -/
+theorem DeadlineAlgorithm.Nonclairvoyant.online {algorithm : DeadlineAlgorithm Page}
+    (nonclairvoyant : algorithm.Nonclairvoyant) : algorithm.Online where
+  prefixDetermined first second t heq :=
+    nonclairvoyant.observationDetermined first second t
+      (Instance.DeadlineAgreeUpTo.of_upTo_eq heq)
 
 end
 end PagingWithDelay

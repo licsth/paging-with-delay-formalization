@@ -17,7 +17,7 @@ lifting it along `run`.  None depends on the competitive analysis.
 
 namespace PagingWithDelay.FIFO
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 
 noncomputable section
 
@@ -134,13 +134,13 @@ omit [DecidableEq Page] in private theorem filter_partition_perm
         exact List.perm_middle.trans (List.Perm.cons _ ih)
 
 private theorem arrival_mem_unseen {state : State Page} {occurrence : Occurrence Page}
-    (ha : nextAction? δ state = some (.arrival occurrence)) :
+    (ha : nextAction? trigger state = some (.arrival occurrence)) :
     occurrence ∈ state.unseen := by
   unfold nextAction? at ha
   cases hu : state.unseen with
-  | nil => cases hp : nextPayment? δ state <;> simp [hu, hp] at ha
+  | nil => cases hp : nextPayment? trigger state <;> simp [hu, hp] at ha
   | cons head tail =>
-      cases hp : nextPayment? δ state with
+      cases hp : nextPayment? trigger state with
       | none =>
           simp only [hu, hp] at ha
           injection ha with heq
@@ -155,21 +155,21 @@ private theorem arrival_mem_unseen {state : State Page} {occurrence : Occurrence
           · simp at ha
 
 private theorem arrival_unseen_eq {state : State Page} {occurrence : Occurrence Page}
-    (ha : nextAction? δ state = some (.arrival occurrence)) :
+    (ha : nextAction? trigger state = some (.arrival occurrence)) :
     state.unseen = occurrence :: state.unseen.tail := by
   have hm := arrival_mem_unseen ha
   cases hu : state.unseen with
   | nil => simp [hu] at hm
   | cons head tail =>
       unfold nextAction? at ha
-      cases hp : nextPayment? δ state <;> simp only [hu, hp] at ha
+      cases hp : nextPayment? trigger state <;> simp only [hu, hp] at ha
       · injection ha with heq; cases heq; simp
       · split at ha
         · injection ha with heq; cases heq; simp
         · simp at ha
 
 theorem step_uniqueIds (input : Instance Page) (state : State Page)
-    (action : Action Page) (ha : nextAction? δ state = some action)
+    (action : Action Page) (ha : nextAction? trigger state = some action)
     (h : UniqueIds state) : UniqueIds (step input state action) := by
   cases action with
   | arrival occurrence =>
@@ -206,14 +206,14 @@ theorem step_uniqueIds (input : Instance Page) (state : State Page)
 
 private theorem payment_lt_unseen {state : State Page} {time : Time} {page : Page}
     (htime : TimeInvariant state)
-    (ha : nextAction? δ state = some (.payment time page))
+    (ha : nextAction? trigger state = some (.payment time page))
     {occurrence : Occurrence Page} (ho : occurrence ∈ state.unseen) :
     time < occurrence.request.arrival := by
   unfold nextAction? at ha
   cases hu : state.unseen with
   | nil => simp [hu] at ho
   | cons head tail =>
-      cases hp : nextPayment? δ state with
+      cases hp : nextPayment? trigger state with
       | none => simp [hu, hp] at ha
       | some pair =>
           rcases pair with ⟨t, p⟩
@@ -234,7 +234,7 @@ private theorem payment_lt_unseen {state : State Page} {time : Time} {page : Pag
 
 theorem step_strictUnseen (input : Instance Page) (state : State Page)
     (action : Action Page) (htime : TimeInvariant state)
-    (ha : nextAction? δ state = some action) (h : StrictUnseen state) :
+    (ha : nextAction? trigger state = some action) (h : StrictUnseen state) :
     StrictUnseen (step input state action) := by
   cases action with
   | arrival occurrence =>
@@ -252,7 +252,7 @@ theorem step_pendingSinceEviction (input : Instance Page)
     (state : State Page) (action : Action Page)
     (hfresh : FreshQueue input state)
     (hstrict : StrictUnseen state) (hpending : PendingSinceEviction input state)
-    (haction : nextAction? δ state = some action) :
+    (haction : nextAction? trigger state = some action) :
     PendingSinceEviction input (step input state action) := by
   cases action with
   | arrival occurrence =>
@@ -352,17 +352,17 @@ theorem step_validBatchLowerBounds (input : Instance Page) (state : State Page)
         exact ht
 
 theorem run_lowerBounds (input : Instance Page) : ∀ fuel state,
-    TimeInvariant state → BelowThreshold δ state → FreshQueue input state →
+    TimeInvariant state → BelowThreshold trigger.level state → FreshQueue input state →
       CacheInvariant input state → StrictUnseen state →
       PendingSinceEviction input state → ValidBatchLowerBounds input state →
-      ValidBatchLowerBounds input (run δ input fuel state) := by
+      ValidBatchLowerBounds input (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => exact fun _ _ _ _ _ _ _ h => h
   | succ fuel ih =>
       intro state htime hbelow hfresh hcache hstrict hpending hbatches
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => exact hbatches
       | some action =>
           exact ih _
@@ -376,7 +376,7 @@ theorem run_lowerBounds (input : Instance Page) : ∀ fuel state,
             (step_validBatchLowerBounds input state action hpending hbatches)
 
 theorem final_validBatchLowerBounds (input : Instance Page) :
-    ValidBatchLowerBounds input (run δ input (2 * input.requests.length) (initialState input)) := by
+    ValidBatchLowerBounds input (run trigger input (2 * input.requests.length) (initialState input)) := by
   exact run_lowerBounds input _ _
     (initial_timeInvariant input) (initial_belowThreshold input)
     (initial_freshQueue input) (initial_cacheInvariant input)
@@ -388,22 +388,22 @@ theorem final_validBatchLowerBounds (input : Instance Page) :
 was evicted by payment `previous + k`, and the request arrived after it. -/
 theorem final_validBatchLowerBounds_payment (input : Instance Page)
     (index : ℕ)
-    (hindex : index < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
+    (hindex : index < (run trigger input (2 * input.requests.length) (initialState input)).payments.length)
     (occurrence : Occurrence Page)
     (hserved : occurrence ∈
-      (run δ input (2 * input.requests.length) (initialState input)).payments[index].served)
+      (run trigger input (2 * input.requests.length) (initialState input)).payments[index].served)
     (previous : ℕ) (hprevious : previous < index)
-    (hpage : (run δ input (2 * input.requests.length) (initialState input)).payments[previous].page =
-      (run δ input (2 * input.requests.length) (initialState input)).payments[index].page) :
+    (hpage : (run trigger input (2 * input.requests.length) (initialState input)).payments[previous].page =
+      (run trigger input (2 * input.requests.length) (initialState input)).payments[index].page) :
     previous + input.cacheSize < index ∧
-      ((run δ input (2 * input.requests.length) (initialState input)).payments[previous +
+      ((run trigger input (2 * input.requests.length) (initialState input)).payments[previous +
           input.cacheSize]?).any
         (fun payment => payment.time < occurrence.request.arrival) := by
   have hfull := input.initialCache_full
   have hpos : input.initialCache.length + previous < input.initialCache.length + index := by
     omega
   have hentry := evictionOrder_getElem_payment input
-    (run δ input (2 * input.requests.length) (initialState input)).payments
+    (run trigger input (2 * input.requests.length) (initialState input)).payments
     (hprevious.trans hindex)
   obtain ⟨hlt, htime⟩ := final_validBatchLowerBounds input index hindex occurrence hserved
     (input.initialCache.length + previous) hpos (hentry.trans hpage)
@@ -414,15 +414,15 @@ theorem final_validBatchLowerBounds_payment (input : Instance Page)
 initial queue is evicted by payment `p`, and the request arrived after it. -/
 theorem final_validBatchLowerBounds_initial (input : Instance Page)
     (index : ℕ)
-    (hindex : index < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
+    (hindex : index < (run trigger input (2 * input.requests.length) (initialState input)).payments.length)
     (occurrence : Occurrence Page)
     (hserved : occurrence ∈
-      (run δ input (2 * input.requests.length) (initialState input)).payments[index].served)
+      (run trigger input (2 * input.requests.length) (initialState input)).payments[index].served)
     (p : ℕ) (hp : p < input.initialCache.length)
     (hpage : input.initialCache[p] =
-      (run δ input (2 * input.requests.length) (initialState input)).payments[index].page) :
+      (run trigger input (2 * input.requests.length) (initialState input)).payments[index].page) :
     p < index ∧
-      ((run δ input (2 * input.requests.length) (initialState input)).payments[p]?).any
+      ((run trigger input (2 * input.requests.length) (initialState input)).payments[p]?).any
         (fun payment => payment.time < occurrence.request.arrival) :=
   final_validBatchLowerBounds input index hindex occurrence hserved p (by omega)
     ((evictionOrder_getElem_initial input _ hp).trans hpage)
@@ -430,7 +430,7 @@ theorem final_validBatchLowerBounds_initial (input : Instance Page)
 theorem step_history (input : Instance Page) (state : State Page)
     (action : Action Page) (htime : TimeInvariant state)
     (hpending : PendingArrived state)
-    (hbatches : ValidBatches state) (haction : nextAction? δ state = some action) :
+    (hbatches : ValidBatches state) (haction : nextAction? trigger state = some action) :
     PendingArrived (step input state action) ∧ ValidBatches (step input state action) := by
   cases action with
   | arrival occurrence =>
@@ -452,7 +452,7 @@ theorem step_history (input : Instance Page) (state : State Page)
         (nextPayment_mem_pendingPages hselected)
       have hnow : state.now ≤ time := by
         rw [← nextPayment_time_eq hselected]
-        exact thresholdTime_ge_now state page hpagePending
+        exact trigger.dueTime_ge_now state page hpagePending
       constructor
       · intro occurrence hmem
         exact (hpending occurrence (List.mem_filter.mp hmem).1).trans hnow
@@ -464,16 +464,16 @@ theorem step_history (input : Instance Page) (state : State Page)
           exact ⟨of_decide_eq_true hm.2, (hpending occurrence hm.1).trans hnow⟩
 
 theorem run_history (input : Instance Page) : ∀ fuel state,
-    TimeInvariant state → BelowThreshold δ state → PendingArrived state →
+    TimeInvariant state → BelowThreshold trigger.level state → PendingArrived state →
       ValidBatches state →
-    PendingArrived (run δ input fuel state) ∧ ValidBatches (run δ input fuel state) := by
+    PendingArrived (run trigger input fuel state) ∧ ValidBatches (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => exact fun _ _ _ hp hb => ⟨hp, hb⟩
   | succ fuel ih =>
       intro state ht hb hp hv
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => exact ⟨hp, hv⟩
       | some action =>
           have hh := step_history input state action ht hp hv ha
@@ -481,13 +481,13 @@ theorem run_history (input : Instance Page) : ∀ fuel state,
             (step_belowThreshold input state action hb ha) hh.1 hh.2
 
 theorem final_validBatches (input : Instance Page) :
-    ValidBatches (run δ input (2 * input.requests.length) (initialState input)) := by
+    ValidBatches (run trigger input (2 * input.requests.length) (initialState input)) := by
   exact (run_history input _ _ (initial_timeInvariant input)
     (initial_belowThreshold input) (by simp [PendingArrived, initialState])
     (by simp [ValidBatches, initialState])).2
 
 theorem step_authentic (input : Instance Page) (state : State Page)
-    (action : Action Page) (ha : nextAction? δ state = some action)
+    (action : Action Page) (ha : nextAction? trigger state = some action)
     (h : Authentic input state) : Authentic input (step input state action) := by
   cases action with
   | arrival occurrence =>
@@ -521,42 +521,42 @@ theorem step_authentic (input : Instance Page) (state : State Page)
           · exact h.2.1 o (List.mem_filter.mp ho).1
 
 theorem run_authentic (input : Instance Page) : ∀ fuel state,
-    Authentic input state → Authentic input (run δ input fuel state) := by
+    Authentic input state → Authentic input (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => exact fun _ h => h
   | succ fuel ih =>
       intro state h
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => exact h
       | some action => exact ih _ (step_authentic input state action ha h)
 
-theorem final_authentic (input : Instance Page) : Authentic input (run δ input (2 * input.requests.length) (initialState input)) := by
+theorem final_authentic (input : Instance Page) : Authentic input (run trigger input (2 * input.requests.length) (initialState input)) := by
   apply run_authentic
   simp [Authentic, initialState]
 
 theorem run_uniqueIds (input : Instance Page) : ∀ fuel state,
-    UniqueIds state → UniqueIds (run δ input fuel state) := by
+    UniqueIds state → UniqueIds (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => exact fun _ h => h
   | succ fuel ih =>
       intro state h
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => exact h
       | some action => exact ih _ (step_uniqueIds input state action ha h)
 
-theorem final_uniqueIds (input : Instance Page) : UniqueIds (run δ input (2 * input.requests.length) (initialState input)) := by
+theorem final_uniqueIds (input : Instance Page) : UniqueIds (run trigger input (2 * input.requests.length) (initialState input)) := by
   exact run_uniqueIds input _ _ (initial_uniqueIds input)
 
 /-- Identifiers are pairwise distinct across the whole completed payment log:
 no occurrence is served twice, in one batch or in two. -/
 theorem final_servedIds_nodup (input : Instance Page) :
-    (((run δ input (2 * input.requests.length)
+    (((run trigger input (2 * input.requests.length)
       (initialState input)).payments.flatMap Payment.served).map Occurrence.id).Nodup := by
-  have h := final_uniqueIds (δ := δ) input
+  have h := final_uniqueIds (trigger := trigger) input
   unfold UniqueIds trackedIds at h
   exact h.sublist (by simp)
 

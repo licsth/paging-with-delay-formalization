@@ -8,7 +8,7 @@ cache trace.  Nothing in this file is part of the model. -/
 
 namespace PagingWithDelay.FIFO
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 noncomputable section
 
 def prefixSchedule (input : Instance Page) (state : State Page) : Schedule Page :=
@@ -70,13 +70,13 @@ theorem initial_serviceTraceInvariant (input : Instance Page) :
   simp [ServiceTraceInvariant, initialState]
 
 private theorem arrival_unseen_eq {state : State Page} {occurrence : Occurrence Page}
-    (ha : nextAction? δ state = some (.arrival occurrence)) :
+    (ha : nextAction? trigger state = some (.arrival occurrence)) :
     state.unseen = occurrence :: state.unseen.tail := by
   unfold nextAction? at ha
   cases hu : state.unseen with
-  | nil => cases hp : nextPayment? δ state <;> simp [hu, hp] at ha
+  | nil => cases hp : nextPayment? trigger state <;> simp [hu, hp] at ha
   | cons head tail =>
-      cases hp : nextPayment? δ state with
+      cases hp : nextPayment? trigger state with
       | none => simp only [hu, hp] at ha; injection ha with heq; cases heq; simp
       | some pair =>
           simp only [hu, hp] at ha
@@ -86,14 +86,14 @@ private theorem arrival_unseen_eq {state : State Page} {occurrence : Occurrence 
 
 private theorem selected_payment_lt_unseen {state : State Page} {time : Time}
     {page : Page} (htime : TimeInvariant state)
-    (ha : nextAction? δ state = some (.payment time page))
+    (ha : nextAction? trigger state = some (.payment time page))
     {occurrence : Occurrence Page} (ho : occurrence ∈ state.unseen) :
     time < occurrence.request.arrival := by
   unfold nextAction? at ha
   cases hu : state.unseen with
   | nil => simp [hu] at ho
   | cons head tail =>
-      cases hp : nextPayment? δ state with
+      cases hp : nextPayment? trigger state with
       | none => simp [hu, hp] at ha
       | some pair =>
           rcases pair with ⟨t, p⟩
@@ -124,7 +124,7 @@ premises are independently proved event-loop invariants. -/
 theorem step_serviceTraceInvariant (input : Instance Page) (state : State Page)
     (action : Action Page) (htime : TimeInvariant state)
     (hinv : ServiceTraceInvariant input state)
-    (haction : nextAction? δ state = some action) :
+    (haction : nextAction? trigger state = some action) :
     ServiceTraceInvariant input (step input state action) := by
   rcases hinv with ⟨hqueue, hunseen, hpendingMiss, hservedMiss,
     hservedArrival, hpendingArrival, hpendingPayments⟩
@@ -181,7 +181,7 @@ theorem step_serviceTraceInvariant (input : Instance Page) (state : State Page)
       have hnow : state.now ≤ time := by
         have hs := nextAction_payment_selected haction
         rw [← nextPayment_time_eq hs]
-        exact thresholdTime_ge_now state page
+        exact trigger.dueTime_ge_now state page
           (pending_of_mem_pendingPages (nextPayment_mem_pendingPages hs))
       let made : Payment Page :=
         { time := time, page := page,
@@ -251,7 +251,7 @@ theorem initial_serviceMinimalInvariant (input : Instance Page) :
 theorem step_serviceMinimalInvariant (input : Instance Page) (state : State Page)
     (action : Action Page) (htime : TimeInvariant state)
     (htrace : ServiceTraceInvariant input state) (hminimal : ServiceMinimalInvariant state)
-    (haction : nextAction? δ state = some action) :
+    (haction : nextAction? trigger state = some action) :
     ServiceMinimalInvariant (step input state action) := by
   rcases htrace with ⟨_, _, _, _, _, _, hpendingPayments⟩
   cases action with
@@ -260,7 +260,7 @@ theorem step_serviceMinimalInvariant (input : Instance Page) (state : State Page
       have hnow : state.now ≤ time := by
         have hs := nextAction_payment_selected haction
         rw [← nextPayment_time_eq hs]
-        exact thresholdTime_ge_now state page
+        exact trigger.dueTime_ge_now state page
           (pending_of_mem_pendingPages (nextPayment_mem_pendingPages hs))
       intro payment hpayment occurrence hserved candidate hcandidate hpage
       simp only [step, List.mem_append, List.mem_singleton] at hpayment hcandidate
@@ -274,17 +274,17 @@ theorem step_serviceMinimalInvariant (input : Instance Page) (state : State Page
         · exact Or.inr le_rfl
 
 theorem run_serviceInvariants (input : Instance Page) : ∀ fuel state,
-    TimeInvariant state → BelowThreshold δ state → ServiceTraceInvariant input state →
+    TimeInvariant state → BelowThreshold trigger.level state → ServiceTraceInvariant input state →
       ServiceMinimalInvariant state →
-      ServiceTraceInvariant input (run δ input fuel state) ∧
-        ServiceMinimalInvariant (run δ input fuel state) := by
+      ServiceTraceInvariant input (run trigger input fuel state) ∧
+        ServiceMinimalInvariant (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => intro state _ _ ht hm; exact ⟨ht, hm⟩
   | succ fuel ih =>
       intro state htime hbelow htrace hminimal
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => exact ⟨htrace, hminimal⟩
       | some action =>
           exact ih _ (step_timeInvariant input state action htime ha)
@@ -293,7 +293,7 @@ theorem run_serviceInvariants (input : Instance Page) : ∀ fuel state,
             (step_serviceMinimalInvariant input state action htime htrace hminimal ha)
 
 theorem final_serviceInvariants (input : Instance Page) :
-    let final := run δ input (2 * input.requests.length) (initialState input)
+    let final := run trigger input (2 * input.requests.length) (initialState input)
     ServiceTraceInvariant input final ∧ ServiceMinimalInvariant final := by
   exact run_serviceInvariants input _ _ (initial_timeInvariant input)
     (initial_belowThreshold input) (initial_serviceTraceInvariant input)
@@ -360,12 +360,12 @@ public delay cost displayed in that batch. -/
 theorem final_served_requestCost_eq (input : Instance Page)
     (payment : Payment Page)
     (hpayment : payment ∈
-      (run δ input (2 * input.requests.length) (initialState input)).payments)
+      (run trigger input (2 * input.requests.length) (initialState input)).payments)
     (occurrence : Occurrence Page) (hserved : occurrence ∈ payment.served) :
-    (schedule δ input).requestCost occurrence.request =
+    (schedule trigger input).requestCost occurrence.request =
       occurrence.request.delay (payment.time - occurrence.request.arrival) := by
-  let final := run δ input (2 * input.requests.length) (initialState input)
-  have hinvariants := final_serviceInvariants (δ := δ) input
+  let final := run trigger input (2 * input.requests.length) (initialState input)
+  have hinvariants := final_serviceInvariants (trigger := trigger) input
   have htrace : ServiceTraceInvariant input final := hinvariants.1
   have hminimal : ServiceMinimalInvariant final := hinvariants.2
   have hmiss := htrace.2.2.2.1 payment hpayment occurrence hserved
@@ -404,7 +404,7 @@ theorem step_droppedHitInvariant (input : Instance Page) (state : State Page)
     (action : Action Page) (htime : TimeInvariant state)
     (htrace : ServiceTraceInvariant input state)
     (hhits : DroppedHitInvariant input state)
-    (haction : nextAction? δ state = some action) :
+    (haction : nextAction? trigger state = some action) :
     DroppedHitInvariant input (step input state action) := by
   intro original hinput hunseen hpending hserved
   cases action with
@@ -447,7 +447,7 @@ theorem step_droppedHitInvariant (input : Instance Page) (state : State Page)
       have hnow : state.now ≤ time := by
         have hs := nextAction_payment_selected haction
         rw [← nextPayment_time_eq hs]
-        exact thresholdTime_ge_now state page
+        exact trigger.dueTime_ge_now state page
           (pending_of_mem_pendingPages (nextPayment_mem_pendingPages hs))
       have hunseenOld : original ∉ state.unseen := by simpa [step] using hunseen
       have hpendingOld : original ∉ state.pending := by
@@ -474,16 +474,16 @@ theorem step_droppedHitInvariant (input : Instance Page) (state : State Page)
         exact hold.2
 
 theorem run_droppedHitInvariant (input : Instance Page) : ∀ fuel state,
-    TimeInvariant state → BelowThreshold δ state → ServiceTraceInvariant input state →
+    TimeInvariant state → BelowThreshold trigger.level state → ServiceTraceInvariant input state →
       DroppedHitInvariant input state →
-      DroppedHitInvariant input (run δ input fuel state) := by
+      DroppedHitInvariant input (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => exact fun _ _ _ _ h => h
   | succ fuel ih =>
       intro state htime hbelow htrace hhits
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => exact hhits
       | some action =>
           exact ih _ (step_timeInvariant input state action htime ha)
@@ -494,13 +494,13 @@ theorem run_droppedHitInvariant (input : Instance Page) : ∀ fuel state,
 theorem final_dropped_occurrence_is_hit (input : Instance Page)
     (occurrence : Occurrence Page) (hinput : occurrence ∈ enumerate input.requests)
     (hnotServed : occurrence ∉
-      (run δ input (2 * input.requests.length) (initialState input)).payments.flatMap
+      (run trigger input (2 * input.requests.length) (initialState input)).payments.flatMap
         Payment.served) :
     occurrence.request.page ∈
-      (schedule δ input).cacheBefore occurrence.request.arrival := by
-  let final := run δ input (2 * input.requests.length) (initialState input)
-  have hfinished := final_unseen_eq_nil_and_pending_eq_nil (δ := δ) input
-  have hinv := run_droppedHitInvariant (δ := δ) input (2 * input.requests.length)
+      (schedule trigger input).cacheBefore occurrence.request.arrival := by
+  let final := run trigger input (2 * input.requests.length) (initialState input)
+  have hfinished := final_unseen_eq_nil_and_pending_eq_nil (trigger := trigger) input
+  have hinv := run_droppedHitInvariant (trigger := trigger) input (2 * input.requests.length)
     (initialState input)
     (initial_timeInvariant input) (initial_belowThreshold input)
     (initial_serviceTraceInvariant input) (initial_droppedHitInvariant input)

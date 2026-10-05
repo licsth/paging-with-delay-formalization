@@ -18,17 +18,17 @@ noncomputable section
 
 /-- The fetch part of the paper's accounting argument: the public schedule is
 the erasure of the payment log, with exactly one fetch event per payment. -/
-theorem fetchCount_eq_paymentCount (δ : Cost)
+theorem fetchCount_eq_paymentCount (trigger : Trigger)
     (input : Instance Page) :
-    (schedule δ input).fetchCount = paymentCount δ input := by
+    (schedule trigger input).fetchCount = paymentCount trigger input := by
   simp [Schedule.fetchCount, schedule, paymentCount]
 
-/-- The public cost of FIFO with threshold `δ` is exactly `1 + δ` per
-threshold payment: one fetch, and the `δ` units of delay the payment released. -/
-theorem algorithmCostClaim (δ : Cost) (input : Instance Page) :
-    AlgorithmCostClaim δ input := by
-  let final := run δ input (2 * input.requests.length) (initialState input)
-  let weight := Competitive.Schedule.requestIdWeight (schedule δ input) input
+/-- The public cost of FIFO is exactly `1 + δ` per payment, `δ` the trigger's
+level: one fetch, and the `δ` units of delay the payment released. -/
+theorem algorithmCostClaim (trigger : Trigger) (input : Instance Page) :
+    AlgorithmCostClaim trigger input := by
+  let final := run trigger input (2 * input.requests.length) (initialState input)
+  let weight := Competitive.Schedule.requestIdWeight (schedule trigger input) input
   have hids : OccurrencePartition.inputIds input = Finset.range input.requests.length := by
     have aux : ∀ (next : ℕ) (requests : List (Request Page)),
         (enumerateFrom next requests |>.map Occurrence.id) =
@@ -60,9 +60,9 @@ theorem algorithmCostClaim (δ : Cost) (input : Instance Page) :
     obtain ⟨occurrence, horiginal, hid⟩ := List.mem_map.mp hinput
     subst id
     rw [show weight occurrence.id =
-        (schedule δ input).requestCost occurrence.request by
+        (schedule trigger input).requestCost occurrence.request by
       exact Competitive.Schedule.requestIdWeight_eq_requestCost_of_mem_enumerate
-        (schedule δ input) input horiginal]
+        (schedule trigger input) input horiginal]
     apply Schedule.requestCost_eq_zero_of_mem_cacheBefore
     apply final_dropped_occurrence_is_hit input occurrence horiginal
     intro hserved
@@ -76,7 +76,7 @@ theorem algorithmCostClaim (δ : Cost) (input : Instance Page) :
     exact History.final_servedIds_nodup input
   have hservedSum : (∑ id ∈ OccurrencePartition.servedIds final, weight id) =
       ((final.payments.flatMap Payment.served).map fun occurrence =>
-        (schedule δ input).requestCost occurrence.request).sum := by
+        (schedule trigger input).requestCost occurrence.request).sum := by
     unfold OccurrencePartition.servedIds
     rw [List.sum_toFinset weight hservedNodup]
     apply congrArg List.sum
@@ -87,10 +87,10 @@ theorem algorithmCostClaim (δ : Cost) (input : Instance Page) :
     have horiginal := OccurrencePartition.final_authentic input |>.2.2
       payment hpayment occurrence hoccurrence
     exact Competitive.Schedule.requestIdWeight_eq_requestCost_of_mem_enumerate
-      (schedule δ input) input horiginal
-  have hpublicDelay : (schedule δ input).totalDelay input =
+      (schedule trigger input) input horiginal
+  have hpublicDelay : (schedule trigger input).totalDelay input =
       (final.payments.map Payment.delayCost).sum := by
-    rw [← Competitive.Schedule.sum_requestIdWeight_range (schedule δ input) input]
+    rw [← Competitive.Schedule.sum_requestIdWeight_range (schedule trigger input) input]
     rw [hpartition, Finset.sum_union hdisjoint]
     rw [hservedSum]
     have hz : (∑ id ∈ OccurrencePartition.droppedIds input final, weight id) = 0 := by
@@ -106,21 +106,21 @@ theorem algorithmCostClaim (δ : Cost) (input : Instance Page) :
     intro occurrence hoccurrence
     exact final_served_requestCost_eq input payment hpayment occurrence hoccurrence
   have hthreshold : (final.payments.map Payment.delayCost).sum =
-      δ * (final.payments.length : Cost) := by
+      trigger.level * (final.payments.length : Cost) := by
     calc
       (final.payments.map Payment.delayCost).sum =
-          (final.payments.map fun _ => δ).sum := by
+          (final.payments.map fun _ => trigger.level).sum := by
             apply congrArg List.sum
             apply List.map_congr_left
             intro payment hpayment
             exact final_thresholdPayments input payment hpayment
-      _ = δ * (final.payments.length : Cost) := by
+      _ = trigger.level * (final.payments.length : Cost) := by
             rw [List.map_const', List.sum_replicate, nsmul_eq_mul]
             ring
   unfold AlgorithmCostClaim algorithmCost paymentCount
-  rw [Schedule.totalCost, fetchCount_eq_paymentCount δ input]
-  change (final.payments.length : Cost) + (schedule δ input).totalDelay input =
-    (1 + δ) * (final.payments.length : Cost)
+  rw [Schedule.totalCost, fetchCount_eq_paymentCount trigger input]
+  change (final.payments.length : Cost) + (schedule trigger input).totalDelay input =
+    (1 + trigger.level) * (final.payments.length : Cost)
   rw [hpublicDelay, hthreshold]
   ring
 

@@ -9,8 +9,8 @@ import Proofs.Competitive.CostDefs
 /-!
 # The FIFO run read through its eviction order
 
-The common ground of the write-up's two upper bounds: a instance, a
-positive threshold `δ`, and the completed run of `δ`-FIFO on it.  This file
+The common ground of the write-up's upper bounds: an instance, a
+trigger, and the completed run of FIFO with that trigger on it.  This file
 names the run's payments `0, …, M-1` with their pages `pageAt i` and times
 `timeAt i`, and describes the FIFO cache before payment `i` as the window of
 `k` consecutive entries `i, …, i + k - 1` of the *eviction order* `seq` — the
@@ -18,7 +18,7 @@ initial cache followed by the fetched pages, whose entry `j` is the page
 payment `j` evicts.
 
 Everything is read off the event loop of `EventLoop.lean` through the
-threshold-independent invariants in `EventLoop/`.  Nothing here mentions a
+trigger-independent invariants in `EventLoop/`.  Nothing here mentions a
 comparator.
 -/
 
@@ -28,14 +28,14 @@ open PagingWithDelay
 
 variable {Page : Type*} [DecidableEq Page]
 
-/-- A instance with a positive threshold. -/
+/-- An instance with a trigger: a threshold for the delay accounting, the
+deadline trigger for the deadline accounting. -/
 structure Setup (Page : Type*) [DecidableEq Page] where
   /-- The cache size `k`. -/
   cacheSize : ℕ
   positive : 0 < cacheSize
-  /-- The threshold `δ`. -/
-  threshold : Cost
-  threshold_pos : 0 < threshold
+  /-- What triggers FIFO's fetches. -/
+  trigger : FIFO.Trigger
   input : Instance Page
   size : input.cacheSize = cacheSize
 
@@ -48,15 +48,19 @@ variable (S : Setup Page)
 theorem initialCache_length : S.input.initialCache.length = S.cacheSize := by
   rw [S.input.initialCache_full, S.size]
 
-/-- The completed FIFO run at threshold `δ`. -/
+/-- The delay level `δ` at which a payment is triggered: the threshold, or `0`
+for deadlines. -/
+abbrev threshold : Cost := S.trigger.level
+
+/-- The completed FIFO run. -/
 def payments : List (FIFO.Payment Page) :=
-  (FIFO.run S.threshold S.input (2 * S.input.requests.length)
+  (FIFO.run S.trigger S.input (2 * S.input.requests.length)
     (FIFO.initialState S.input)).payments
 
 /-- `M`, the number of payments. -/
 def count : ℕ := S.payments.length
 
-theorem count_eq_paymentCount : S.count = FIFO.paymentCount S.threshold S.input := rfl
+theorem count_eq_paymentCount : S.count = FIFO.paymentCount S.trigger S.input := rfl
 
 /-! ### The eviction order -/
 
@@ -118,7 +122,7 @@ theorem payment_time_le {i j : ℕ} (hi : i < S.count) (hj : j < S.count) (hij :
   rcases eq_or_lt_of_le hij with rfl | hlt
   · exact le_rfl
   · exact List.pairwise_iff_getElem.mp
-      (FIFO.final_payment_times_chronological (δ := S.threshold) S.input) i j hi hj hlt
+      (FIFO.final_payment_times_chronological (trigger := S.trigger) S.input) i j hi hj hlt
 
 theorem timeAt_mono : Monotone S.timeAt := by
   intro i j hij
@@ -191,7 +195,7 @@ theorem seq_mem_queue {i j : ℕ} (hi : i ≤ S.count) (hlow : i ≤ j) (hhigh :
 /-- Freshness: a payment fetches a page that is not in the cache. -/
 theorem pageAt_not_mem_queue {i : ℕ} (hi : i < S.count) : S.pageAt i ∉ S.queue i := by
   rw [pageAt_eq S hi]
-  have h := (FIFO.final_freshPayments (δ := S.threshold) S.input).fresh_at i
+  have h := (FIFO.final_freshPayments (trigger := S.trigger) S.input).fresh_at i
     (by simpa [count] using hi)
   rw [S.size] at h
   exact h
@@ -261,7 +265,7 @@ theorem payment_delayCost {i : ℕ} (hi : i < S.count) :
 theorem served_authentic {i : ℕ} (hi : i < S.count) {occurrence : Occurrence Page}
     (ho : occurrence ∈ (S.payments[i]).served) :
     occurrence ∈ enumerate S.input.requests :=
-  (FIFO.History.final_authentic (δ := S.threshold) S.input).2.2 _
+  (FIFO.History.final_authentic (trigger := S.trigger) S.input).2.2 _
     (List.getElem_mem (by simpa [count] using hi)) occurrence ho
 
 theorem served_request_mem {i : ℕ} (hi : i < S.count) {occurrence : Occurrence Page}
@@ -296,20 +300,28 @@ theorem served_arrival_gt {i j : ℕ} (hi : i < S.count) (hj : j < S.cacheSize +
       simp [S.initialCache_length]; omega) = S.payments[i].page := by
     rw [← pageAt_eq S hi, ← hpage, seq_eq S (by omega)]
     rfl
-  obtain ⟨hlt, hbound⟩ := FIFO.History.final_validBatchLowerBounds (δ := S.threshold) S.input
+  obtain ⟨hlt, hbound⟩ := FIFO.History.final_validBatchLowerBounds (trigger := S.trigger) S.input
     i hlen occurrence ho j (by rw [S.initialCache_length]; exact hj) hseq
   refine ⟨hlt, ?_⟩
   rw [List.getElem?_eq_getElem (by simpa [count] using hlt.trans hi)] at hbound
   rw [timeAt_eq S (hlt.trans hi)]
   simpa using hbound
 
-/-- With a positive threshold every payment serves at least one request. -/
-theorem served_ne_nil {i : ℕ} (hi : i < S.count) : (S.payments[i]).served ≠ [] := by
-  intro hempty
-  have hcost := payment_delayCost S hi
-  rw [FIFO.Payment.delayCost, hempty] at hcost
-  simp only [List.map_nil, List.sum_nil] at hcost
-  exact absurd hcost.symm (ne_of_gt S.threshold_pos)
+/-- The deadline rule: strictly after a payment of deadline-triggered FIFO the
+requests it serves have positive delay, since one of them has its deadline at
+the payment. -/
+theorem payment_due (hdeadline : S.trigger = .deadline) {i : ℕ} (hi : i < S.count) {t : Time}
+    (ht : S.timeAt i < t) :
+    0 < ((S.payments[i]).served.map fun occurrence =>
+      occurrence.request.delay (t - occurrence.request.arrival)).sum := by
+  rw [timeAt_eq S hi] at ht
+  exact (FIFO.final_duePayments (trigger := S.trigger) S.input).due hdeadline _
+    (List.getElem_mem (by simpa [count] using hi)) t ht
+
+/-- Every payment serves at least one request. -/
+theorem served_ne_nil {i : ℕ} (hi : i < S.count) : (S.payments[i]).served ≠ [] :=
+  (FIFO.final_duePayments (trigger := S.trigger) S.input).served_ne_nil _
+    (List.getElem_mem (by simpa [count] using hi))
 
 /-! ### The page universe -/
 
@@ -337,7 +349,7 @@ theorem queue_subset_pageUniverse {i : ℕ} (hi : i ≤ S.count) {x : Page} (hx 
 /-- The served occurrences of distinct payments are disjoint, identifier-wise. -/
 theorem servedIds_nodup :
     ((S.payments.flatMap FIFO.Payment.served).map Occurrence.id).Nodup :=
-  FIFO.History.final_servedIds_nodup (δ := S.threshold) S.input
+  FIFO.History.final_servedIds_nodup (trigger := S.trigger) S.input
 
 end
 

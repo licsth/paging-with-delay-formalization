@@ -27,7 +27,7 @@ the two proofs share, and what neither of them is really about.
 
 namespace PagingWithDelay.FIFO
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 
 noncomputable section
 
@@ -38,8 +38,8 @@ def earlyPayments (t : Time) (state : State Page) : List (Payment Page) :=
 /-! ## Fuel beyond termination is inert -/
 
 theorem run_succ_eq_of_finished (input : Instance Page) :
-    ∀ (fuel : ℕ) (state : State Page), nextAction? δ (run δ input fuel state) = none →
-      run δ input (fuel + 1) state = run δ input fuel state := by
+    ∀ (fuel : ℕ) (state : State Page), nextAction? trigger (run trigger input fuel state) = none →
+      run trigger input (fuel + 1) state = run trigger input fuel state := by
   intro fuel
   induction fuel with
   | zero =>
@@ -48,7 +48,7 @@ theorem run_succ_eq_of_finished (input : Instance Page) :
       rw [hfinished]
   | succ fuel ih =>
       intro state hfinished
-      cases haction : nextAction? δ state with
+      cases haction : nextAction? trigger state with
       | none => simp [run, haction]
       | some action =>
           simp only [run, haction] at hfinished ⊢
@@ -57,7 +57,7 @@ theorem run_succ_eq_of_finished (input : Instance Page) :
 /-- Any two fuel budgets that both suffice give the same final state. -/
 theorem run_eq_of_le (input : Instance Page) (state : State Page) {fuel larger : ℕ}
     (hfuel : potential state ≤ fuel) (hle : fuel ≤ larger) :
-    run δ input larger state = run δ input fuel state := by
+    run trigger input larger state = run trigger input fuel state := by
   induction larger with
   | zero =>
       have : fuel = 0 := Nat.le_zero.mp hle
@@ -66,8 +66,8 @@ theorem run_eq_of_le (input : Instance Page) (state : State Page) {fuel larger :
       rcases Nat.lt_or_ge larger fuel with hlt | hge
       · have : fuel = larger + 1 := by omega
         rw [this]
-      · have hsmaller : run δ input larger state = run δ input fuel state := ih hge
-        have hfinished : nextAction? δ (run δ input larger state) = none := by
+      · have hsmaller : run trigger input larger state = run trigger input fuel state := ih hge
+        have hfinished : nextAction? trigger (run trigger input larger state) = none := by
           rw [hsmaller]
           exact run_finished_of_potential_le input state fuel hfuel
         rw [run_succ_eq_of_finished input larger state hfinished, hsmaller]
@@ -86,13 +86,13 @@ identically.  Everything else about an instance is only used to build the
 initial state. -/
 theorem run_congr {first second : Instance Page}
     (hcache : first.cacheSize = second.cacheSize) :
-    ∀ (fuel : ℕ) (state : State Page), run δ first fuel state = run δ second fuel state := by
+    ∀ (fuel : ℕ) (state : State Page), run trigger first fuel state = run trigger second fuel state := by
   intro fuel
   induction fuel with
   | zero => intro state; rfl
   | succ fuel ih =>
       intro state
-      cases haction : nextAction? δ state with
+      cases haction : nextAction? trigger state with
       | none => simp [run, haction]
       | some action =>
           simp only [run, haction]
@@ -100,13 +100,13 @@ theorem run_congr {first second : Instance Page}
           exact ih _
 
 theorem arrival_mem_unseen {state : State Page} {occurrence : Occurrence Page}
-    (haction : nextAction? δ state = some (.arrival occurrence)) :
+    (haction : nextAction? trigger state = some (.arrival occurrence)) :
     occurrence ∈ state.unseen := by
   unfold nextAction? at haction
   cases hunseen : state.unseen with
-  | nil => cases hpayment : nextPayment? δ state <;> simp [hunseen, hpayment] at haction
+  | nil => cases hpayment : nextPayment? trigger state <;> simp [hunseen, hpayment] at haction
   | cons head tail =>
-      cases hpayment : nextPayment? δ state with
+      cases hpayment : nextPayment? trigger state with
       | none =>
           simp only [hunseen, hpayment] at haction
           injection haction with heq
@@ -126,13 +126,13 @@ theorem arrival_mem_unseen {state : State Page} {occurrence : Occurrence Page}
 at or before `t`. -/
 theorem late_payments (input : Instance Page) (t : Time) :
     ∀ (fuel : ℕ) (state : State Page), TimeInvariant state → t < state.now →
-      earlyPayments t (run δ input fuel state) = earlyPayments t state := by
+      earlyPayments t (run trigger input fuel state) = earlyPayments t state := by
   intro fuel
   induction fuel with
   | zero => intro state _ _; rfl
   | succ fuel ih =>
       intro state htime hnow
-      cases haction : nextAction? δ state with
+      cases haction : nextAction? trigger state with
       | none => simp [run, haction]
       | some action =>
           simp only [run, haction]
@@ -149,7 +149,7 @@ theorem late_payments (input : Instance Page) (t : Time) :
                 (nextPayment_mem_pendingPages hselected)
               have hge : state.now ≤ time := by
                 rw [← nextPayment_time_eq hselected]
-                exact thresholdTime_ge_now state page hpending
+                exact trigger.dueTime_ge_now state page hpending
               have hlate : t < time := hnow.trans_le hge
               rw [ih _ hstep hlate]
               simp [earlyPayments, step, not_le_of_gt hlate]
@@ -159,12 +159,12 @@ or before `t`, then the run contributes no further early payment. -/
 theorem no_early_payments (input : Instance Page) (t : Time) (fuel : ℕ)
     (state : State Page) (htime : TimeInvariant state)
     (hunseen : ∀ occurrence ∈ state.unseen, t < occurrence.request.arrival)
-    (hdue : ∀ time page, nextPayment? δ state = some (time, page) → t < time) :
-    earlyPayments t (run δ input fuel state) = earlyPayments t state := by
+    (hdue : ∀ time page, nextPayment? trigger state = some (time, page) → t < time) :
+    earlyPayments t (run trigger input fuel state) = earlyPayments t state := by
   cases fuel with
   | zero => rfl
   | succ fuel =>
-      cases haction : nextAction? δ state with
+      cases haction : nextAction? trigger state with
       | none => simp [run, haction]
       | some action =>
           simp only [run, haction]
@@ -185,9 +185,9 @@ theorem no_early_payments (input : Instance Page) (t : Time) (fuel : ℕ)
 /-- With no arrival left before `t`, a payment due at or before `t` is the
 action both states must take. -/
 theorem nextAction_payment_of_late_unseen {state : State Page} {t time : Time}
-    {page : Page} (hselected : nextPayment? δ state = some (time, page))
+    {page : Page} (hselected : nextPayment? trigger state = some (time, page))
     (hunseen : ∀ occurrence ∈ state.unseen, t < occurrence.request.arrival)
-    (hdue : time ≤ t) : nextAction? δ state = some (.payment time page) := by
+    (hdue : time ≤ t) : nextAction? trigger state = some (.payment time page) := by
   cases hcases : state.unseen with
   | nil => simp [nextAction?, hcases, hselected]
   | cons head tail =>
@@ -270,8 +270,8 @@ theorem filter_map_fetchEvent (t : Time) (payments : List (Payment Page)) :
       by_cases htime : payment.time ≤ t <;> simp [htime, ih]
 
 theorem schedule_events (input : Instance Page) :
-    (schedule δ input).events =
-      (run δ input (2 * input.requests.length) (initialState input)).payments.map
+    (schedule trigger input).events =
+      (run trigger input (2 * input.requests.length) (initialState input)).payments.map
         Payment.fetchEvent :=
   rfl
 

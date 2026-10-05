@@ -6,7 +6,8 @@ This directory proves `RankPotential.competitiveRatio`, the statement behind
 constant. It follows the write-up's Section "Upper bounds for the competitive
 ratio of FIFO": payment windows, the rank potential, and three charging cases.
 Everything is stated for an arbitrary positive threshold `δ`, and only the
-final theorem specialises to `δ = 1`.
+final theorem specialises to `δ = 1`. `Setup` itself takes any trigger;
+`Proofs/DeadlineUpperBound/` uses it with the deadline trigger.
 
 ## Correspondence with the write-up
 
@@ -26,6 +27,7 @@ final theorem specialises to `δ = 1`.
 | Case 1, page held | `Held`, `potential_step_online_of_held` |
 | Case 2, page dropped in the window; the associated fetch; no fetch used twice | `Dropped`, `dropped_event`, `gain_assoc_ge`, `dropped_event_injective` / `assoc_injOn`, `droppedSet_card_le` |
 | Case 3, never held; delay charge `≥ δ`; charges disjoint | `Never`, `no_early_service`, `threshold_le_delay_of_never`, `neverSet_delay_le` |
+| Deadlines: Case 3 costs the comparator positive delay | `delay_pos_of_never` (from the deadline rule `Setup.payment_due`); used in `Proofs/DeadlineUpperBound/` |
 | The cases are exhaustive | `cases_exhaustive`, `card_partition` |
 | Payment accounting `M + Φ_final − Φ_0 ≤ (k+1)S + ((k+1)/δ)D` | `payment_accounting_missing`; complement form `payment_accounting` (general charge: `payment_accounting_of_gain`; combinatorial core: `payment_accounting_nat_of_gain`, `sum_identity`) |
 | Payment accounting on `k+1` pages, `M + Φ_final − Φ_0 ≤ kS + ((k+1)/δ)D` | `KPlusOne.payment_accounting_missing_k_plus_one`; without potentials `KPlusOne.paymentCount_le_k_plus_one` (via `paymentCount_le_of_gain`) |
@@ -35,7 +37,7 @@ final theorem specialises to `δ = 1`.
 
 ## Files
 
-- `Setup.lean`: the run of `δ`-FIFO on an instance, described through
+- `Setup.lean`: the run of FIFO with a trigger on an instance, described through
   its eviction order (`seq`, `queue`, `pageAt`, `timeAt`), with the facts read
   off the event-loop invariants of `EventLoop/`.
 - `Windows.lean`: payment windows and their three properties.

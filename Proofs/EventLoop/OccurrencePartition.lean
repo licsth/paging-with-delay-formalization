@@ -12,13 +12,13 @@ bridge.
 
 namespace PagingWithDelay.FIFO
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 
 noncomputable section
 
 /-- If no payment can be selected, there are no pending occurrences. -/
 theorem pending_eq_nil_of_nextPayment_none {state : State Page}
-    (hpayment : nextPayment? δ state = none) : state.pending = [] := by
+    (hpayment : nextPayment? trigger state = none) : state.pending = [] := by
   apply List.eq_nil_iff_forall_not_mem.mpr
   intro occurrence hoccurrence
   obtain ⟨time, page, hexists⟩ := nextPayment_exists_of_pending
@@ -28,18 +28,18 @@ theorem pending_eq_nil_of_nextPayment_none {state : State Page}
 
 /-- A stopped event loop has neither unseen nor pending occurrences. -/
 theorem unseen_eq_nil_and_pending_eq_nil_of_nextAction_none {state : State Page}
-    (hstop : nextAction? δ state = none) : state.unseen = [] ∧ state.pending = [] := by
+    (hstop : nextAction? trigger state = none) : state.unseen = [] ∧ state.pending = [] := by
   unfold nextAction? at hstop
   cases hunseen : state.unseen with
   | nil =>
       constructor
       · rfl
-      · cases hpayment : nextPayment? δ state with
+      · cases hpayment : nextPayment? trigger state with
         | none => exact pending_eq_nil_of_nextPayment_none hpayment
         | some payment => simp [hunseen, hpayment] at hstop
   | cons occurrence unseen =>
       exfalso
-      cases hpayment : nextPayment? δ state with
+      cases hpayment : nextPayment? trigger state with
       | none => simp [hunseen, hpayment] at hstop
       | some payment =>
           simp only [hunseen, hpayment] at hstop
@@ -48,7 +48,7 @@ theorem unseen_eq_nil_and_pending_eq_nil_of_nextAction_none {state : State Page}
 /-- The chosen fuel suffices to remove every occurrence from the two live
 work lists. -/
 theorem final_unseen_eq_nil_and_pending_eq_nil (input : Instance Page) :
-    let final := run δ input (2 * input.requests.length) (initialState input)
+    let final := run trigger input (2 * input.requests.length) (initialState input)
     final.unseen = [] ∧ final.pending = [] := by
   exact unseen_eq_nil_and_pending_eq_nil_of_nextAction_none (run_initial_finished input)
 
@@ -63,13 +63,13 @@ def Authentic (input : Instance Page) (state : State Page) : Prop :=
     occurrence ∈ enumerate input.requests)
 
 private theorem arrival_mem_unseen {state : State Page} {occurrence : Occurrence Page}
-    (haction : nextAction? δ state = some (.arrival occurrence)) :
+    (haction : nextAction? trigger state = some (.arrival occurrence)) :
     occurrence ∈ state.unseen := by
   unfold nextAction? at haction
   cases hunseen : state.unseen with
-  | nil => cases hpayment : nextPayment? δ state <;> simp [hunseen, hpayment] at haction
+  | nil => cases hpayment : nextPayment? trigger state <;> simp [hunseen, hpayment] at haction
   | cons head tail =>
-      cases hpayment : nextPayment? δ state with
+      cases hpayment : nextPayment? trigger state with
       | none =>
           simp only [hunseen, hpayment] at haction
           injection haction with heq
@@ -88,7 +88,7 @@ theorem initial_authentic (input : Instance Page) :
   simp [Authentic, initialState]
 
 theorem step_authentic (input : Instance Page) (state : State Page)
-    (action : Action Page) (haction : nextAction? δ state = some action)
+    (action : Action Page) (haction : nextAction? trigger state = some action)
     (hauthentic : Authentic input state) :
     Authentic input (step input state action) := by
   cases action with
@@ -123,19 +123,19 @@ theorem step_authentic (input : Instance Page) (state : State Page)
           · exact hauthentic.2.1 occurrence (List.mem_filter.mp hoccurrence).1
 
 theorem run_authentic (input : Instance Page) : ∀ fuel state,
-    Authentic input state → Authentic input (run δ input fuel state) := by
+    Authentic input state → Authentic input (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => exact fun _ h => h
   | succ fuel ih =>
       intro state h
       rw [run]
-      cases haction : nextAction? δ state with
+      cases haction : nextAction? trigger state with
       | none => exact h
       | some action => exact ih _ (step_authentic input state action haction h)
 
 theorem final_authentic (input : Instance Page) :
-    Authentic input (run δ input (2 * input.requests.length) (initialState input)) :=
+    Authentic input (run trigger input (2 * input.requests.length) (initialState input)) :=
   run_authentic input _ _ (initial_authentic input)
 
 /-- Identifiers in the original request list. -/
@@ -210,14 +210,14 @@ theorem runtimeIds_subset_inputIds (input : Instance Page) (state : State Page)
 /-- At termination the runtime part of the partition is exactly the flattened
 payment log. -/
 theorem final_outstandingIds_eq_empty (input : Instance Page) :
-    outstandingIds (run δ input (2 * input.requests.length) (initialState input)) = ∅ := by
-  obtain ⟨hu, hp⟩ := final_unseen_eq_nil_and_pending_eq_nil (δ := δ) input
+    outstandingIds (run trigger input (2 * input.requests.length) (initialState input)) = ∅ := by
+  obtain ⟨hu, hp⟩ := final_unseen_eq_nil_and_pending_eq_nil (trigger := trigger) input
   simp [outstandingIds, hu, hp]
 
 theorem final_inputIds_eq_served_union_dropped (input : Instance Page) :
-    let final := run δ input (2 * input.requests.length) (initialState input)
+    let final := run trigger input (2 * input.requests.length) (initialState input)
     inputIds input = servedIds final ∪ droppedIds input final := by
-  let final := run δ input (2 * input.requests.length) (initialState input)
+  let final := run trigger input (2 * input.requests.length) (initialState input)
   have hpartition := inputIds_eq_runtime_union_dropped input final
     (runtimeIds_subset_inputIds input final (final_authentic input))
   rw [final_outstandingIds_eq_empty input] at hpartition

@@ -4,7 +4,7 @@ namespace PagingWithDelay.FIFO
 
 open Set
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 
 noncomputable section
 
@@ -54,7 +54,7 @@ theorem initial_timeInvariant (input : Instance Page) :
   · intro occurrence h
     exact bot_le
 
-theorem thresholdTime_ge_now (state : State Page) (page : Page)
+theorem thresholdTime_ge_now {δ : Cost} (state : State Page) (page : Page)
     (hpending : ∃ occurrence ∈ state.pending,
       occurrence.request.page = page) :
     state.now ≤ thresholdTime δ state page := by
@@ -88,10 +88,18 @@ theorem thresholdTime_ge_now (state : State Page) (page : Page)
   have hbdd : BddBelow S := ⟨0, fun _ _ => bot_le⟩
   exact (hclosed.csInf_mem hnonempty hbdd).1
 
+/-- A pending page is never due before `now`. -/
+theorem Trigger.dueTime_ge_now (trigger : Trigger) (state : State Page) (page : Page)
+    (hpending : ∃ occurrence ∈ state.pending, occurrence.request.page = page) :
+    state.now ≤ trigger.dueTime state page := by
+  cases trigger with
+  | threshold δ => exact thresholdTime_ge_now state page hpending
+  | deadline => exact deadlineTime_ge_now state page hpending
+
 theorem step_timeInvariant (input : Instance Page)
     (state : State Page) (action : Action Page)
     (htime : TimeInvariant state)
-    (haction : nextAction? δ state = some action) :
+    (haction : nextAction? trigger state = some action) :
     TimeInvariant (step input state action) := by
   cases action with
   | arrival occurrence =>
@@ -99,9 +107,9 @@ theorem step_timeInvariant (input : Instance Page)
         unfold nextAction? at haction
         cases h : state.unseen with
         | nil =>
-            cases hp : nextPayment? δ state <;> simp [h, hp] at haction
+            cases hp : nextPayment? trigger state <;> simp [h, hp] at haction
         | cons head tail =>
-            cases hp : nextPayment? δ state <;> simp only [h, hp] at haction
+            cases hp : nextPayment? trigger state <;> simp only [h, hp] at haction
             · injection haction with heq
               cases heq
               simp_all
@@ -130,7 +138,7 @@ theorem step_timeInvariant (input : Instance Page)
         (nextPayment_mem_pendingPages hselected)
       have hnow : state.now ≤ time := by
         rw [← nextPayment_time_eq hselected]
-        exact thresholdTime_ge_now state page hpending
+        exact trigger.dueTime_ge_now state page hpending
       constructor
       · simp only [step]
         rw [List.pairwise_append]
@@ -152,7 +160,7 @@ theorem step_timeInvariant (input : Instance Page)
         cases hu : state.unseen with
         | nil => simp [hu] at hoccState
         | cons head tail =>
-            cases hp : nextPayment? δ state with
+            cases hp : nextPayment? trigger state with
             | none => simp [hu, hp] at haction
             | some pair =>
                 rcases pair with ⟨selectedTime, selectedPage⟩
@@ -171,22 +179,22 @@ theorem step_timeInvariant (input : Instance Page)
                     exact hhead.trans (hpw.1 occurrence htail)
 
 theorem run_timeInvariant (input : Instance Page) :
-    ∀ fuel state, TimeInvariant state → BelowThreshold δ state →
-      TimeInvariant (run δ input fuel state) := by
+    ∀ fuel state, TimeInvariant state → BelowThreshold trigger.level state →
+      TimeInvariant (run trigger input fuel state) := by
   intro fuel
   induction fuel with
   | zero => exact fun _ htime _ => htime
   | succ fuel ih =>
       intro state htime hbelow
       rw [run]
-      cases ha : nextAction? δ state with
+      cases ha : nextAction? trigger state with
       | none => exact htime
       | some action =>
           exact ih _ (step_timeInvariant input state action htime ha)
             (step_belowThreshold input state action hbelow ha)
 
 theorem final_payment_times_chronological (input : Instance Page) :
-    (run δ input (2 * input.requests.length) (initialState input)).payments.Pairwise
+    (run trigger input (2 * input.requests.length) (initialState input)).payments.Pairwise
       fun earlier later => earlier.time ≤ later.time :=
   (run_timeInvariant input _ _ (initial_timeInvariant input)
     (initial_belowThreshold input)).payments_chronological

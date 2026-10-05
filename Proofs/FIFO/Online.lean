@@ -3,11 +3,11 @@ import Proofs.EventLoop.RunComparison
 import Algorithm
 
 /-!
-# FIFO is online, for every threshold
+# FIFO is online, for every trigger
 
-This file proves `Algorithm.Online (FIFO.schedule δ)` for every threshold
-`δ : Cost`: what the algorithm does up to a time `t` depends only on the
-requests that have arrived by `t`.  The threshold is a parameter throughout;
+This file proves that FIFO is online for every trigger, threshold or
+deadline: what the algorithm does up to a time `t` depends only on the
+requests that have arrived by `t`.  The trigger is a parameter throughout;
 the simulation below never inspects it, it only needs both runs to use the
 same one.
 
@@ -41,7 +41,7 @@ and `no_early_payments` shows neither run contributes another event before `t`.
 
 namespace PagingWithDelay.FIFO
 
-variable {Page : Type*} [DecidableEq Page] {δ : Cost}
+variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 
 noncomputable section
 
@@ -52,18 +52,20 @@ private theorem pendingCost_congr {s₁ s₂ : State Page} (hpending : s₁.pend
   funext page instant
   simp only [pendingCost, hpending]
 
-private theorem thresholdTime_congr {s₁ s₂ : State Page} (hnow : s₁.now = s₂.now)
-    (hpending : s₁.pending = s₂.pending) : thresholdTime δ s₁ = thresholdTime δ s₂ := by
+private theorem dueTime_congr {s₁ s₂ : State Page} (hnow : s₁.now = s₂.now)
+    (hpending : s₁.pending = s₂.pending) : trigger.dueTime s₁ = trigger.dueTime s₂ := by
   funext page
-  simp only [thresholdTime, hnow, pendingCost_congr hpending]
+  cases trigger with
+  | threshold δ => simp only [Trigger.dueTime, thresholdTime, hnow, pendingCost_congr hpending]
+  | deadline => simp only [Trigger.dueTime, deadlineTime, hnow, hpending]
 
 private theorem nextPayment?_congr {s₁ s₂ : State Page} (hnow : s₁.now = s₂.now)
-    (hpending : s₁.pending = s₂.pending) : nextPayment? δ s₁ = nextPayment? δ s₂ := by
-  simp only [nextPayment?, pendingPages, hpending, thresholdTime_congr hnow hpending]
+    (hpending : s₁.pending = s₂.pending) : nextPayment? trigger s₁ = nextPayment? trigger s₂ := by
+  simp only [nextPayment?, pendingPages, hpending, dueTime_congr hnow hpending]
 
 private theorem nextAction?_congr {s₁ s₂ : State Page}
     (hhead : s₁.unseen.head? = s₂.unseen.head?)
-    (hpayment : nextPayment? δ s₁ = nextPayment? δ s₂) : nextAction? δ s₁ = nextAction? δ s₂ := by
+    (hpayment : nextPayment? trigger s₁ = nextPayment? trigger s₂) : nextAction? trigger s₁ = nextAction? trigger s₂ := by
   cases h₁ : s₁.unseen with
   | nil =>
       cases h₂ : s₂.unseen with
@@ -77,7 +79,7 @@ private theorem nextAction?_congr {s₁ s₂ : State Page}
             rw [h₁, h₂] at hhead
             simpa using hhead
           subst hfirst
-          cases hpair : nextPayment? δ s₂ with
+          cases hpair : nextPayment? trigger s₂ with
           | none => simp [nextAction?, h₁, h₂, hpayment, hpair]
           | some pair =>
               obtain ⟨time, page⟩ := pair
@@ -124,7 +126,7 @@ private theorem Mirror.step (input : Instance Page) {t : Time} {s₁ s₂ : Stat
 private theorem mirror_earlyPayments (input : Instance Page) (t : Time) :
     ∀ (fuel : ℕ) (s₁ s₂ : State Page), TimeInvariant s₁ → TimeInvariant s₂ →
       Mirror t s₁ s₂ →
-      earlyPayments t (run δ input fuel s₁) = earlyPayments t (run δ input fuel s₂) := by
+      earlyPayments t (run trigger input fuel s₁) = earlyPayments t (run trigger input fuel s₂) := by
   intro fuel
   induction fuel with
   | zero =>
@@ -133,11 +135,11 @@ private theorem mirror_earlyPayments (input : Instance Page) (t : Time) :
   | succ fuel ih =>
       intro s₁ s₂ htime₁ htime₂ mirror
       obtain ⟨shared, rest₁, rest₂, h₁, h₂, hrest₁, hrest₂⟩ := mirror.unseen_split
-      have hpayment : nextPayment? δ s₁ = nextPayment? δ s₂ :=
+      have hpayment : nextPayment? trigger s₁ = nextPayment? trigger s₂ :=
         nextPayment?_congr mirror.now_eq mirror.pending_eq
-      have advance : ∀ action, nextAction? δ s₁ = some action → nextAction? δ s₂ = some action →
-          earlyPayments t (run δ input (fuel + 1) s₁) =
-            earlyPayments t (run δ input (fuel + 1) s₂) := by
+      have advance : ∀ action, nextAction? trigger s₁ = some action → nextAction? trigger s₂ = some action →
+          earlyPayments t (run trigger input (fuel + 1) s₁) =
+            earlyPayments t (run trigger input (fuel + 1) s₂) := by
         intro action ha₁ ha₂
         simp only [run, ha₁, ha₂]
         exact ih _ _ (step_timeInvariant input s₁ action htime₁ ha₁)
@@ -145,10 +147,10 @@ private theorem mirror_earlyPayments (input : Instance Page) (t : Time) :
       cases shared with
       | cons head tail =>
           have hhead : s₁.unseen.head? = s₂.unseen.head? := by simp [h₁, h₂]
-          have haction : nextAction? δ s₁ = nextAction? δ s₂ := nextAction?_congr hhead hpayment
-          cases ha₁ : nextAction? δ s₁ with
+          have haction : nextAction? trigger s₁ = nextAction? trigger s₂ := nextAction?_congr hhead hpayment
+          cases ha₁ : nextAction? trigger s₁ with
           | none =>
-              have ha₂ : nextAction? δ s₂ = none := by rw [← haction, ha₁]
+              have ha₂ : nextAction? trigger s₂ = none := by rw [← haction, ha₁]
               simp [run, ha₁, ha₂, earlyPayments, mirror.payments_eq]
           | some action =>
               exact advance action ha₁ (by rw [← haction, ha₁])
@@ -158,15 +160,15 @@ private theorem mirror_earlyPayments (input : Instance Page) (t : Time) :
             rw [h₁]; exact hrest₁
           have hunseen₂ : ∀ occurrence ∈ s₂.unseen, t < occurrence.request.arrival := by
             rw [h₂]; exact hrest₂
-          by_cases hdue : ∃ time page, nextPayment? δ s₁ = some (time, page) ∧ time ≤ t
+          by_cases hdue : ∃ time page, nextPayment? trigger s₁ = some (time, page) ∧ time ≤ t
           · obtain ⟨time, page, hselected, hle⟩ := hdue
             refine advance (.payment time page)
               (nextAction_payment_of_late_unseen hselected hunseen₁ hle)
               (nextAction_payment_of_late_unseen (hpayment ▸ hselected) hunseen₂ hle)
           · push_neg at hdue
-            have hlate₁ : ∀ time page, nextPayment? δ s₁ = some (time, page) → t < time :=
+            have hlate₁ : ∀ time page, nextPayment? trigger s₁ = some (time, page) → t < time :=
               hdue
-            have hlate₂ : ∀ time page, nextPayment? δ s₂ = some (time, page) → t < time := by
+            have hlate₂ : ∀ time page, nextPayment? trigger s₂ = some (time, page) → t < time := by
               intro time page hselected
               exact hlate₁ time page (by rw [hpayment]; exact hselected)
             rw [no_early_payments input t _ s₁ htime₁ hunseen₁ hlate₁,
@@ -178,7 +180,7 @@ private theorem mirror_earlyPayments (input : Instance Page) (t : Time) :
 /-- FIFO's behaviour before time `t` is what it would have been on the request
 sequence truncated at `t`. -/
 theorem schedule_upTo_eq (input : Instance Page) (t : Time) :
-    (schedule δ input).upTo t = (schedule δ (input.upTo t)).upTo t := by
+    (schedule trigger input).upTo t = (schedule trigger (input.upTo t)).upTo t := by
   obtain ⟨count, hfilter, hdrop⟩ :=
     filter_eq_take_of_chronological (requests := input.requests) input.chronological t
   have htruncated : (input.upTo t).requests = input.requests.take count := hfilter
@@ -192,9 +194,9 @@ theorem schedule_upTo_eq (input : Instance Page) (t : Time) :
       rw [htruncated, List.length_take]
       exact Nat.min_le_right _ _
     omega
-  have hraise : run δ (input.upTo t) (2 * (input.upTo t).requests.length)
+  have hraise : run trigger (input.upTo t) (2 * (input.upTo t).requests.length)
         (initialState (input.upTo t)) =
-      run δ input (2 * input.requests.length) (initialState (input.upTo t)) := by
+      run trigger input (2 * input.requests.length) (initialState (input.upTo t)) := by
     rw [← run_eq_of_le (input.upTo t) (initialState (input.upTo t)) hsmall hle]
     exact run_congr hcache _ _
   -- The two initial states mirror each other: chronology makes the truncated
@@ -211,7 +213,7 @@ theorem schedule_upTo_eq (input : Instance Page) (t : Time) :
     · intro occurrence hoccurrence
       simp only [enumerate, enumerateFrom_drop_eq] at hoccurrence
       exact hdrop occurrence.request (mem_enumerateFrom_request hoccurrence)
-  have hpayments := mirror_earlyPayments (δ := δ) input t (2 * input.requests.length)
+  have hpayments := mirror_earlyPayments (trigger := trigger) input t (2 * input.requests.length)
     (initialState input) (initialState (input.upTo t))
     (initial_timeInvariant input) (initial_timeInvariant (input.upTo t))
     hmirror
@@ -227,7 +229,12 @@ truncated instance has the same cache size, hence the same threshold. -/
 theorem algorithm_online (threshold : ℕ → Cost) :
     Algorithm.Online (FIFO.algorithm threshold (Page := Page)) :=
   Algorithm.online_of_upTo_eq fun input t =>
-    schedule_upTo_eq (δ := threshold input.cacheSize) input t
+    schedule_upTo_eq (trigger := .threshold (threshold input.cacheSize)) input t
+
+/-- **Deadline-triggered FIFO is an online algorithm.** -/
+theorem deadlineAlgorithm_online :
+    (FIFO.deadlineAlgorithm (Page := Page)).Online :=
+  Algorithm.online_of_upTo_eq fun input t => schedule_upTo_eq (trigger := .deadline) input t
 
 end
 end PagingWithDelay.FIFO
