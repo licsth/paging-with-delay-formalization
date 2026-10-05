@@ -1,4 +1,4 @@
-import Algorithm
+import EventLoop
 
 namespace PagingWithDelay.FIFO
 variable {Page : Type*} [DecidableEq Page] {δ : Cost}

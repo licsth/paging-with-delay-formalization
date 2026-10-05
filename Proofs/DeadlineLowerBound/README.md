@@ -1,10 +1,17 @@
-# The `k + 1/2` lower bound for deadline delays
+# The `k + 1/2` lower bound for paging with deadlines
 
 `paging_with_delay_deadline_lower_bound` in
 [`PagingWithDelay.lean`](../../PagingWithDelay.lean): for `k >= 1` and a set of
-`k+2` pages, no feasible online algorithm is `(k+1/2-eps)`-competitive, already
-on inputs whose delay curves are all of deadline form.  This is Theorem
-`thm:deadlines_lower_bound` of `submission.tex`.
+`k+2` pages, no online `DeadlineAlgorithm` is `(k+1/2-eps)`-competitive against
+deadline algorithms (`DeadlineAlgorithm.Competitive`) at cache size `k`.  This is Theorem `thm:deadlines_lower_bound` of
+`submission.tex`.
+
+The public theorem is derived, via
+`DeadlineAlgorithm.not_competitive_of_schedules` in
+`Proofs/Basic/Competitive.lean`, from
+`competitive_ratio_lower_bound_pageUniverse` in `Final.lean`, which proves
+slightly more: it holds for every online `Algorithm`, which may miss deadlines
+and pay delay, against a feasible comparator schedule of zero delay cost.
 
 The development has six parts, each checkable on its own.
 

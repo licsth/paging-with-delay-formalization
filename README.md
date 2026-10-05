@@ -12,9 +12,8 @@ The formalization also includes four refinements:
   competitive ratio `2k+1`, with no additive constant;
 - that ratio is optimal: no deterministic online algorithm is better than
   `(2k+1)`-competitive, already on `k+1` pages; and
-- on `k+2` pages, no deterministic online algorithm is better than
-  `(k+1/2)`-competitive against a comparator that serves every request at zero
-  delay cost — the bound for paging with *deadlines*.
+- on `k+2` pages, no deterministic online algorithm for paging with
+  *deadlines* is better than `(k+1/2)`-competitive.
 
 All five results are stated in [`PagingWithDelay.lean`](PagingWithDelay.lean).
 Build the project with:
@@ -26,21 +25,33 @@ lake build
 ## Main result
 
 `paging_with_delay_upper_bound` constructs an algorithm that is nonclairvoyant
-and online and proves, for every input and every feasible comparator,
+and online and proves
+
+```lean
+algorithm.StrictlyCompetitive fun k => 2 * k + 2
+```
+
+that is, for every input, with cache size `k`, and every comparator algorithm,
 
 ```text
 ALG <= (2k+2) * cost(comparator).
 ```
 
-The witness is FIFO with threshold `1`. More generally, the implementation in
-`Algorithm.lean` is parameterized by an arbitrary nonnegative threshold
-`δ : Cost`, and the formalization proves independently of the competitive
-analysis that:
+Comparators are algorithms that may be offline, so this is the bound against
+`OPT`; `Algorithm.StrictlyCompetitive.le_of_feasible` recovers it against every
+feasible comparator schedule.
+
+The witness is FIFO with threshold `1`, `FIFO.algorithm fun _ => 1`. More
+generally, the event loop in `EventLoop.lean` is parameterized by an arbitrary
+nonnegative threshold `δ : Cost`, and `FIFO.algorithm threshold` in
+`Algorithm.lean` runs it with threshold `threshold k` on instances with cache
+size `k`. The formalization proves independently of the competitive analysis
+that:
 
 ```text
-FIFO.schedule_feasible δ          -- packaged as the algorithm FIFO.algorithm δ
-FIFO.algorithm_online δ
-FIFO.algorithm_nonclairvoyant δ
+FIFO.schedule_feasible δ          -- packaged as FIFO.algorithm threshold
+FIFO.algorithm_online threshold
+FIFO.algorithm_nonclairvoyant threshold
 FIFO.algorithmCostClaim δ : ALG = (1+δ) * number_of_payments
 ```
 
@@ -67,6 +78,21 @@ The event loop resolves ties explicitly: arrivals at time `t` precede payments
 at `t`; pages reaching the threshold simultaneously are ordered by their first
 pending request; simultaneous arrivals retain list order.
 
+Competitiveness is defined in `Model.lean` as well. As in the write-up, the
+ratio and the additive constant are functions of the cache size `k`.
+`Algorithm.Competitive algorithm ratio inputs` asks for additive constants
+`additive : ℕ → Cost` such that, for every comparator `Algorithm` and every
+input satisfying the predicate `inputs`, with cache size `k`,
+`ALG <= ratio k * cost(comparator) + additive k`;
+`Algorithm.StrictlyCompetitive` is the same with additive constant `0`.
+Comparators range over all algorithms, online or not, so a bound against all of
+them is the usual bound against the offline optimum `OPT`. The predicate
+`inputs` is all instances by default; some results bound the page universe in
+terms of the cache size. For paging with deadlines,
+a `DeadlineAlgorithm` is an algorithm that serves every request while its delay
+is still zero, that is, meets every deadline on every instance, and `DeadlineAlgorithm.Competitive` compares a deadline
+algorithm with every deadline algorithm.
+
 An algorithm is *online* when what it does up to a time `t` is determined by
 the requests that have arrived by `t`, and *nonclairvoyant* when it is
 determined by less: the delay those requests have accrued by `t`, rather than
@@ -86,7 +112,8 @@ are:
   definitions appearing in those statements.
 
 To verify that the algorithm named by the results is the intended FIFO event
-loop, also read [`Algorithm.lean`](Algorithm.lean).
+loop, also read [`EventLoop.lean`](EventLoop.lean), the event loop itself, and
+[`Algorithm.lean`](Algorithm.lean), which turns it into an `Algorithm`.
 The remaining files are machine-checked proof implementation.
 
 ## Proof overview
@@ -113,16 +140,17 @@ with the write-up's lemmas.
 
 No behavioral property of FIFO is assumed: the cache invariant, threshold
 attainment, service semantics, feasibility, onlineness, and nonclairvoyance are
-all proved from the implementation in `Algorithm.lean`.
+all proved from the implementation in `EventLoop.lean`.
 
 ## Additional results
 
 ### Tightness of threshold FIFO
 
-`FIFO_lower_bound` proves that for every positive threshold,
-cache size `k >= 1`, and page type with at least `k+2` pages, threshold FIFO
-cannot achieve a competitive ratio below `2k+2`, even with an arbitrary
-additive constant. The proof constructs a family of adversarial instances,
+`FIFO_lower_bound` proves that for every positive threshold `δ`, threshold
+FIFO cannot achieve a competitive ratio below `2k+2`, even with arbitrary
+additive constants: `¬ (FIFO.algorithm δ).Competitive ratio` for every
+`ratio : ℕ → Cost` with `ratio k < 2k+2` at some cache size `k >= 1`, as soon as
+the page type has at least `k+2` pages. The proof constructs a family of adversarial instances,
 replays FIFO on them, and exhibits a feasible offline comparator. Its
 implementation is in `Proofs/LowerBound/`.
 
@@ -131,15 +159,17 @@ payments occur on arrival and the construction no longer describes the run.
 
 ### A universe of `k+1` pages
 
-`paging_with_delay_upper_bound_k_plus_one_pages` proves that, for `k >= 1`,
-FIFO with threshold `(k+1)/k` satisfies
+`paging_with_delay_upper_bound_k_plus_one_pages` proves that FIFO with
+threshold `(k+1)/k` on instances with cache size `k`
+(`FIFO.algorithm fun k => (k+1)/k`) is
+strictly `(2k+1)`-competitive on the inputs with
+`input.pageUniverse.card <= input.cacheSize + 1`:
 
 ```text
 ALG <= (2k+1) * cost(comparator)
 ```
 
-for every feasible comparator on every input with
-`input.pageUniverse.card <= k + 1`, that is, involving at most `k+1` distinct
+for every comparator algorithm on every such input, that is, on inputs involving at most `k+1` distinct
 pages: the `k` initially cached ones and at most one more.
 `Instance.pageUniverse`, defined in `Model.lean`, is the finite set of pages
 in the initial cache or requested. No assumption on the size of the page type
@@ -155,11 +185,12 @@ only `k` is charged per offline fetch, and at threshold `(k+1)/k` this gives
 
 ### The general lower bound
 
-`paging_with_delay_general_lower_bound` proves that for `k >= 1` and a page type
-with at least `k+1` pages, _every_ algorithm that is `Algorithm.Online` fails
-every competitive claim below `2k+1`, with an
-arbitrary additive constant, already on inputs with
-`input.pageUniverse.card <= k + 1`. The adversarial input is built adaptively from the algorithm's own
+`paging_with_delay_general_lower_bound` proves that _every_ algorithm that is
+`Algorithm.Online` fails every competitive claim that falls below `2k+1` at some
+cache size `k >= 1`, with arbitrary additive constants, already on inputs with
+`input.pageUniverse.card <= input.cacheSize + 1`, as soon as the page type has
+at least `k+1` pages: `¬ algorithm.Competitive ratio …` for every
+`ratio : ℕ → Cost` with `ratio k < 2k+1`. The adversarial input is built adaptively from the algorithm's own
 run: each phase requests a page the algorithm does not currently hold and ends
 when the algorithm serves that request. The algorithm is then compared against
 the `k+1` static and `k` dynamic offline strategies of the write-up by
@@ -168,32 +199,33 @@ the [README](Proofs/GeneralLowerBound/README.md) there.
 
 Together with the previous result this is tight: on `k+1` pages the competitive
 ratio of paging with delay is exactly `2k+1`: both statements restrict the
-input by the same condition `input.pageUniverse.card <= k + 1`.
+input by the same condition `input.pageUniverse.card <= input.cacheSize + 1`.
 
-### A lower bound for deadline delays
+### A lower bound for paging with deadlines
 
-`paging_with_delay_deadline_lower_bound` is the bound for deadlines. For
-`k >= 1` and a page type with at least `k+2` pages, _every_ algorithm that is
-`Algorithm.Online` fails every competitive claim below
-`k+1/2`, with an arbitrary additive constant, on an input with
-`input.pageUniverse.card <= k + 2` — and against a comparator that serves every
-request at *zero delay cost*.
+`paging_with_delay_deadline_lower_bound` is the bound for deadlines. _Every_
+online `DeadlineAlgorithm` fails every competitive claim that falls below
+`k+1/2` at some cache size `k >= 1`, with arbitrary additive constants, as soon
+as the page type has at least `k+2` pages: `¬ algorithm.Competitive ratio` for
+every `ratio : ℕ → Cost` with `2 * ratio k < 2k+1`. Both sides are deadline algorithms, as in the
+write-up: the online algorithm and every comparator serve each request while
+its delay is still zero, so both costs are simply fetch counts.
+`FIFO.deadlineAlgorithm` (FIFO with threshold `0`, in `Proofs/FIFO/Deadlines.lean`)
+shows that online deadline algorithms exist, so the statement is not vacuous.
 
-That last property is what makes it a statement about deadlines, and it
-strengthens the claim on both sides. The construction's delay curves are zero
-inside a window and grow afterwards, so a schedule of zero delay cost is one
-that serves every request inside its window: the comparator misses no deadline.
-The algorithm is under no such restriction — it may miss a deadline and pay for
-it, which a hard-deadline algorithm cannot do. So even an algorithm allowed to
-buy its way out of deadlines cannot beat `k+1/2` against a comparator that never
-does. `Checks/StatementChecks.lean` derives the specialisation to algorithms that never
-miss a deadline, where both costs are simply fetch counts.
+The proof establishes more:
+`DeadlineLowerBound.competitive_ratio_lower_bound_pageUniverse` holds for every
+online `Algorithm`, which may miss a deadline and pay delay, against a feasible
+comparator schedule of zero delay cost. The public theorem states only the
+deadline form of the write-up.
 
-The bound on the universe is `<=` and not `=` because the adversary is not
-obliged to touch every page it may use: which pages it requests is decided by
-the algorithm's own evictions. Neither this result nor the general lower bound
+The construction uses only the `k+2` pages the embedding supplies;
+`competitive_ratio_lower_bound_pageUniverse` records that its inputs involve at
+most `k+2` pages (at most, because which pages the adversary requests is decided
+by the algorithm's own evictions). Neither this result nor the general lower bound
 implies the other: there the curves are arbitrary and the universe has `k+1`
-pages, here the curves are deadlines and the universe has `k+2`.
+pages, here algorithm and comparators are deadline algorithms and the universe
+has `k+2`.
 
 The adversary keeps an offline *certificate* — a distinguished node, a set of
 cheap candidate configurations, a mark, and a budget — alongside the input it
@@ -208,7 +240,7 @@ implementation is in `Proofs/DeadlineLowerBound/`; see the
 
 ## Repository layout
 
-The three files a reader of the statements needs are at the top level; all
+The four files a reader of the statements needs are at the top level; all
 proofs are under `Proofs/`, and sanity checks on the statements under
 `Checks/`.
 
@@ -216,9 +248,12 @@ proofs are under `Proofs/`, and sanity checks on the statements under
 | ---------------------------- | ----------------------------------------------- |
 | `PagingWithDelay.lean`       | Public theorem statements                       |
 | `Model.lean`                 | Problem and schedule semantics (trusted)        |
-| `Algorithm.lean`             | Threshold-parameterized FIFO event loop         |
+| `EventLoop.lean`             | Threshold-parameterized FIFO event loop         |
+| `Algorithm.lean`             | FIFO as an `Algorithm`, threshold chosen from the cache size |
 | `Proofs/Basic/`              | `pageUniverse` lemmas; onlineness and nonclairvoyance in general |
+| `Proofs/Basic/Competitive.lean` | Bridge between comparator schedules and comparator algorithms (`Algorithm.patch`, `strictlyCompetitive_of_schedules`, `not_competitive_of_schedules`, and their converses) |
 | `Proofs/FIFO/`               | Feasibility, onlineness and nonclairvoyance of FIFO, for every threshold |
+| `Proofs/FIFO/Deadlines.lean` | `FIFO.deadlineAlgorithm`: threshold-`0` FIFO meets every deadline |
 | `Proofs/EventLoop/`          | Run invariants and service accounting of the event loop |
 | `Proofs/Competitive/`        | `ALG = (1+δ)M` and delay bookkeeping            |
 | `Proofs/RankPotential/`      | Rank-potential proof of the main upper bound    |
@@ -239,6 +274,7 @@ Small examples in [`Checks/OnlineExamples.lean`](Checks/OnlineExamples.lean) che
 onlineness and nonclairvoyance are neither vacuous nor trivial — including an
 algorithm that is online but clairvoyant, which separates the two — and
 [`Checks/StatementChecks.lean`](Checks/StatementChecks.lean) derives the
-earlier phrasing of the two universe-restricted theorems from their current
-`pageUniverse` phrasing. They form the separate library `Checks`, which
+explicit forms of the public statements — bounds against every feasible
+comparator schedule, and for deadlines against every feasible schedule meeting
+all deadlines — from their `Competitive` phrasing. They form the separate library `Checks`, which
 `lake build` does not compile; check them with `lake build Checks`.

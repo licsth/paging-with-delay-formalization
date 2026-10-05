@@ -3,8 +3,8 @@
 The general `2k+1` lower bound is **proved**. `PagingWithDelay.lean` states it
 as `paging_with_delay_general_lower_bound`; `#print axioms` reports only
 `propext`, `Classical.choice`, and `Quot.sound`. Nothing in this directory uses
-`sorry` or additional axioms, and the trusted files `Model.lean` and
-`Algorithm.lean` are unchanged.
+`sorry` or additional axioms, and the trusted files `Model.lean`,
+`EventLoop.lean` and `Algorithm.lean` are unchanged.
 
 ## Components
 

@@ -1,6 +1,6 @@
 import Proofs.Basic.Nonclairvoyant
 import Proofs.EventLoop.Observation
-import Proofs.FIFO.Feasible
+import Algorithm
 
 /-!
 # FIFO is nonclairvoyant, for every threshold
@@ -305,11 +305,16 @@ theorem schedule_upTo_eq_of_agree (first second : Instance Page) (t : Time)
     hraise₁, hraise₂]
   exact congrArg₂ Schedule.mk (by simp [schedule, agree.initialCache]) hevents
 
-/-- **FIFO with any threshold `δ` is a nonclairvoyant algorithm.** -/
-theorem algorithm_nonclairvoyant (δ : Cost) :
-    Algorithm.Nonclairvoyant (FIFO.algorithm δ (Page := Page)) where
-  observationDetermined first second t agree :=
-    schedule_upTo_eq_of_agree first second t agree
+/-- **FIFO is a nonclairvoyant algorithm**, for every choice of thresholds.
+Instances that agree up to a time have the same cache size, hence the same
+threshold. -/
+theorem algorithm_nonclairvoyant (threshold : ℕ → Cost) :
+    Algorithm.Nonclairvoyant (FIFO.algorithm threshold (Page := Page)) where
+  observationDetermined first second t agree := by
+    show (schedule (threshold first.cacheSize) first).upTo t =
+      (schedule (threshold second.cacheSize) second).upTo t
+    rw [agree.cacheSize]
+    exact schedule_upTo_eq_of_agree first second t agree
 
 end
 end PagingWithDelay.FIFO

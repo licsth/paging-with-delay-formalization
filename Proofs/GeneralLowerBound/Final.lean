@@ -1,6 +1,7 @@
 import Proofs.GeneralLowerBound.Comparators
 import Proofs.GeneralLowerBound.Phases
 import Proofs.Basic.PageUniverse
+import Proofs.Basic.Competitive
 
 /-!
 # The general lower bound
@@ -122,6 +123,18 @@ theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
       ratio additive hratio
   exact ⟨input, comparator, hsize,
     (Instance.card_pageUniverse_le hinitial hrequests).trans_eq (by simp), hfeasible, hcost⟩
+
+/-- **The general lower bound** in the form `PagingWithDelay.lean` states it. -/
+theorem not_competitive {k : ℕ} (hk : 0 < k) (pages : Fin (k + 1) ↪ Page)
+    {algorithm : Algorithm Page} (online : algorithm.Online)
+    {ratio : ℕ → Cost} (hratio : ratio k < 2 * k + 1) :
+    ¬ algorithm.Competitive ratio fun input => input.pageUniverse.card ≤ input.cacheSize + 1 :=
+  Algorithm.not_competitive_of_schedules fun additive => by
+    obtain ⟨input, comparator, hsize, huniverse, hfeasible, hcost⟩ :=
+      competitive_ratio_lower_bound_pageUniverse online hk pages (ratio k) (additive k)
+        (by exact_mod_cast hratio)
+    subst hsize
+    exact ⟨input, comparator, huniverse, hfeasible, hcost⟩
 
 end
 end PagingWithDelay.GeneralLowerBound

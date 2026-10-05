@@ -11,8 +11,8 @@ threshold `δ : Cost`,
 (FIFO.schedule δ input).Feasible input
 ```
 
-and packages the schedule with that proof as the algorithm `FIFO.algorithm δ`
-that the public theorems name.
+which `Algorithm.lean` uses to package the event loop as the algorithm
+`FIFO.algorithm` that the public theorems name.
 
 Nothing in the argument constrains `δ`: a payment is legal wherever the
 threshold happens to be crossed, so feasibility is a fact about the shape of
@@ -228,16 +228,6 @@ theorem schedule_feasible (δ : Cost) (input : Instance Page) :
   validTransitions := schedule_validTransitions input
   capacity := schedule_capacity input
   eventuallyServed := schedule_eventuallyServed input
-
-/-- **FIFO with threshold `δ` as an algorithm**: the schedule `FIFO.schedule δ`
-of `Algorithm.lean`, packaged with its feasibility. -/
-def algorithm (δ : Cost) : Algorithm Page :=
-  ⟨schedule δ, schedule_feasible δ⟩
-
-@[simp] theorem algorithm_apply (δ : Cost) (input : Instance Page) :
-    algorithm δ input = schedule δ input :=
-  rfl
-
 end
 
 

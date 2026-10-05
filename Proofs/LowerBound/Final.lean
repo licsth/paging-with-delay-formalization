@@ -1,5 +1,7 @@
 import Proofs.LowerBound.Comparator
 import Proofs.LowerBound.FIFORun
+import Algorithm
+import Proofs.Basic.Competitive
 
 /-!
 # Tightness for fixed-threshold FIFO
@@ -87,6 +89,16 @@ theorem competitive_ratio_lower_bound {δ : Cost} (hδ : 0 < δ) {k : ℕ} (hk :
     _ ≤ ratio * ((1 + δ) * runs) + (1 + δ) * (d * runs) :=
         add_le_add le_rfl (le_mul_of_one_le_left (zero_le _) hone)
     _ = (1 + δ) * ((ratio + d) * runs) := by ring
+
+/-- **The analysis is tight**, in the form `PagingWithDelay.lean` states it. -/
+theorem not_competitive {δ : Cost} (hδ : 0 < δ) {k : ℕ} (hk : 0 < k)
+    (pages : Fin (k + 2) ↪ Page) {ratio : ℕ → Cost} (hratio : ratio k < 2 * k + 2) :
+    ¬ (FIFO.algorithm (Page := Page) fun _ => δ).Competitive ratio :=
+  Algorithm.not_competitive_of_schedules fun additive => by
+    obtain ⟨input, comparator, hsize, hfeasible, hcost⟩ :=
+      competitive_ratio_lower_bound hδ hk pages (ratio k) (additive k)
+        (by exact_mod_cast hratio)
+    exact ⟨input, comparator, trivial, hfeasible, by rw [hsize]; exact hcost⟩
 
 end
 end PagingWithDelay.LowerBound

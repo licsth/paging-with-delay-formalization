@@ -1,6 +1,6 @@
 import Proofs.Basic.Online
 import Proofs.EventLoop.RunComparison
-import Proofs.FIFO.Feasible
+import Algorithm
 
 /-!
 # FIFO is online, for every threshold
@@ -222,10 +222,12 @@ theorem schedule_upTo_eq (input : Instance Page) (t : Time) :
     hraise]
   exact congrArg (List.map Payment.fetchEvent) hpayments
 
-/-- **FIFO with any threshold `δ` is an online algorithm.** -/
-theorem algorithm_online (δ : Cost) : Algorithm.Online (FIFO.algorithm δ (Page := Page)) :=
+/-- **FIFO is an online algorithm**, for every choice of thresholds.  The
+truncated instance has the same cache size, hence the same threshold. -/
+theorem algorithm_online (threshold : ℕ → Cost) :
+    Algorithm.Online (FIFO.algorithm threshold (Page := Page)) :=
   Algorithm.online_of_upTo_eq fun input t =>
-    schedule_upTo_eq input t
+    schedule_upTo_eq (δ := threshold input.cacheSize) input t
 
 end
 end PagingWithDelay.FIFO

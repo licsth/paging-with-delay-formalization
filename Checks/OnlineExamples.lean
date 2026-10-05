@@ -1,6 +1,6 @@
 import Proofs.FIFO.Online
 import Proofs.FIFO.Nonclairvoyant
-import Proofs.Competitive.AlgorithmCost
+import Proofs.FIFO.Deadlines
 
 /-!
 # Witnesses for the online- and nonclairvoyant-algorithm definitions
@@ -62,19 +62,13 @@ theorem zero_lt_time_of_mem_events {δ : Cost} (hδ : 0 < δ) (input : Instance 
 
 /-- With threshold `0` FIFO serves a request arriving at time `0` on a page
 outside the initial cache at once, provided its delay grows as soon as it
-waits: the cost identity `ALG = (1+0)·M` leaves no room for delay. -/
+waits: with threshold `0` it meets every deadline. -/
 theorem exists_event_at_zero (input : Instance Page) {request : Request Page}
     (hrequest : request ∈ input.requests) (harrival : request.arrival = 0)
     (hpage : request.page ∉ input.initialCache)
     (hgrows : ∀ wait, request.delay wait = 0 → wait = 0) :
     ∃ event ∈ (schedule 0 input).events, event.time = 0 := by
-  have hcost := algorithmCostClaim (0 : Cost) input
-  unfold AlgorithmCostClaim algorithmCost at hcost
-  rw [Schedule.totalCost, fetchCount_eq_paymentCount, add_zero, one_mul] at hcost
-  have hdelay : (schedule 0 input).totalDelay input = 0 := by simpa using hcost
-  have hrequestCost : (schedule 0 input).requestCost request = 0 :=
-    List.sum_eq_zero_iff.mp hdelay _ (List.mem_map_of_mem hrequest)
-  have hwait := hgrows _ hrequestCost
+  have hwait := hgrows _ (schedule_zero_meetsDeadlines input request hrequest)
   have hnonempty := (schedule_feasible 0 input).eventuallyServed request hrequest
   set s := ((schedule 0 input).serviceCandidates request).min' hnonempty with hs
   have hservice : (schedule 0 input).serviceTime request = some s := by

@@ -1,6 +1,8 @@
 import Proofs.RankPotential.Charging
 import Proofs.Competitive.AlgorithmCost
 import Proofs.Analysis.Amortized
+import Algorithm
+import Proofs.Basic.Competitive
 
 /-!
 # Payment accounting and the competitive guarantees
@@ -605,5 +607,12 @@ theorem competitiveRatio (input : Instance Page) :
         unfold Schedule.totalCost
         push_cast
         ring
+
+/-- **The main theorem** in the form `PagingWithDelay.lean` states it:
+threshold-one FIFO is strictly `(2k+2)`-competitive. -/
+theorem strictlyCompetitive :
+    (FIFO.algorithm (Page := Page) fun _ => 1).StrictlyCompetitive fun k => 2 * k + 2 :=
+  Algorithm.strictlyCompetitive_of_schedules fun input _ comparator feasible => by
+    simpa using competitiveRatio input comparator feasible
 
 end PagingWithDelay.RankPotential

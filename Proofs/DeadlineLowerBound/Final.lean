@@ -1,5 +1,6 @@
 import Proofs.DeadlineLowerBound.Loop
 import Proofs.Basic.PageUniverse
+import Proofs.Basic.Competitive
 
 /-!
 # The `k + 1/2` lower bound for deadline-shaped delays
@@ -176,6 +177,18 @@ theorem exists_input_quantitative {algorithm : Algorithm Page}
     _ = (((2 * k + 1) * (run.state.budget + 1) : ℕ) : Cost) := by push_cast; ring
     _ ≤ ((2 * N + 2 * k + (2 * k + 1) : ℕ) : Cost) := by exact_mod_cast hnat
     _ = 2 * N + 2 * k + (2 * k + 1) := by push_cast; ring
+
+/-- **The `k+1/2` lower bound** in the form `PagingWithDelay.lean` states it:
+for online deadline algorithms, against deadline algorithms. -/
+theorem not_competitive {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page)
+    {algorithm : DeadlineAlgorithm Page} (online : algorithm.Online)
+    {ratio : ℕ → Cost} (hratio : 2 * ratio k < 2 * k + 1) :
+    ¬ algorithm.Competitive ratio :=
+  DeadlineAlgorithm.not_competitive_of_schedules fun additive => by
+    obtain ⟨input, comparator, hsize, -, hfeasible, hmeets, hcost⟩ :=
+      competitive_ratio_lower_bound_pageUniverse online hk pages (ratio k) (additive k) hratio
+    subst hsize
+    exact ⟨input, comparator, trivial, hfeasible, hmeets, hcost⟩
 
 end
 end PagingWithDelay.DeadlineLowerBound

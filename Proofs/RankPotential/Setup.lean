@@ -1,4 +1,4 @@
-import Algorithm
+import EventLoop
 import Proofs.EventLoop.FreshQueue
 import Proofs.EventLoop.History
 import Proofs.EventLoop.PaymentAccounting
@@ -17,7 +17,7 @@ names the run's payments `0, …, M-1` with their pages `pageAt i` and times
 initial cache followed by the fetched pages, whose entry `j` is the page
 payment `j` evicts.
 
-Everything is read off the event loop of `Algorithm.lean` through the
+Everything is read off the event loop of `EventLoop.lean` through the
 threshold-independent invariants in `EventLoop/`.  Nothing here mentions a
 comparator.
 -/

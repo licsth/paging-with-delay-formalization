@@ -1,5 +1,7 @@
 import Proofs.RankPotential.Final
 import Proofs.Basic.PageUniverse
+import Algorithm
+import Proofs.Basic.Competitive
 
 /-!
 # The `(2k+1)` bound on `k+1` pages
@@ -187,6 +189,16 @@ theorem competitive_of_pageUniverse {k : ℕ} (hk : 0 < k)
         push_cast
         field_simp
         ring
+
+/-- **The `k+1`-page theorem** in the form `PagingWithDelay.lean` states it:
+FIFO with threshold `(k+1)/k` at cache size `k` is strictly `(2k+1)`-competitive
+on the inputs using at most `k + 1` pages. -/
+theorem strictlyCompetitive :
+    (FIFO.algorithm (Page := Page) fun k => ((k : Cost) + 1) / k).StrictlyCompetitive
+      (fun k => 2 * k + 1) fun input => input.pageUniverse.card ≤ input.cacheSize + 1 :=
+  Algorithm.strictlyCompetitive_of_schedules fun input huniverse comparator feasible => by
+    simpa using competitive_of_pageUniverse input.positiveCapacity input rfl huniverse
+      comparator feasible
 
 end
 

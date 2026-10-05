@@ -1,4 +1,4 @@
-import Algorithm
+import EventLoop
 
 /-! Definitions used both by the cost lemma and the competitive analysis. -/
 
