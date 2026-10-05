@@ -292,10 +292,10 @@ theorem run_serviceInvariants (input : Instance Page) : ∀ fuel state,
             (step_serviceTraceInvariant input state action htime htrace ha)
             (step_serviceMinimalInvariant input state action htime htrace hminimal ha)
 
-theorem final_serviceInvariants (input : Instance Page) (valid : input.Valid) :
+theorem final_serviceInvariants (input : Instance Page) :
     let final := run δ input (2 * input.requests.length) (initialState input)
     ServiceTraceInvariant input final ∧ ServiceMinimalInvariant final := by
-  exact run_serviceInvariants input _ _ (initial_timeInvariant input valid)
+  exact run_serviceInvariants input _ _ (initial_timeInvariant input)
     (initial_belowThreshold input) (initial_serviceTraceInvariant input)
     (initial_serviceMinimalInvariant input)
 
@@ -357,21 +357,21 @@ theorem payment_requestCost_eq_of_minimal (initial : Finset Page)
 
 /-- Every occurrence recorded in a final payment batch has exactly the
 public delay cost displayed in that batch. -/
-theorem final_served_requestCost_eq (input : Instance Page) (valid : input.Valid)
+theorem final_served_requestCost_eq (input : Instance Page)
     (payment : Payment Page)
     (hpayment : payment ∈
       (run δ input (2 * input.requests.length) (initialState input)).payments)
     (occurrence : Occurrence Page) (hserved : occurrence ∈ payment.served) :
-    (schedule δ input valid).requestCost occurrence.request =
+    (schedule δ input).requestCost occurrence.request =
       occurrence.request.delay (payment.time - occurrence.request.arrival) := by
   let final := run δ input (2 * input.requests.length) (initialState input)
-  have hinvariants := final_serviceInvariants (δ := δ) input valid
+  have hinvariants := final_serviceInvariants (δ := δ) input
   have htrace : ServiceTraceInvariant input final := hinvariants.1
   have hminimal : ServiceMinimalInvariant final := hinvariants.2
   have hmiss := htrace.2.2.2.1 payment hpayment occurrence hserved
   have harrival := htrace.2.2.2.2.1 payment hpayment occurrence hserved
   have hpage :=
-    (History.final_validBatches input valid payment hpayment
+    (History.final_validBatches input payment hpayment
       occurrence hserved).1
   change (Schedule.mk input.initialCache.toFinset
       (final.payments.map Payment.fetchEvent)).requestCost occurrence.request = _
@@ -491,18 +491,18 @@ theorem run_droppedHitInvariant (input : Instance Page) : ∀ fuel state,
             (step_serviceTraceInvariant input state action htime htrace ha)
             (step_droppedHitInvariant input state action htime htrace hhits ha)
 
-theorem final_dropped_occurrence_is_hit (input : Instance Page) (valid : input.Valid)
+theorem final_dropped_occurrence_is_hit (input : Instance Page)
     (occurrence : Occurrence Page) (hinput : occurrence ∈ enumerate input.requests)
     (hnotServed : occurrence ∉
       (run δ input (2 * input.requests.length) (initialState input)).payments.flatMap
         Payment.served) :
     occurrence.request.page ∈
-      (schedule δ input valid).cacheBefore occurrence.request.arrival := by
+      (schedule δ input).cacheBefore occurrence.request.arrival := by
   let final := run δ input (2 * input.requests.length) (initialState input)
   have hfinished := final_unseen_eq_nil_and_pending_eq_nil (δ := δ) input
   have hinv := run_droppedHitInvariant (δ := δ) input (2 * input.requests.length)
     (initialState input)
-    (initial_timeInvariant input valid) (initial_belowThreshold input)
+    (initial_timeInvariant input) (initial_belowThreshold input)
     (initial_serviceTraceInvariant input) (initial_droppedHitInvariant input)
   change occurrence.request.page ∈
     (prefixSchedule input final).cacheBefore occurrence.request.arrival

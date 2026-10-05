@@ -65,7 +65,7 @@ theorem recentPages_length (capacity : ℕ) (hpositive : 0 < capacity)
 
 /-- One selected FIFO action preserves the recent-payments description of the
 queue. -/
-theorem step_recentQueue (input : Instance Page) (_valid : input.Valid)
+theorem step_recentQueue (input : Instance Page)
     (state : State Page) (action : Action Page)
     (hrecent : RecentQueue input state)
     (_hcache : CacheInvariant input state)

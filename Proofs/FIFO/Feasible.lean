@@ -3,14 +3,16 @@ import Proofs.EventLoop.ServiceSemantics
 /-!
 # Feasibility of the schedule produced by FIFO, for every threshold
 
-The competitive-ratio theorem compares `(FIFO.schedule δ input valid).totalCost`
-against every *feasible* comparator.  That statement is only about a legal
-paging algorithm if FIFO's own emitted trace is itself feasible, which is what
-this file establishes, for *every* threshold `δ : Cost`:
+An `Algorithm` in `Model.lean` must produce a feasible schedule on every
+instance.  This file proves that FIFO's emitted trace is feasible, for *every*
+threshold `δ : Cost`,
 
 ```text
-(FIFO.schedule δ input valid).Feasible input
+(FIFO.schedule δ input).Feasible input
 ```
+
+and packages the schedule with that proof as the algorithm `FIFO.algorithm δ`
+that the public theorems name.
 
 Nothing in the argument constrains `δ`: a payment is legal wherever the
 threshold happens to be crossed, so feasibility is a fact about the shape of
@@ -163,75 +165,78 @@ private theorem queueAfter_toFinset_card_le {capacity : ℕ} (hpositive : 0 < ca
 /-! ## The four feasibility checks -/
 
 /-- The public schedule is exactly the erasure of the final payment log. -/
-private theorem schedule_events (input : Instance Page) (valid : input.Valid) :
-    (schedule δ input valid).events =
+private theorem schedule_events (input : Instance Page) :
+    (schedule δ input).events =
       (run δ input (2 * input.requests.length) (initialState input)).payments.map
         Payment.fetchEvent :=
   rfl
 
-private theorem schedule_chronological (input : Instance Page) (valid : input.Valid) :
-    (schedule δ input valid).events.Pairwise fun earlier later =>
+private theorem schedule_chronological (input : Instance Page) :
+    (schedule δ input).events.Pairwise fun earlier later =>
       earlier.time ≤ later.time := by
   rw [schedule_events, List.pairwise_map]
-  exact final_payment_times_chronological input valid
+  exact final_payment_times_chronological input
 
-private theorem schedule_validTransitions (input : Instance Page) (valid : input.Valid) :
-    Schedule.ValidTransitionsFrom (schedule δ input valid).initialCache
-      (schedule δ input valid).events := by
+private theorem schedule_validTransitions (input : Instance Page) :
+    Schedule.ValidTransitionsFrom (schedule δ input).initialCache
+      (schedule δ input).events := by
   rw [schedule_events]
-  exact validTransitionsFrom_map_fetchEvent (final_freshPayments input valid)
+  exact validTransitionsFrom_map_fetchEvent (final_freshPayments input)
 
-private theorem schedule_capacity (input : Instance Page) (valid : input.Valid) :
-    ∀ event ∈ (schedule δ input valid).events,
+private theorem schedule_capacity (input : Instance Page) :
+    ∀ event ∈ (schedule δ input).events,
       event.cacheAfter.card ≤ input.cacheSize := by
   rw [schedule_events]
   intro event hevent
   obtain ⟨payment, hpayment, rfl⟩ := List.mem_map.mp hevent
-  exact queueAfter_toFinset_card_le valid.positiveCapacity valid.initialCache_full.le
-    (final_freshPayments input valid) hpayment
+  exact queueAfter_toFinset_card_le input.positiveCapacity input.initialCache_full.le
+    (final_freshPayments input) hpayment
 
 /-- Every input occurrence is served by the public trace: it is either a cache
 hit at its arrival, or it belongs to a payment batch whose time is a service
 candidate.  This is the same partition that `FIFO.algorithmCostClaim` uses to
 regroup the delay cost. -/
-private theorem exists_serviceCandidate (input : Instance Page) (valid : input.Valid)
+private theorem exists_serviceCandidate (input : Instance Page)
     {occurrence : Occurrence Page} (hinput : occurrence ∈ enumerate input.requests) :
-    ((schedule δ input valid).serviceCandidates occurrence.request).Nonempty := by
+    ((schedule δ input).serviceCandidates occurrence.request).Nonempty := by
   by_cases hserved : occurrence ∈
       (run δ input (2 * input.requests.length) (initialState input)).payments.flatMap
         Payment.served
   · obtain ⟨payment, hpayment, hbatch⟩ := List.mem_flatMap.mp hserved
     obtain ⟨hpage, harrival⟩ :=
-      History.final_validBatches input valid payment hpayment
+      History.final_validBatches input payment hpayment
         occurrence hbatch
     exact ⟨payment.time,
       payment_time_mem_serviceCandidates _ _ payment occurrence hpayment harrival hpage⟩
-  · have hhit := final_dropped_occurrence_is_hit input valid occurrence hinput hserved
+  · have hhit := final_dropped_occurrence_is_hit input occurrence hinput hserved
     exact ⟨occurrence.request.arrival, by
       simp [Schedule.serviceCandidates, hhit]⟩
 
-private theorem schedule_eventuallyServed (input : Instance Page) (valid : input.Valid) :
+private theorem schedule_eventuallyServed (input : Instance Page) :
     ∀ request ∈ input.requests,
-      ((schedule δ input valid).serviceCandidates request).Nonempty := by
+      ((schedule δ input).serviceCandidates request).Nonempty := by
   intro request hrequest
   rw [← enumerate_map_request input.requests] at hrequest
   obtain ⟨occurrence, hoccurrence, rfl⟩ := List.mem_map.mp hrequest
-  exact exists_serviceCandidate input valid hoccurrence
+  exact exists_serviceCandidate input hoccurrence
 
-/-- **The FIFO schedule is a legal paging solution, for every threshold `δ`.**
-Together with `RankPotential.competitiveRatio` at `δ = 1` this upgrades the
-paper-facing bound from a statement about a cost expression to a statement
-about an algorithm. -/
-theorem schedule_feasible (δ : Cost) (input : Instance Page) (valid : input.Valid) :
-    (schedule δ input valid).Feasible input where
+/-- **The FIFO schedule is a legal paging solution, for every threshold `δ`.** -/
+theorem schedule_feasible (δ : Cost) (input : Instance Page) :
+    (schedule δ input).Feasible input where
   initialCache := rfl
-  chronological := schedule_chronological input valid
-  validTransitions := schedule_validTransitions input valid
-  capacity := schedule_capacity input valid
-  eventuallyServed := schedule_eventuallyServed input valid
+  chronological := schedule_chronological input
+  validTransitions := schedule_validTransitions input
+  capacity := schedule_capacity input
+  eventuallyServed := schedule_eventuallyServed input
 
-theorem feasible (δ : Cost): Algorithm.Feasible (FIFO.schedule δ (Page := Page)) where
-  scheduleFeasible := schedule_feasible δ
+/-- **FIFO with threshold `δ` as an algorithm**: the schedule `FIFO.schedule δ`
+of `Algorithm.lean`, packaged with its feasibility. -/
+def algorithm (δ : Cost) : Algorithm Page :=
+  ⟨schedule δ, schedule_feasible δ⟩
+
+@[simp] theorem algorithm_apply (δ : Cost) (input : Instance Page) :
+    algorithm δ input = schedule δ input :=
+  rfl
 
 end
 

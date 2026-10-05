@@ -28,7 +28,7 @@ walks the event loop from one run to the next, and the settled state it reaches
 after the last run records one payment per request. -/
 theorem paymentCount_eq {δ : Cost} (hδ : 0 < δ) {k : ℕ} (runs : ℕ)
     (pages : Fin (k + 2) ↪ Page) (hk : 0 < k) :
-    FIFO.paymentCount δ (input δ k runs pages) (input_valid δ runs pages hk) =
+    FIFO.paymentCount δ (input δ k runs pages hk) =
       runLength k * runs := by
   have h := settled_runs hδ hk pages runs le_rfl
   unfold FIFO.paymentCount
@@ -38,9 +38,9 @@ theorem paymentCount_eq {δ : Cost} (hδ : 0 < δ) {k : ℕ} (runs : ℕ)
 /-- The algorithm's cost on the adversarial instance: `(1+δ)` per request. -/
 theorem algorithmCost_eq {δ : Cost} (hδ : 0 < δ) {k : ℕ} (runs : ℕ)
     (pages : Fin (k + 2) ↪ Page) (hk : 0 < k) :
-    (FIFO.schedule δ (input δ k runs pages) (input_valid δ runs pages hk)).totalCost
-        (input δ k runs pages) = (1 + δ) * ((2 * k + 2 : Cost) * runs) := by
-  have h := FIFO.algorithmCostClaim δ (input δ k runs pages) (input_valid δ runs pages hk)
+    (FIFO.schedule δ (input δ k runs pages hk)).totalCost
+        (input δ k runs pages hk) = (1 + δ) * ((2 * k + 2 : Cost) * runs) := by
+  have h := FIFO.algorithmCostClaim δ (input δ k runs pages hk)
   unfold FIFO.AlgorithmCostClaim FIFO.algorithmCost at h
   rw [h, paymentCount_eq hδ runs pages hk]
   push_cast [runLength]
@@ -64,10 +64,10 @@ crossings, with one transposition per run — no longer describes the run. -/
 theorem competitive_ratio_lower_bound {δ : Cost} (hδ : 0 < δ) {k : ℕ} (hk : 0 < k)
     (pages : Fin (k + 2) ↪ Page) (ratio additive : Cost)
     (hratio : ratio < (2 * k + 2 : ℕ)) :
-    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+    ∃ (input : Instance Page) (comparator : Schedule Page),
       input.cacheSize = k ∧ comparator.Feasible input ∧
         ratio * comparator.totalCost input + additive <
-          (FIFO.schedule δ input valid).totalCost input := by
+          (FIFO.schedule δ input).totalCost input := by
   have hcast : ((2 * k + 2 : ℕ) : Cost) = 2 * k + 2 := by push_cast; ring
   rw [hcast] at hratio
   -- the slack below the claimed ratio, and enough runs to exhaust the additive constant
@@ -76,10 +76,10 @@ theorem competitive_ratio_lower_bound {δ : Cost} (hδ : 0 < δ) {k : ℕ} (hk :
       (add_tsub_cancel_of_le hratio.le).symm⟩
   obtain ⟨runs, hruns⟩ := exists_runs (bound := ratio * 2 + additive) hd
   obtain ⟨comparator, hfeasible, hcost⟩ := exists_comparator δ runs pages hk
-  refine ⟨input δ k runs pages, input_valid δ runs pages hk, comparator, rfl, hfeasible, ?_⟩
+  refine ⟨input δ k runs pages hk, comparator, rfl, hfeasible, ?_⟩
   rw [algorithmCost_eq hδ runs pages hk, hsum]
   have hone : (1 : Cost) ≤ 1 + δ := le_add_of_nonneg_right (zero_le δ)
-  calc ratio * comparator.totalCost (input δ k runs pages) + additive
+  calc ratio * comparator.totalCost (input δ k runs pages hk) + additive
       ≤ ratio * ((1 + δ) * runs + 2) + additive := by gcongr
     _ = ratio * ((1 + δ) * runs) + (ratio * 2 + additive) := by ring
     _ < ratio * ((1 + δ) * runs) + d * runs :=

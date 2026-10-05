@@ -340,13 +340,13 @@ theorem serves_buildSchedule {initial start : Finset Page} {moves : List (Move P
 
 /-! ## The translation theorem -/
 
-/-- **The certificate's schedules are `Model.lean` schedules.**  A valid move
+/-- **The certificate's schedules are `Model.lean` schedules.**  A move
 list whose moves all happen after time `0`, serving every request of `input`
 inside its window, becomes a feasible schedule of cost at most
 `cacheSize + (number of moves)`, which serves every request at *no delay cost*:
 it is inside its window every time. -/
 theorem feasible_buildSchedule {k : ℕ} {start : Finset Page} {moves : List (Move Page)}
-    {input : Instance Page} (valid : input.Valid)
+    {input : Instance Page}
     (hsize : input.cacheSize = k) (hcard : start.card = k)
     (hvalid : ValidMoves start moves)
     (hchrono : moves.Pairwise fun earlier later => earlier.time < later.time)
@@ -364,7 +364,7 @@ theorem feasible_buildSchedule {k : ℕ} {start : Finset Page} {moves : List (Mo
         (buildSchedule input.initialCache.toFinset start moves).requestCost request = 0 := by
   have hinit : input.initialCache.toFinset.card ≤ start.card := by
     rw [hcard, ← hsize]
-    exact (List.toFinset_card_le _).trans valid.initialCache_full.le
+    exact (List.toFinset_card_le _).trans input.initialCache_full.le
   have hservice : ∀ request ∈ input.requests,
       ((buildSchedule input.initialCache.toFinset start moves).serviceCandidates
           request).Nonempty ∧
@@ -481,7 +481,7 @@ theorem certificate_totalCost_le {k : ℕ} {V start : Finset Page}
     {q : Option Page} {m : ℕ} {now : Time}
     (hcert : Certificate V start processed alpha c L q m now)
     {z : Page} (hz : z ∈ L) (hne : (V \ {c, z}).Nonempty)
-    {input : Instance Page} (valid : input.Valid)
+    {input : Instance Page}
     (hsize : input.cacheSize = k) (hcard : start.card = k)
     (deadline : Request Page → Time)
     (hstart : input.initialCache.toFinset = start)
@@ -495,7 +495,7 @@ theorem certificate_totalCost_le {k : ℕ} {V start : Finset Page}
   obtain ⟨t, cfg, moves, hvalid, hchrono, _, hlength, hserves, _⟩ :=
     hcert.exists_final_schedule hz hne
   obtain ⟨hfeasible, hcost, hdelay⟩ :=
-    feasible_buildSchedule valid hsize hcard hvalid hchrono deadline
+    feasible_buildSchedule hsize hcard hvalid hchrono deadline
       (fun _ _ => Or.inr hstart) hzero
       (fun request hrequest => hserves _ (hmem request hrequest))
   refine ⟨buildSchedule input.initialCache.toFinset start moves, hfeasible, ?_, hdelay⟩
@@ -510,27 +510,29 @@ cache serving one deadline-shaped request, and the cost is within the promised
 bound: no fetch — the initial cache is already the start configuration — and
 no delay, the request being served by a cache hit at its arrival. -/
 
+/-- A one-page cache and a single deadline-shaped request on its page. -/
+private def oneRequestInput : Instance ℕ :=
+  ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one], List.pairwise_singleton _ _, one_pos,
+    List.nodup_singleton _, rfl⟩
+
 example :
-    (buildSchedule ({0} : Finset ℕ) {0} []).Feasible ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ ∧
-      (buildSchedule ({0} : Finset ℕ) {0} []).totalCost
-          ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ ≤
+    (buildSchedule ({0} : Finset ℕ) {0} []).Feasible oneRequestInput ∧
+      (buildSchedule ({0} : Finset ℕ) {0} []).totalCost oneRequestInput ≤
         (((({0} : Finset ℕ) \ ([0] : List ℕ).toFinset).card + 0 : ℕ) : Cost) ∧
-      ∀ request ∈ (⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩ : Instance ℕ).requests,
+      ∀ request ∈ oneRequestInput.requests,
         (buildSchedule ({0} : Finset ℕ) {0} []).requestCost request = 0 := by
-  refine feasible_buildSchedule (k := 1)
-    (input := ⟨1, [0], [deadlineRequest 0 1 1 1 zero_lt_one]⟩)
-    ⟨List.pairwise_singleton _ _, one_pos, List.nodup_singleton _, rfl⟩ rfl (by simp)
+  refine feasible_buildSchedule (k := 1) (input := oneRequestInput) rfl (by simp)
     trivial List.Pairwise.nil (fun request => request.arrival + 1) ?_ ?_ ?_
   · intro request hrequest
-    simp only [List.mem_singleton] at hrequest
+    simp only [oneRequestInput, List.mem_singleton] at hrequest
     subst hrequest
     exact Or.inl (by norm_num)
   · intro request hrequest
-    simp only [List.mem_singleton] at hrequest
+    simp only [oneRequestInput, List.mem_singleton] at hrequest
     subst hrequest
     simp [deadlineRequest]
   · intro request hrequest
-    simp only [List.mem_singleton] at hrequest
+    simp only [oneRequestInput, List.mem_singleton] at hrequest
     subst hrequest
     exact Or.inl (by simp [cacheBefore, cacheAfter, deadlineRequest])
 

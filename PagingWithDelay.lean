@@ -18,27 +18,27 @@ import Proofs.DeadlineLowerBound.Final
 /-!
 # Paging with delay: model and main result
 
-The imported model module contains the trusted definitions. The first theorem below summarizes the main claim: there is a feasible online algorithm for paging with delay that is (2k+2)-competitive compared against any feasible schedule, and this algorithm is FIFO with threshold 1. The algorithm is in fact nonclairvoyant, which is more than online: it never consults the delay a request has yet to accrue, only the delay accrued so far. That is stated as the first conjunct of the first and third theorems, and it implies onlineness (`Algorithm.Nonclairvoyant.online`), which the same theorems keep stating separately.
+The imported model module contains the trusted definitions. An `Algorithm` there produces a feasible schedule on every instance by definition, and every `Instance` satisfies the conditions under which paging is meaningful, so neither appears as a hypothesis below. The first theorem below summarizes the main claim: there is an online algorithm for paging with delay that is (2k+2)-competitive compared against any feasible schedule, and this algorithm is FIFO with threshold 1. The algorithm is in fact nonclairvoyant, which is more than online: it never consults the delay a request has yet to accrue, only the delay accrued so far. That is stated as the first conjunct of the first and third theorems, and it implies onlineness (`Algorithm.Nonclairvoyant.online`), which the same theorems keep stating separately.
 
 The second theorem is the converse, "Tightness for fixed-threshold FIFO": no positive threshold makes FIFO better than (2k+2)-competitive. Its proof is in `Proofs/LowerBound/`: the adversarial instance, the replay of FIFO on it, and the explicit comparator it is measured against. Like the upper bound, it is proved without additional axioms.
 
 The third theorem is the refinement of the first theorem: on inputs involving at most `k+1` pages the ratio drops to `2k+1`, for FIFO with the raised threshold `(k+1)/k`. Its proof, in `Proofs/KPlusOne/`, is the payment accounting of the first theorem (`Proofs/RankPotential/`) with the stronger offline potential change available on `k+1` pages.
 
-The fourth theorem is the general lower bound that the write-up cites from Krnetic, Melnyk, Wang and Wattenhofer: on a universe of `k+1` pages, *no* feasible online algorithm is `(2k+1-ε)`-competitive. Its proof is in `Proofs/GeneralLowerBound/`, and it is unconditional in the algorithm: the request sequence is built adaptively from the algorithm's own behaviour. Together with the third theorem, the ratio `2k+1` on `k+1` pages is tight.
+The fourth theorem is the general lower bound that the write-up cites from Krnetic, Melnyk, Wang and Wattenhofer: on a universe of `k+1` pages, *no* online algorithm is `(2k+1-ε)`-competitive. Its proof is in `Proofs/GeneralLowerBound/`, and it is unconditional in the algorithm: the request sequence is built adaptively from the algorithm's own behaviour. Together with the third theorem, the ratio `2k+1` on `k+1` pages is tight.
 
-The fifth theorem restricts to the deadline setting rather than shrinking the page universe: on at most `k+2` distinct pages, no feasible online algorithm is `(k+1/2-ε)`-competitive against a comparator that serves every request at zero delay cost. The statement specialises to the hard-deadline problem. Its proof is in `Proofs/DeadlineLowerBound/`, and it is again unconditional in the algorithm. It is a different restriction from the fourth theorem, and neither implies the other: there the delay curves are arbitrary and the universe has `k+1` pages, here the curves are deadline-shaped, the comparator pays no delay cost, and the universe has `k+2` pages.
+The fifth theorem restricts to the deadline setting rather than shrinking the page universe: on at most `k+2` distinct pages, no online algorithm is `(k+1/2-ε)`-competitive against a comparator that serves every request at zero delay cost. The statement specialises to the hard-deadline problem. Its proof is in `Proofs/DeadlineLowerBound/`, and it is again unconditional in the algorithm. It is a different restriction from the fourth theorem, and neither implies the other: there the delay curves are arbitrary and the universe has `k+1` pages, here the curves are deadline-shaped, the comparator pays no delay cost, and the universe has `k+2` pages.
 -/
 
 namespace PagingWithDelay
 
-theorem paging_with_delay_upper_bound {Page: Type*} [DecidableEq Page] : ∃ (algorithm : Algorithm Page),
-  Algorithm.Nonclairvoyant algorithm ∧ Algorithm.Online algorithm ∧ Algorithm.Feasible algorithm ∧
-    ∀ (input : Instance Page) (valid : input.Valid),
-        ∀ comparator : Schedule Page, comparator.Feasible input →
-          (algorithm input valid).totalCost input ≤
-            (2 * input.cacheSize + 2 : ℕ) * comparator.totalCost input :=
-  ⟨FIFO.schedule 1, FIFO.schedule_nonclairvoyant 1, FIFO.schedule_online 1, FIFO.feasible 1,
-    fun input valid => RankPotential.competitiveRatio input valid⟩
+theorem paging_with_delay_upper_bound {Page : Type*} [DecidableEq Page] :
+    ∃ algorithm : Algorithm Page,
+      Algorithm.Nonclairvoyant algorithm ∧ Algorithm.Online algorithm ∧
+      ∀ (input : Instance Page) (comparator : Schedule Page), comparator.Feasible input →
+        (algorithm input).totalCost input ≤
+          (2 * input.cacheSize + 2 : ℕ) * comparator.totalCost input :=
+  ⟨FIFO.algorithm 1, FIFO.algorithm_nonclairvoyant 1, FIFO.algorithm_online 1,
+    RankPotential.competitiveRatio⟩
 
 /-- **The analysis is tight.**  For every positive threshold `δ`, every cache size
 `k ≥ 1`, and every page type with at least `k + 2` pages, FIFO with threshold
@@ -47,53 +47,50 @@ constant it is granted. -/
 theorem FIFO_lower_bound {Page : Type*} [DecidableEq Page]
     {δ : Cost} (hδ : 0 < δ) {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page)
     (ratio additive : Cost) (hratio : ratio < (2 * k + 2 : ℕ)) :
-    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+    ∃ (input : Instance Page) (comparator : Schedule Page),
       input.cacheSize = k ∧ comparator.Feasible input ∧
         ratio * comparator.totalCost input + additive <
-          (FIFO.schedule δ input valid).totalCost input :=
+          (FIFO.schedule δ input).totalCost input :=
   LowerBound.competitive_ratio_lower_bound hδ hk pages ratio additive hratio
 
 /-- **`(2k+1)`-competitiveness on `k+1` pages.**  For `k ≥ 1`, a cache of size
 `k`, there exists an online
 algorithm that, on every input using at most `k + 1` distinct pages — the `k`
-initially cached ones and at most one more — is feasible and beats the general
-ratio `2k+2`: its cost is at most `2k+1` times the cost of any feasible
+initially cached ones and at most one more — beats the general ratio `2k+2`: its cost is at most `2k+1` times the cost of any feasible
 schedule, with no additive constant. The proof uses FIFO with threshold
 `(k+1)/k` as its witness. -/
 theorem paging_with_delay_upper_bound_k_plus_one_pages {Page : Type*} [DecidableEq Page]
     {k : ℕ} (hk : 0 < k) :
-    ∃ (algorithm : Algorithm Page), Algorithm.Nonclairvoyant algorithm ∧
-      Algorithm.Online algorithm ∧ Algorithm.Feasible algorithm ∧
-      ∀ (input : Instance Page) (valid : input.Valid),
-        input.cacheSize = k → input.pageUniverse.card ≤ k + 1 →
-          ∀ comparator : Schedule Page, comparator.Feasible input →
-            (algorithm input valid).totalCost input ≤
-              (2 * k + 1 : ℕ) * comparator.totalCost input :=
-  ⟨FIFO.schedule (((k : Cost) + 1) / (k : Cost)), FIFO.schedule_nonclairvoyant _,
-    FIFO.schedule_online _, FIFO.feasible _, fun input valid hsize huniverse =>
-    KPlusOne.competitive_of_pageUniverse hk input valid hsize huniverse⟩
+    ∃ algorithm : Algorithm Page,
+      Algorithm.Nonclairvoyant algorithm ∧ Algorithm.Online algorithm ∧
+      ∀ input : Instance Page, input.cacheSize = k → input.pageUniverse.card ≤ k + 1 →
+        ∀ comparator : Schedule Page, comparator.Feasible input →
+          (algorithm input).totalCost input ≤
+            (2 * k + 1 : ℕ) * comparator.totalCost input :=
+  ⟨FIFO.algorithm (((k : Cost) + 1) / (k : Cost)), FIFO.algorithm_nonclairvoyant _,
+    FIFO.algorithm_online _, KPlusOne.competitive_of_pageUniverse hk⟩
 
 /-- **The general lower bound.**  For `k ≥ 1` and a page type with at least
-`k + 1` pages, every feasible online algorithm fails every competitive claim below
+`k + 1` pages, every online algorithm fails every competitive claim below
 `2k+1`, however large an additive constant it is granted.  The embedding `pages`
 only supplies the `k + 1` pages the construction uses, for its initial cache
 and its requests. -/
 theorem paging_with_delay_general_lower_bound {Page : Type*} [DecidableEq Page]
     {k : ℕ} (hk : 0 < k) (pages : Fin (k + 1) ↪ Page)
     (algorithm : Algorithm Page)
-    (online : Algorithm.Online algorithm) (feasible : Algorithm.Feasible algorithm)
+    (online : Algorithm.Online algorithm)
     (ratio additive : Cost) (hratio : ratio < (2 * k + 1 : ℕ)) :
-    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+    ∃ (input : Instance Page) (comparator : Schedule Page),
       input.cacheSize = k ∧
       input.pageUniverse.card ≤ k + 1 ∧
       comparator.Feasible input ∧
         ratio * comparator.totalCost input + additive <
-          (algorithm input valid).totalCost input :=
-  GeneralLowerBound.competitive_ratio_lower_bound_pageUniverse online feasible hk pages
+          (algorithm input).totalCost input :=
+  GeneralLowerBound.competitive_ratio_lower_bound_pageUniverse online hk pages
     ratio additive hratio
 
 /-- **The `k+1/2` lower bound for deadline delays.**  For `k ≥ 1` and a page type
-with at least `k+2` pages, every feasible online algorithm fails every competitive
+with at least `k+2` pages, every online algorithm fails every competitive
 claim below `k+1/2`, however large an additive constant it is granted,
 on an input involving at most `k+2` distinct pages, initial cache included. The
 embedding `pages` only supplies the `k+2` pages the construction may use. The
@@ -107,16 +104,16 @@ derives that specialisation. -/
 theorem paging_with_delay_deadline_lower_bound {Page : Type*} [DecidableEq Page]
     {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page)
     (algorithm : Algorithm Page)
-    (online : Algorithm.Online algorithm) (feasible : Algorithm.Feasible algorithm)
+    (online : Algorithm.Online algorithm)
     (ratio additive : Cost) (hratio : 2 * ratio < 2 * (k : Cost) + 1) :
-    ∃ (input : Instance Page) (valid : input.Valid) (comparator : Schedule Page),
+    ∃ (input : Instance Page) (comparator : Schedule Page),
       input.cacheSize = k ∧
       input.pageUniverse.card ≤ k + 2 ∧
       comparator.Feasible input ∧
       (∀ request ∈ input.requests, comparator.requestCost request = 0) ∧
         ratio * comparator.totalCost input + additive <
-          (algorithm input valid).totalCost input :=
-  DeadlineLowerBound.competitive_ratio_lower_bound_pageUniverse online feasible hk pages
+          (algorithm input).totalCost input :=
+  DeadlineLowerBound.competitive_ratio_lower_bound_pageUniverse online hk pages
     ratio additive hratio
 
 end PagingWithDelay

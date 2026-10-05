@@ -1,5 +1,6 @@
 import Proofs.Basic.Nonclairvoyant
 import Proofs.EventLoop.Observation
+import Proofs.FIFO.Feasible
 
 /-!
 # FIFO is nonclairvoyant, for every threshold
@@ -247,14 +248,13 @@ private theorem enumerateFrom_agree {t : Time} {first second : List (Request Pag
 
 /-- FIFO's behaviour before `t` is determined by what the input has revealed
 by `t`. -/
-theorem schedule_upTo_eq_of_agree (first second : Instance Page)
-    (hfirst : first.Valid) (hsecond : second.Valid) (t : Time)
+theorem schedule_upTo_eq_of_agree (first second : Instance Page) (t : Time)
     (agree : first.AgreeUpTo second t) :
-    (schedule δ first hfirst).upTo t = (schedule δ second hsecond).upTo t := by
+    (schedule δ first).upTo t = (schedule δ second).upTo t := by
   obtain ⟨count₁, hfilter₁, hdrop₁⟩ :=
-    filter_eq_take_of_chronological (requests := first.requests) hfirst.chronological t
+    filter_eq_take_of_chronological (requests := first.requests) first.chronological t
   obtain ⟨count₂, hfilter₂, hdrop₂⟩ :=
-    filter_eq_take_of_chronological (requests := second.requests) hsecond.chronological t
+    filter_eq_take_of_chronological (requests := second.requests) second.chronological t
   -- Give the two runs a common fuel, and read them over the same instance:
   -- only the cache capacity of that instance is ever consulted.
   set fuel := 2 * (first.requests.length + second.requests.length) with hfuel
@@ -297,7 +297,7 @@ theorem schedule_upTo_eq_of_agree (first second : Instance Page)
       exact hdrop₂ occurrence.request (mem_enumerateFrom_request hoccurrence)
   have hevents := mirror_earlyEvents (δ := δ) first t fuel
     (initialState first) (initialState second)
-    (initial_timeInvariant first hfirst) (initial_timeInvariant second hsecond)
+    (initial_timeInvariant first) (initial_timeInvariant second)
     (initial_belowThreshold first) (initial_belowThreshold second) hmirror
   unfold earlyPayments at hevents
   unfold Schedule.upTo
@@ -306,10 +306,10 @@ theorem schedule_upTo_eq_of_agree (first second : Instance Page)
   exact congrArg₂ Schedule.mk (by simp [schedule, agree.initialCache]) hevents
 
 /-- **FIFO with any threshold `δ` is a nonclairvoyant algorithm.** -/
-theorem schedule_nonclairvoyant (δ : Cost) :
-    Algorithm.Nonclairvoyant (FIFO.schedule δ (Page := Page)) where
-  observationDetermined first second hfirst hsecond t agree :=
-    schedule_upTo_eq_of_agree first second hfirst hsecond t agree
+theorem algorithm_nonclairvoyant (δ : Cost) :
+    Algorithm.Nonclairvoyant (FIFO.algorithm δ (Page := Page)) where
+  observationDetermined first second t agree :=
+    schedule_upTo_eq_of_agree first second t agree
 
 end
 end PagingWithDelay.FIFO

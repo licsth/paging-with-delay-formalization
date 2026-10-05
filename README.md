@@ -25,9 +25,8 @@ lake build
 
 ## Main result
 
-`paging_with_delay_upper_bound` constructs an algorithm that is nonclairvoyant,
-online and feasible and proves, for every valid input and every feasible
-comparator,
+`paging_with_delay_upper_bound` constructs an algorithm that is nonclairvoyant
+and online and proves, for every input and every feasible comparator,
 
 ```text
 ALG <= (2k+2) * cost(comparator).
@@ -35,12 +34,13 @@ ALG <= (2k+2) * cost(comparator).
 
 The witness is FIFO with threshold `1`. More generally, the implementation in
 `Algorithm.lean` is parameterized by an arbitrary nonnegative threshold
-`δ : Cost`, and proves independently of the competitive analysis that:
+`δ : Cost`, and the formalization proves independently of the competitive
+analysis that:
 
 ```text
-FIFO.schedule_feasible δ
-FIFO.schedule_online δ
-FIFO.schedule_nonclairvoyant δ
+FIFO.schedule_feasible δ          -- packaged as the algorithm FIFO.algorithm δ
+FIFO.algorithm_online δ
+FIFO.algorithm_nonclairvoyant δ
 FIFO.algorithmCostClaim δ : ALG = (1+δ) * number_of_payments
 ```
 
@@ -50,7 +50,11 @@ Only the charging argument establishing the `2k+2` ratio specializes to
 ## Model and scope
 
 The definitions in `Model.lean` describe request instances, schedules, cost,
-feasibility, onlineness, and nonclairvoyance. Every instance supplies the
+feasibility, algorithms, onlineness, and nonclairvoyance. An `Instance` carries
+the conditions under which paging is meaningful (requests in arrival order, a
+positive cache size, a full initial cache), and an `Algorithm` carries a proof
+that every instance receives a feasible schedule, so neither appears as a
+hypothesis in the theorems. Every instance supplies the
 common full initial cache `C₀` of the write-up (`Instance.initialCache`, a list
 of `cacheSize` distinct pages whose order is the initial FIFO queue); every
 schedule, online or offline, starts from it at no cost, and
@@ -152,8 +156,8 @@ only `k` is charged per offline fetch, and at threshold `(k+1)/k` this gives
 ### The general lower bound
 
 `paging_with_delay_general_lower_bound` proves that for `k >= 1` and a page type
-with at least `k+1` pages, _every_ algorithm that is `Algorithm.Online` and
-`Algorithm.Feasible` fails every competitive claim below `2k+1`, with an
+with at least `k+1` pages, _every_ algorithm that is `Algorithm.Online` fails
+every competitive claim below `2k+1`, with an
 arbitrary additive constant, already on inputs with
 `input.pageUniverse.card <= k + 1`. The adversarial input is built adaptively from the algorithm's own
 run: each phase requests a page the algorithm does not currently hold and ends
@@ -170,7 +174,7 @@ input by the same condition `input.pageUniverse.card <= k + 1`.
 
 `paging_with_delay_deadline_lower_bound` is the bound for deadlines. For
 `k >= 1` and a page type with at least `k+2` pages, _every_ algorithm that is
-`Algorithm.Online` and `Algorithm.Feasible` fails every competitive claim below
+`Algorithm.Online` fails every competitive claim below
 `k+1/2`, with an arbitrary additive constant, on an input with
 `input.pageUniverse.card <= k + 2` — and against a comparator that serves every
 request at *zero delay cost*.

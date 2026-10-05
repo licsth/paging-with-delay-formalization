@@ -5,7 +5,7 @@ import Proofs.DeadlineLowerBound.PhaseCount
 /-!
 # The adaptive construction
 
-This is the drafts' adversary, run against an arbitrary online feasible
+This is the drafts' adversary, run against an arbitrary online
 algorithm.  A `Run` carries, side by side,
 
 * the input released so far, every request of it a miss on arrival and the
@@ -106,7 +106,6 @@ theorem releaseRequest_shaped (page : Page) (arrival window overshoot : Time)
 structure Run (algorithm : Algorithm Page) (k : ℕ) (V start : Finset Page) where
   /-- The requests released so far. -/
   input : Instance Page
-  valid : input.Valid
   size : input.cacheSize = k
   /-- The deadline and the charging window of each released request. -/
   deadline : Request Page → Time
@@ -134,7 +133,7 @@ structure Run (algorithm : Algorithm Page) (k : ℕ) (V start : Finset Page) whe
   shaped : ∀ request ∈ input.requests, IsDeadlineShaped request
   pages : ∀ request ∈ input.requests, request.page ∈ V
   misses : ∀ request ∈ input.requests,
-    request.page ∉ (algorithm input valid).cacheBefore request.arrival
+    request.page ∉ (algorithm input).cacheBefore request.arrival
   penalty : ∀ request ∈ input.requests, 1 ≤ request.delay (chargeWindow request)
   free : ∀ request ∈ input.requests, request.delay (deadline request - request.arrival) = 0
   ordered : input.requests.Pairwise fun first second =>
@@ -172,23 +171,21 @@ cache is `k` pages of the universe, `c` and `d` are the two pages outside it,
 and the first distinguished request is released at `c` at time `0`, before the
 algorithm can act.  The certificate therefore starts from the initial cache
 itself, `V \ {c, d}`. -/
-theorem exists_initial (algorithm : Algorithm Page) (_online : algorithm.Online)
-    (feasible : algorithm.Feasible) {k : ℕ} (hk : 1 ≤ k) {V : Finset Page}
+theorem exists_initial (algorithm : Algorithm Page) (_online : algorithm.Online) {k : ℕ} (hk : 1 ≤ k) {V : Finset Page}
     (hcard : V.card = k + 2) :
     ∃ (c d : Page), c ∈ V ∧ d ∈ V ∧ c ≠ d ∧
       ∃ run : Run algorithm k V (V \ {c, d}), run.steps = 0 := by
   classical
   -- the initial cache: any `k` pages of the universe
-  set empty : Instance Page := ⟨k, V.toList.take k, []⟩ with hempty
-  have emptyValid : empty.Valid := ⟨List.Pairwise.nil, hk,
-    (Finset.nodup_toList V).sublist (List.take_sublist _ _), by simp [hempty, hcard]⟩
+  set empty : Instance Page := ⟨k, V.toList.take k, [], List.Pairwise.nil, hk,
+    (Finset.nodup_toList V).sublist (List.take_sublist _ _), by simp [hcard]⟩ with hempty
   have hinitial : ∀ page ∈ empty.initialCache, page ∈ V :=
     fun page hpage => Finset.mem_toList.mp (List.mem_of_mem_take hpage)
   have hsub : empty.initialCache.toFinset ⊆ V :=
     fun page hpage => hinitial page (List.mem_toFinset.mp hpage)
   have hcardInit : empty.initialCache.toFinset.card = k := by
-    rw [List.toFinset_card_of_nodup emptyValid.initialCache_nodup,
-      emptyValid.initialCache_full]
+    rw [List.toFinset_card_of_nodup empty.initialCache_nodup,
+      empty.initialCache_full]
   -- the two pages outside the initial cache
   have hcardOut : (V \ empty.initialCache.toFinset).card = 2 := by
     have := Finset.card_sdiff_add_card_eq_card hsub
@@ -202,26 +199,24 @@ theorem exists_initial (algorithm : Algorithm Page) (_online : algorithm.Online)
     rw [← hout, Finset.sdiff_sdiff_eq_self hsub]
   -- the first distinguished request, at time `0`
   set alphaRequest : Request Page := releaseRequest c 0 2 1 zero_lt_one with halphaRequest
-  have extendedValid : (empty.appendRequest alphaRequest).Valid :=
-    emptyValid.appendRequest alphaRequest (by simp [hempty])
-  have hrequests : (empty.appendRequest alphaRequest).requests = [alphaRequest] := by
+  have halpha : ∀ r ∈ empty.requests, r.arrival ≤ alphaRequest.arrival := by simp [hempty]
+  have hrequests : (empty.appendRequest alphaRequest halpha).requests = [alphaRequest] := by
     simp [hempty, Instance.appendRequest]
   have hmiss : alphaRequest.page ∉
-      (algorithm (empty.appendRequest alphaRequest) extendedValid).cacheBefore
+      (algorithm (empty.appendRequest alphaRequest halpha)).cacheBefore
         alphaRequest.arrival := by
-    have hfeas := feasible.scheduleFeasible _ extendedValid
+    have hfeas := algorithm.feasible (empty.appendRequest alphaRequest halpha)
     rw [show alphaRequest.arrival = 0 from rfl, cacheBefore_zero, hfeas.initialCache]
     exact hcmiss
   have hsingle : ∀ {motive : Request Page → Prop},
-      motive alphaRequest → ∀ request ∈ (empty.appendRequest alphaRequest).requests,
+      motive alphaRequest → ∀ request ∈ (empty.appendRequest alphaRequest halpha).requests,
         motive request := by
     intro motive hmotive request hrequest
     rw [hrequests, List.mem_singleton] at hrequest
     rw [hrequest]
     exact hmotive
   refine ⟨c, d, hcV, hdV, hcd,
-    { input := empty.appendRequest alphaRequest
-      valid := extendedValid
+    { input := empty.appendRequest alphaRequest halpha
       size := rfl
       deadline := fun _ => 0 + 2
       chargeWindow := fun _ => 2 + 1
@@ -266,7 +261,7 @@ the reserve request on the last cheap candidate when the algorithm has dropped
 it — which lets the certificate pay — and otherwise an auxiliary request, which
 the certificate processes for free. -/
 theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
-    (feasible : algorithm.Feasible) {k : ℕ} (hk : 1 ≤ k) {V start : Finset Page}
+    {k : ℕ} (hk : 1 ≤ k) {V start : Finset Page}
     (hcard : V.card = k + 2) (run : Run algorithm k V start) :
     ∃ next : Run algorithm k V start, next.steps = run.steps + 1 := by
   classical
@@ -279,7 +274,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
     (run.arrivals request hrequest).trans hta.le
   have hapos : 0 < a := run.clockPos.trans hta
   by_cases hpay : ∃ d, run.state.cheap = {d} ∧
-      d ∉ (algorithm run.input run.valid).cacheBefore a
+      d ∉ (algorithm run.input).cacheBefore a
   · -- the payment: release the reserve request at `d`, then pay at `alpha.deadline`
     obtain ⟨d, hcheap, hdmiss⟩ := hpay
     have hdcheap : d ∈ run.state.cheap := by rw [hcheap]; simp
@@ -294,10 +289,8 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
     have hbetaDeadline : a + window = D + 2 := add_tsub_cancel_of_le haD2
     have hbetaCharge : a + (window + 1) = D + 2 + 1 := by
       rw [← add_assoc, hbetaDeadline]
-    have extendedValid : (run.input.appendRequest beta).Valid :=
-      run.valid.appendRequest beta hearlier
     have hmissNew : beta.page ∉
-        (algorithm run.input run.valid).cacheBefore beta.arrival := hdmiss
+        (algorithm run.input).cacheBefore beta.arrival := hdmiss
     set deadline' : Request Page → Time :=
       fun request => if request.arrival = a then D + 2 else run.deadline request with hdeadline'
     set chargeWindow' : Request Page → Time :=
@@ -329,8 +322,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
             (by norm_num)⟩
     obtain ⟨newState, hstepping, hdistinguished, hcert⟩ := hstep
     refine ⟨{
-      input := run.input.appendRequest beta
-      valid := extendedValid
+      input := run.input.appendRequest beta hearlier
       size := run.size
       deadline := deadline'
       chargeWindow := chargeWindow'
@@ -374,7 +366,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       · exact run.pages request hrequest
       · rw [List.mem_singleton.mp hrequest]
         exact hdV
-    · exact appendRequest_misses online feasible run.input run.valid beta extendedValid hearlier
+    · exact appendRequest_misses online run.input beta hearlier
         run.misses hmissNew
     · intro request hrequest
       rcases List.mem_append.mp hrequest with hrequest | hrequest
@@ -436,8 +428,8 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       simp [run.lengthEq]
   · -- an auxiliary request: the algorithm still holds the last cheap candidate
     push_neg at hpay
-    obtain ⟨x, hxV, hxc, hxmiss⟩ := exists_uncovered_ne run.valid (algorithm run.input run.valid)
-      (feasible.scheduleFeasible run.input run.valid) run.size hcard.ge a run.state.distinguished
+    obtain ⟨x, hxV, hxc, hxmiss⟩ := exists_uncovered_ne (algorithm run.input)
+      (algorithm.feasible run.input) run.size hcard.ge a run.state.distinguished
     have hnonempty : (run.state.cheap.erase x).Nonempty := by
       by_cases hsingleton : ∃ y, run.state.cheap = {y}
       · obtain ⟨y, hy⟩ := hsingleton
@@ -466,8 +458,6 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
     have hgammaCharge : a + (window + overshoot) = e := by
       rw [hwindow, hovershoot, add_comm (w - a) (e - w), tsub_add_tsub_cancel hwe.le haw.le,
         add_tsub_cancel_of_le hae]
-    have extendedValid : (run.input.appendRequest gamma).Valid :=
-      run.valid.appendRequest gamma hearlier
     set deadline' : Request Page → Time :=
       fun request => if request.arrival = a then w else run.deadline request with hdeadline'
     set chargeWindow' : Request Page → Time :=
@@ -484,8 +474,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
     have hgammaDl : deadline' gamma = w := by simp [hdeadline', hgamma]
     have hxerase : x ∈ V.erase run.state.distinguished := Finset.mem_erase.mpr ⟨hxc, hxV⟩
     refine ⟨{
-      input := run.input.appendRequest gamma
-      valid := extendedValid
+      input := run.input.appendRequest gamma hearlier
       size := run.size
       deadline := deadline'
       chargeWindow := chargeWindow'
@@ -534,7 +523,7 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
       · exact run.pages request hrequest
       · rw [List.mem_singleton.mp hrequest]
         exact hxV
-    · exact appendRequest_misses online feasible run.input run.valid gamma extendedValid hearlier
+    · exact appendRequest_misses online run.input gamma hearlier
         run.misses hxmiss
     · intro request hrequest
       rcases List.mem_append.mp hrequest with hrequest | hrequest
@@ -597,15 +586,15 @@ theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
 
 /-- **The construction runs for any number of operations.** -/
 theorem exists_run (algorithm : Algorithm Page) (online : algorithm.Online)
-    (feasible : algorithm.Feasible) {k : ℕ} (hk : 1 ≤ k) {V : Finset Page}
+    {k : ℕ} (hk : 1 ≤ k) {V : Finset Page}
     (hcard : V.card = k + 2) (steps : ℕ) :
     ∃ (c d : Page), c ∈ V ∧ d ∈ V ∧ c ≠ d ∧
       ∃ run : Run algorithm k V (V \ {c, d}), run.steps = steps := by
   induction steps with
-  | zero => exact exists_initial algorithm online feasible hk hcard
+  | zero => exact exists_initial algorithm online hk hcard
   | succ previous ih =>
       obtain ⟨c, d, hc, hd, hcd, run, hsteps⟩ := ih
-      obtain ⟨next, hnext⟩ := Run.advance algorithm online feasible hk hcard run
+      obtain ⟨next, hnext⟩ := Run.advance algorithm online hk hcard run
       exact ⟨c, d, hc, hd, hcd, next, by rw [hnext, hsteps]⟩
 
 end

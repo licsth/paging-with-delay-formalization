@@ -9,7 +9,7 @@ import Proofs.Competitive.CostDefs
 /-!
 # The FIFO run read through its eviction order
 
-The common ground of the write-up's two upper bounds: a valid instance, a
+The common ground of the write-up's two upper bounds: a instance, a
 positive threshold `δ`, and the completed run of `δ`-FIFO on it.  This file
 names the run's payments `0, …, M-1` with their pages `pageAt i` and times
 `timeAt i`, and describes the FIFO cache before payment `i` as the window of
@@ -28,7 +28,7 @@ open PagingWithDelay
 
 variable {Page : Type*} [DecidableEq Page]
 
-/-- A valid instance with a positive threshold. -/
+/-- A instance with a positive threshold. -/
 structure Setup (Page : Type*) [DecidableEq Page] where
   /-- The cache size `k`. -/
   cacheSize : ℕ
@@ -37,7 +37,6 @@ structure Setup (Page : Type*) [DecidableEq Page] where
   threshold : Cost
   threshold_pos : 0 < threshold
   input : Instance Page
-  valid : input.Valid
   size : input.cacheSize = cacheSize
 
 namespace Setup
@@ -47,7 +46,7 @@ noncomputable section
 variable (S : Setup Page)
 
 theorem initialCache_length : S.input.initialCache.length = S.cacheSize := by
-  rw [S.valid.initialCache_full, S.size]
+  rw [S.input.initialCache_full, S.size]
 
 /-- The completed FIFO run at threshold `δ`. -/
 def payments : List (FIFO.Payment Page) :=
@@ -57,7 +56,7 @@ def payments : List (FIFO.Payment Page) :=
 /-- `M`, the number of payments. -/
 def count : ℕ := S.payments.length
 
-theorem count_eq_paymentCount : S.count = FIFO.paymentCount S.threshold S.input S.valid := rfl
+theorem count_eq_paymentCount : S.count = FIFO.paymentCount S.threshold S.input := rfl
 
 /-! ### The eviction order -/
 
@@ -119,7 +118,7 @@ theorem payment_time_le {i j : ℕ} (hi : i < S.count) (hj : j < S.count) (hij :
   rcases eq_or_lt_of_le hij with rfl | hlt
   · exact le_rfl
   · exact List.pairwise_iff_getElem.mp
-      (FIFO.final_payment_times_chronological (δ := S.threshold) S.input S.valid) i j hi hj hlt
+      (FIFO.final_payment_times_chronological (δ := S.threshold) S.input) i j hi hj hlt
 
 theorem timeAt_mono : Monotone S.timeAt := by
   intro i j hij
@@ -192,7 +191,7 @@ theorem seq_mem_queue {i j : ℕ} (hi : i ≤ S.count) (hlow : i ≤ j) (hhigh :
 /-- Freshness: a payment fetches a page that is not in the cache. -/
 theorem pageAt_not_mem_queue {i : ℕ} (hi : i < S.count) : S.pageAt i ∉ S.queue i := by
   rw [pageAt_eq S hi]
-  have h := (FIFO.final_freshPayments (δ := S.threshold) S.input S.valid).fresh_at i
+  have h := (FIFO.final_freshPayments (δ := S.threshold) S.input).fresh_at i
     (by simpa [count] using hi)
   rw [S.size] at h
   exact h
@@ -205,7 +204,7 @@ theorem seq_spacing {i j : ℕ} (hj : j < S.cacheSize + S.count) (hij : i < j)
   by_cases hjk : j < S.cacheSize
   · exfalso
     rw [seq_initial S hjk, seq_initial S (by omega)] at hpage
-    have hnodup := S.valid.initialCache_nodup
+    have hnodup := S.input.initialCache_nodup
     have := (List.Nodup.getElem_inj_iff hnodup).mp hpage
     omega
   · have hm : j - S.cacheSize < S.count := by omega
@@ -275,14 +274,14 @@ theorem served_page {i : ℕ} (hi : i < S.count) {occurrence : Occurrence Page}
     (ho : occurrence ∈ (S.payments[i]).served) :
     occurrence.request.page = S.pageAt i := by
   rw [pageAt_eq S hi]
-  exact (FIFO.History.final_validBatches S.input S.valid _
+  exact (FIFO.History.final_validBatches S.input _
     (List.getElem_mem (by simpa [count] using hi)) occurrence ho).1
 
 theorem served_arrival_le {i : ℕ} (hi : i < S.count) {occurrence : Occurrence Page}
     (ho : occurrence ∈ (S.payments[i]).served) :
     occurrence.request.arrival ≤ S.timeAt i := by
   rw [timeAt_eq S hi]
-  exact (FIFO.History.final_validBatches S.input S.valid _
+  exact (FIFO.History.final_validBatches S.input _
     (List.getElem_mem (by simpa [count] using hi)) occurrence ho).2
 
 /-- The lower end of the payment window: a request served by payment `i`
@@ -298,7 +297,7 @@ theorem served_arrival_gt {i j : ℕ} (hi : i < S.count) (hj : j < S.cacheSize +
     rw [← pageAt_eq S hi, ← hpage, seq_eq S (by omega)]
     rfl
   obtain ⟨hlt, hbound⟩ := FIFO.History.final_validBatchLowerBounds (δ := S.threshold) S.input
-    S.valid i hlen occurrence ho j (by rw [S.initialCache_length]; exact hj) hseq
+    i hlen occurrence ho j (by rw [S.initialCache_length]; exact hj) hseq
   refine ⟨hlt, ?_⟩
   rw [List.getElem?_eq_getElem (by simpa [count] using hlt.trans hi)] at hbound
   rw [timeAt_eq S (hlt.trans hi)]

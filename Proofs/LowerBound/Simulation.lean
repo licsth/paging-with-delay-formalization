@@ -4,7 +4,7 @@ import Proofs.Competitive.AlgorithmCost
 /-!
 # Replaying the FIFO event loop on the adversarial instance
 
-Bookkeeping for the step-by-step replay of `FIFO.run` on `input δ k runs pages`:
+Bookkeeping for the step-by-step replay of `FIFO.run` on `input δ k runs pages hk`:
 the queue after `i` fetches, the occurrences still unseen after `i` arrivals,
 and the arithmetic of the run structure.
 -/
@@ -216,8 +216,8 @@ theorem enumerateFrom_range' (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪
       rfl
 
 omit [DecidableEq Page] in
-theorem unseenFrom_zero (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
-    enumerate (input δ k runs pages).requests = unseenFrom δ k runs pages 0 := by
+theorem unseenFrom_zero (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (hk : 0 < k) :
+    enumerate (input δ k runs pages hk).requests = unseenFrom δ k runs pages 0 := by
   show enumerateFrom 0 ((List.range (runLength k * runs)).map (requestAt δ k runs pages)) = _
   rw [List.range_eq_range']
   rw [enumerateFrom_range' δ k runs pages (runLength k * runs) 0]

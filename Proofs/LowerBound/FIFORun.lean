@@ -3,7 +3,7 @@ import Proofs.LowerBound.Steps
 /-!
 # FIFO faults on every request of the adversarial instance
 
-The replay of `FIFO.run` on `input δ k runs pages`.  Between two consecutive
+The replay of `FIFO.run` on `input δ k runs pages hk`.  Between two consecutive
 requests the event loop passes through a *settled* state: nothing is pending,
 `i` requests have arrived and `i` fetches have been made.  Away from the
 transposed pair of a run the loop moves from one settled state to the next in
@@ -27,12 +27,12 @@ structure Settled (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (i :
   pending : state.pending = []
   payments : state.payments.length = i
 
-theorem settled_initial (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
-    Settled δ k runs pages 0 (initialState (input δ k runs pages)) where
+theorem settled_initial (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) {hk : 0 < k} :
+    Settled δ k runs pages 0 (initialState (input δ k runs pages hk)) where
   queue := by simp [initialState, queueAt_zero]
   unseen := by
-    show enumerate (input δ k runs pages).requests = _
-    exact unseenFrom_zero δ k runs pages
+    show enumerate (input δ k runs pages hk).requests = _
+    exact unseenFrom_zero δ k runs pages hk
   pending := rfl
   payments := rfl
 
@@ -55,14 +55,14 @@ theorem beat_step {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     (hmiss : page k pages (pageCode k i) ∉ queueAt k pages i)
     (hlt : critQuarters k i < arrivalQuarters k (i + 1))
     {state : State Page} (hs : Settled δ k runs pages i state) :
-    Settled δ k runs pages (i + 1) (run δ (input δ k runs pages) 2 state) := by
+    Settled δ k runs pages (i + 1) (run δ (input δ k runs pages hk) 2 state) := by
   have hunseen : state.unseen =
       occAt δ k runs pages i :: unseenFrom δ k runs pages (i + 1) := by
     rw [hs.unseen, unseenFrom_cons δ k runs pages hiN]
   have hact1 : nextAction? δ state = some (Action.arrival (occAt δ k runs pages i)) :=
     nextAction_arrival hunseen (nextPayment_none hs.pending)
   rw [show (2 : ℕ) = 1 + 1 from rfl, run_step _ 1 hact1]
-  set s1 := step (input δ k runs pages) state (Action.arrival (occAt δ k runs pages i))
+  set s1 := step (input δ k runs pages hk) state (Action.arrival (occAt δ k runs pages i))
     with hs1def
   have hs1queue : s1.queue = queueAt k pages i := by
     rw [hs1def]; simp only [step]; exact hs.queue
@@ -88,7 +88,7 @@ theorem beat_step {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     rw [unseen_head_eq hocc, occAt_arrival, critTime_eq, arrivalTime_eq]
     exact quarter_lt hlt
   rw [run_step _ 0 hact2, run_zero]
-  set s2 := step (input δ k runs pages) s1
+  set s2 := step (input δ k runs pages hk) s1
     (Action.payment (critTime k i) (page k pages (pageCode k i))) with hs2def
   refine ⟨?_, ?_, ?_, ?_⟩
   · rw [hs2def]
@@ -113,7 +113,7 @@ theorem transposed_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     (hnextB : critQuarters k (i + 1) < arrivalQuarters k (i + 2))
     (hnextC : critQuarters k i < arrivalQuarters k (i + 2))
     {state : State Page} (hs : Settled δ k runs pages i state) :
-    Settled δ k runs pages (i + 2) (run δ (input δ k runs pages) 4 state) := by
+    Settled δ k runs pages (i + 2) (run δ (input δ k runs pages hk) 4 state) := by
   have hiN' : i < runLength k * runs := by omega
   -- step 1: the early request arrives
   have hunseen : state.unseen =
@@ -122,7 +122,7 @@ theorem transposed_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
   have hact1 : nextAction? δ state = some (Action.arrival (occAt δ k runs pages i)) :=
     nextAction_arrival hunseen (nextPayment_none hs.pending)
   rw [show (4 : ℕ) = 1 + 1 + 1 + 1 from rfl, run_step _ 3 hact1]
-  set s1 := step (input δ k runs pages) state (Action.arrival (occAt δ k runs pages i))
+  set s1 := step (input δ k runs pages hk) state (Action.arrival (occAt δ k runs pages i))
     with hs1def
   have hs1queue : s1.queue = queueAt k pages i := by
     rw [hs1def]; simp only [step]; exact hs.queue
@@ -148,7 +148,7 @@ theorem transposed_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     rw [occAt_arrival, critTime_eq, arrivalTime_eq]
     exact quarter_le harrB
   rw [run_step _ 2 hact2]
-  set s2 := step (input δ k runs pages) s1 (Action.arrival (occAt δ k runs pages (i + 1)))
+  set s2 := step (input δ k runs pages hk) s1 (Action.arrival (occAt δ k runs pages (i + 1)))
     with hs2def
   have hs2queue : s2.queue = queueAt k pages i := by
     rw [hs2def]; simp only [step]; exact hs1queue
@@ -188,7 +188,7 @@ theorem transposed_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     rw [unseen_head_eq hocc, occAt_arrival, critTime_eq, arrivalTime_eq]
     exact quarter_lt hnextB
   rw [run_step _ 1 hact3]
-  set s3 := step (input δ k runs pages) s2
+  set s3 := step (input δ k runs pages hk) s2
     (Action.payment (critTime k (i + 1)) (page k pages (pageCode k (i + 1)))) with hs3def
   have hs3queue : s3.queue = queueAt k pages (i + 1) := by
     rw [hs3def]
@@ -220,7 +220,7 @@ theorem transposed_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     rw [unseen_head_eq hocc, occAt_arrival, critTime_eq, arrivalTime_eq]
     exact quarter_lt hnextC
   rw [run_step _ 0 hact4, run_zero]
-  set s4 := step (input δ k runs pages) s3
+  set s4 := step (input δ k runs pages hk) s3
     (Action.payment (critTime k i) (page k pages (pageCode k i))) with hs4def
   refine ⟨?_, ?_, ?_, ?_⟩
   · rw [hs4def]
@@ -273,7 +273,7 @@ theorem beat_at {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     (h1 : q ≠ k + 1) (h2 : q ≠ k + 2) {state : State Page}
     (hs : Settled δ k runs pages (runLength k * r + q) state) :
     Settled δ k runs pages (runLength k * r + q + 1)
-      (run δ (input δ k runs pages) 2 state) := by
+      (run δ (input δ k runs pages hk) 2 state) := by
   have hfetch := pageCode_generic k r q hq h1 h2
   have hc := critQuarters_generic k r q hq h1 h2
   have ha : 4 * (runLength k * r + q + 1) + 1 ≤ arrivalQuarters k (runLength k * r + q + 1) :=
@@ -286,7 +286,7 @@ theorem transposed_beat_at {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k
     (pages : Fin (k + 2) ↪ Page) {r : ℕ} (hr : r < runs) {state : State Page}
     (hs : Settled δ k runs pages (runLength k * r + (k + 1)) state) :
     Settled δ k runs pages (runLength k * r + (k + 3))
-      (run δ (input δ k runs pages) 4 state) := by
+      (run δ (input δ k runs pages hk) 4 state) := by
   have hL : runLength k = 2 * k + 2 := rfl
   have e2 : runLength k * r + (k + 1) + 1 = runLength k * r + (k + 2) := rfl
   have e3 : runLength k * r + (k + 1) + 2 = runLength k * r + (k + 3) := rfl
@@ -320,7 +320,7 @@ theorem chain_pre {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     (pages : Fin (k + 2) ↪ Page) {r : ℕ} (hr : r < runs) {state : State Page}
     (hs : Settled δ k runs pages (runLength k * r) state) :
     ∀ q ≤ k + 1, Settled δ k runs pages (runLength k * r + q)
-      (run δ (input δ k runs pages) (2 * q) state) := by
+      (run δ (input δ k runs pages hk) (2 * q) state) := by
   intro q
   induction q with
   | zero => intro _; rw [Nat.mul_zero, run_zero, Nat.add_zero]; exact hs
@@ -338,7 +338,7 @@ theorem chain_post {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     (hs : Settled δ k runs pages (runLength k * r + (k + 3)) state) :
     ∀ n, k + 3 + n ≤ runLength k →
       Settled δ k runs pages (runLength k * r + (k + 3 + n))
-        (run δ (input δ k runs pages) (2 * n) state) := by
+        (run δ (input δ k runs pages hk) (2 * n) state) := by
   intro n
   induction n with
   | zero => intro _; rw [Nat.mul_zero, run_zero]; exact hs
@@ -355,7 +355,7 @@ theorem run_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     (pages : Fin (k + 2) ↪ Page) {r : ℕ} (hr : r < runs) {state : State Page}
     (hs : Settled δ k runs pages (runLength k * r) state) :
     Settled δ k runs pages (runLength k * (r + 1))
-      (run δ (input δ k runs pages) (2 * runLength k) state) := by
+      (run δ (input δ k runs pages hk) (2 * runLength k) state) := by
   have hL : runLength k = 2 * k + 2 := rfl
   have h1 := chain_pre hδ hk pages hr hs (k + 1) le_rfl
   have h2 := transposed_beat_at hδ hk pages hr h1
@@ -370,8 +370,8 @@ theorem run_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
 theorem settled_runs {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     (pages : Fin (k + 2) ↪ Page) : ∀ r ≤ runs,
       Settled δ k runs pages (runLength k * r)
-        (run δ (input δ k runs pages) (2 * (runLength k * r))
-          (initialState (input δ k runs pages))) := by
+        (run δ (input δ k runs pages hk) (2 * (runLength k * r))
+          (initialState (input δ k runs pages hk))) := by
   intro r
   induction r with
   | zero =>

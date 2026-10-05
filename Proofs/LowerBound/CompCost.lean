@@ -399,7 +399,7 @@ theorem comparator_requestCost_mod {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : �
 
 theorem comparator_totalDelay {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
     (pages : Fin (k + 2) ↪ Page) :
-    (comparator k runs pages).totalDelay (input δ k runs pages) = δ * runs := by
+    (comparator k runs pages).totalDelay (input δ k runs pages hk) = δ * runs := by
   show (((List.range (runLength k * runs)).map (requestAt δ k runs pages)).map
     (comparator k runs pages).requestCost).sum = _
   rw [List.map_map]
@@ -412,7 +412,7 @@ theorem comparator_totalDelay {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
 
 theorem comparator_feasible {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
     (pages : Fin (k + 2) ↪ Page) :
-    (comparator k runs pages).Feasible (input δ k runs pages) where
+    (comparator k runs pages).Feasible (input δ k runs pages hk) where
   initialCache := rfl
   chronological := comparator_chronological hk pages runs
   validTransitions := comparator_validTransitions hk pages runs
@@ -426,7 +426,7 @@ theorem comparator_feasible {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
 
 theorem comparator_totalCost {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
     (pages : Fin (k + 2) ↪ Page) :
-    (comparator k runs pages).totalCost (input δ k runs pages) = (1 + δ) * runs + 2 := by
+    (comparator k runs pages).totalCost (input δ k runs pages hk) = (1 + δ) * runs + 2 := by
   rw [Schedule.totalCost, comparator_fetchCount k runs pages, comparator_totalDelay hk pages]
   push_cast
   ring

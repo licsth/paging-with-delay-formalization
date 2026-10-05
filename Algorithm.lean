@@ -17,6 +17,10 @@ the event loop is a `noncomputable` mathematical description rather than
 executable code.  The public schedule is obtained by erasing the internal
 payment log, so the two histories cannot disagree.
 
+`schedule δ` is a plain function from instances to schedules.  The `Algorithm`
+the theorems name, `FIFO.algorithm δ`, packages it with the proof that every
+schedule it produces is feasible (`Proofs/FIFO/Feasible.lean`).
+
 The loop reads a request only through `pendingCost`, which evaluates its delay
 curve at the time it has already waited, so it never consults delay that has
 not been accrued: `Proofs/FIFO/Nonclairvoyant.lean` proves it
@@ -151,7 +155,7 @@ def run (δ : Cost) (input : Instance Page) : ℕ → State Page → State Page
 roots of arbitrary continuous functions make this a mathematical, noncomputable
 algorithm rather than executable numerical code.  `schedule 1` is the
 threshold-one FIFO of the main upper-bound theorem. -/
-def schedule (δ : Cost) (input : Instance Page) (_valid : input.Valid) : Schedule Page :=
+def schedule (δ : Cost) (input : Instance Page) : Schedule Page :=
   let final := run δ input (2 * input.requests.length) (initialState input)
   ⟨input.initialCache.toFinset,
     final.payments.map fun payment =>

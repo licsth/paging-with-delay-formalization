@@ -10,11 +10,11 @@ structure CacheInvariant (input : Instance Page) (state : State Page) : Prop whe
   queue_capacity : state.queue.length ≤ input.cacheSize
   pending_miss : ∀ occurrence ∈ state.pending, occurrence.request.page ∉ state.queue
 
-theorem initial_cacheInvariant (input : Instance Page) (valid : input.Valid) :
+theorem initial_cacheInvariant (input : Instance Page) :
     CacheInvariant input (initialState input) := by
   constructor
-  · exact valid.initialCache_nodup
-  · exact valid.initialCache_full.le
+  · exact input.initialCache_nodup
+  · exact input.initialCache_full.le
   · simp [initialState]
 
 omit [DecidableEq Page] in private theorem insertPage_nodup
@@ -47,7 +47,7 @@ omit [DecidableEq Page] in private theorem mem_insertPage
   · exact hmem
   · exact hmem.imp_left List.mem_of_mem_tail
 
-theorem step_cacheInvariant (input : Instance Page) (valid : input.Valid)
+theorem step_cacheInvariant (input : Instance Page)
     (state : State Page) (action : Action Page)
     (hinv : CacheInvariant input state)
     (haction : nextAction? δ state = some action) :
@@ -92,7 +92,7 @@ theorem step_cacheInvariant (input : Instance Page) (valid : input.Valid)
       exact hinv.pending_miss served hserved
     constructor
     · exact insertPage_nodup _ _ _ hinv.queue_nodup hpage
-    · exact insertPage_length_le _ _ _ hinv.queue_capacity valid.positiveCapacity
+    · exact insertPage_length_le _ _ _ hinv.queue_capacity input.positiveCapacity
     · intro pending hpending hcache
       simp only [step, List.mem_filter] at hpending
       obtain ⟨hpending_old, hpending_ne⟩ := hpending

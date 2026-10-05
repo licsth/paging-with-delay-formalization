@@ -269,8 +269,8 @@ theorem filter_map_fetchEvent (t : Time) (payments : List (Payment Page)) :
   | cons payment rest ih =>
       by_cases htime : payment.time ≤ t <;> simp [htime, ih]
 
-theorem schedule_events (input : Instance Page) (valid : input.Valid) :
-    (schedule δ input valid).events =
+theorem schedule_events (input : Instance Page) :
+    (schedule δ input).events =
       (run δ input (2 * input.requests.length) (initialState input)).payments.map
         Payment.fetchEvent :=
   rfl

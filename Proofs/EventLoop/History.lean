@@ -48,7 +48,7 @@ def StrictUnseen (state : State Page) : Prop :=
   ∀ payment ∈ state.payments, ∀ occurrence ∈ state.unseen,
     payment.time < occurrence.request.arrival
 
-/-- The initial queue followed by the fetched pages.  On a valid instance its
+/-- The initial queue followed by the fetched pages.  On a instance its
 entry at position `j` is the page FIFO evicts at payment `j`: the initial queue
 is evicted front to back by the first `k` payments, and the page fetched by
 payment `i` is evicted by payment `i + k`. -/
@@ -248,7 +248,7 @@ theorem step_strictUnseen (input : Instance Page) (state : State Page)
       · exact h payment hold occurrence ho
       · exact payment_lt_unseen htime ha ho
 
-theorem step_pendingSinceEviction (input : Instance Page) (valid : input.Valid)
+theorem step_pendingSinceEviction (input : Instance Page)
     (state : State Page) (action : Action Page)
     (hfresh : FreshQueue input state)
     (hstrict : StrictUnseen state) (hpending : PendingSinceEviction input state)
@@ -270,12 +270,12 @@ theorem step_pendingSinceEviction (input : Instance Page) (valid : input.Valid)
             by_contra hn
             have hnear : input.initialCache.length + state.payments.length ≤
                 j + input.cacheSize := by
-              have := valid.initialCache_full
+              have := input.initialCache_full
               omega
             have hmem : (evictionOrder input state.payments)[j] ∈
                 recentPages input.cacheSize input.initialCache state.payments :=
-              getElem_mem_recentPages valid.positiveCapacity input.initialCache
-                valid.initialCache_full.le state.payments hj hnear
+              getElem_mem_recentPages input.positiveCapacity input.initialCache
+                input.initialCache_full.le state.payments hj hnear
             have hqueue : state.queue =
                 recentPages input.cacheSize input.initialCache state.payments :=
               hfresh.recent
@@ -351,7 +351,7 @@ theorem step_validBatchLowerBounds (input : Instance Page) (state : State Page)
         rw [List.getElem?_append_left hb]
         exact ht
 
-theorem run_lowerBounds (input : Instance Page) (valid : input.Valid) : ∀ fuel state,
+theorem run_lowerBounds (input : Instance Page) : ∀ fuel state,
     TimeInvariant state → BelowThreshold δ state → FreshQueue input state →
       CacheInvariant input state → StrictUnseen state →
       PendingSinceEviction input state → ValidBatchLowerBounds input state →
@@ -368,25 +368,25 @@ theorem run_lowerBounds (input : Instance Page) (valid : input.Valid) : ∀ fuel
           exact ih _
             (step_timeInvariant input state action htime ha)
             (step_belowThreshold input state action hbelow ha)
-            (step_freshQueue input valid state action hfresh hcache ha)
-            (step_cacheInvariant input valid state action hcache ha)
+            (step_freshQueue input state action hfresh hcache ha)
+            (step_cacheInvariant input state action hcache ha)
             (step_strictUnseen input state action htime ha hstrict)
-            (step_pendingSinceEviction input valid state action hfresh
+            (step_pendingSinceEviction input state action hfresh
               hstrict hpending ha)
             (step_validBatchLowerBounds input state action hpending hbatches)
 
-theorem final_validBatchLowerBounds (input : Instance Page) (valid : input.Valid) :
+theorem final_validBatchLowerBounds (input : Instance Page) :
     ValidBatchLowerBounds input (run δ input (2 * input.requests.length) (initialState input)) := by
-  exact run_lowerBounds input valid _ _
-    (initial_timeInvariant input valid) (initial_belowThreshold input)
-    (initial_freshQueue input) (initial_cacheInvariant input valid)
+  exact run_lowerBounds input _ _
+    (initial_timeInvariant input) (initial_belowThreshold input)
+    (initial_freshQueue input) (initial_cacheInvariant input)
     (initial_strictUnseen input)
     (by simp [PendingSinceEviction, initialState])
     (by simp [ValidBatchLowerBounds, initialState])
 
 /-- The lower bound read at an earlier *payment* of the same page: that copy
 was evicted by payment `previous + k`, and the request arrived after it. -/
-theorem final_validBatchLowerBounds_payment (input : Instance Page) (valid : input.Valid)
+theorem final_validBatchLowerBounds_payment (input : Instance Page)
     (index : ℕ)
     (hindex : index < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
     (occurrence : Occurrence Page)
@@ -399,20 +399,20 @@ theorem final_validBatchLowerBounds_payment (input : Instance Page) (valid : inp
       ((run δ input (2 * input.requests.length) (initialState input)).payments[previous +
           input.cacheSize]?).any
         (fun payment => payment.time < occurrence.request.arrival) := by
-  have hfull := valid.initialCache_full
+  have hfull := input.initialCache_full
   have hpos : input.initialCache.length + previous < input.initialCache.length + index := by
     omega
   have hentry := evictionOrder_getElem_payment input
     (run δ input (2 * input.requests.length) (initialState input)).payments
     (hprevious.trans hindex)
-  obtain ⟨hlt, htime⟩ := final_validBatchLowerBounds input valid index hindex occurrence hserved
+  obtain ⟨hlt, htime⟩ := final_validBatchLowerBounds input index hindex occurrence hserved
     (input.initialCache.length + previous) hpos (hentry.trans hpage)
   rw [hfull, Nat.add_comm] at hlt htime
   exact ⟨hlt, htime⟩
 
 /-- The lower bound read at a page of the *initial* cache: position `p` of the
 initial queue is evicted by payment `p`, and the request arrived after it. -/
-theorem final_validBatchLowerBounds_initial (input : Instance Page) (valid : input.Valid)
+theorem final_validBatchLowerBounds_initial (input : Instance Page)
     (index : ℕ)
     (hindex : index < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
     (occurrence : Occurrence Page)
@@ -424,7 +424,7 @@ theorem final_validBatchLowerBounds_initial (input : Instance Page) (valid : inp
     p < index ∧
       ((run δ input (2 * input.requests.length) (initialState input)).payments[p]?).any
         (fun payment => payment.time < occurrence.request.arrival) :=
-  final_validBatchLowerBounds input valid index hindex occurrence hserved p (by omega)
+  final_validBatchLowerBounds input index hindex occurrence hserved p (by omega)
     ((evictionOrder_getElem_initial input _ hp).trans hpage)
 
 theorem step_history (input : Instance Page) (state : State Page)
@@ -480,9 +480,9 @@ theorem run_history (input : Instance Page) : ∀ fuel state,
           exact ih _ (step_timeInvariant input state action ht ha)
             (step_belowThreshold input state action hb ha) hh.1 hh.2
 
-theorem final_validBatches (input : Instance Page) (valid : input.Valid) :
+theorem final_validBatches (input : Instance Page) :
     ValidBatches (run δ input (2 * input.requests.length) (initialState input)) := by
-  exact (run_history input _ _ (initial_timeInvariant input valid)
+  exact (run_history input _ _ (initial_timeInvariant input)
     (initial_belowThreshold input) (by simp [PendingArrived, initialState])
     (by simp [ValidBatches, initialState])).2
 

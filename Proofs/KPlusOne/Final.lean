@@ -137,35 +137,34 @@ theorem paymentCount_le_k_plus_one (feasible : comparator.Feasible S.input)
   paymentCount_le_of_gain feasible (c := S.cacheSize) (g := S.cacheSize + 1) (by ring) le_rfl
     (fun i hi h => gain_assoc_ge_succ huniverse hi h)
 
-/-- The setup of FIFO with threshold `(k+1)/k` on a valid instance with cache
+/-- The setup of FIFO with threshold `(k+1)/k` on a instance with cache
 size `k ≥ 1`. -/
-def setup {k : ℕ} (hk : 0 < k) (input : Instance Page) (valid : input.Valid)
+def setup {k : ℕ} (hk : 0 < k) (input : Instance Page)
     (hsize : input.cacheSize = k) : Setup Page where
   cacheSize := k
   positive := hk
   threshold := ((k : Cost) + 1) / (k : Cost)
   threshold_pos := div_pos (by positivity) (by exact_mod_cast hk)
   input := input
-  valid := valid
   size := hsize
 
 /-- **The `k+1`-page theorem.**  On `k + 1` pages, FIFO with threshold
 `(k+1)/k` is `(2k+1)`-competitive with no additive constant: `M ≤ k·OPT` and
 `(1 + δ)·k = 2k + 1`. -/
 theorem competitive_of_pageUniverse {k : ℕ} (hk : 0 < k)
-    (input : Instance Page) (valid : input.Valid) (hsize : input.cacheSize = k)
+    (input : Instance Page) (hsize : input.cacheSize = k)
     (huniverse : input.pageUniverse.card ≤ k + 1)
     (comparator : Schedule Page) (feasible : comparator.Feasible input) :
-    (FIFO.schedule (((k : Cost) + 1) / (k : Cost)) input valid).totalCost input ≤
+    (FIFO.schedule (((k : Cost) + 1) / (k : Cost)) input).totalCost input ≤
       (2 * k + 1 : ℕ) * comparator.totalCost input := by
-  set S := setup hk input valid hsize with hS
+  set S := setup hk input hsize with hS
   have hk' : (k : Cost) ≠ 0 := by exact_mod_cast hk.ne'
   have hM := paymentCount_le_k_plus_one (S := S) feasible huniverse
-  have hcost := FIFO.algorithmCostClaim S.threshold input valid
+  have hcost := FIFO.algorithmCostClaim S.threshold input
   unfold FIFO.AlgorithmCostClaim FIFO.algorithmCost at hcost
-  change (FIFO.schedule S.threshold input valid).totalCost input ≤ _
+  change (FIFO.schedule S.threshold input).totalCost input ≤ _
   rw [hcost]
-  have hcount : (FIFO.paymentCount S.threshold input valid : Cost) = (S.count : Cost) := rfl
+  have hcount : (FIFO.paymentCount S.threshold input : Cost) = (S.count : Cost) := rfl
   rw [hcount]
   have hcoef : ((k + 1 : ℕ) : Cost) / (((k : Cost) + 1) / (k : Cost)) = k := by
     push_cast

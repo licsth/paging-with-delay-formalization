@@ -1,5 +1,6 @@
 import Proofs.Basic.Online
 import Proofs.EventLoop.RunComparison
+import Proofs.FIFO.Feasible
 
 /-!
 # FIFO is online, for every threshold
@@ -24,7 +25,7 @@ obstacles have to be removed, all three in
 * **Different instances.**  `step` reads its `Instance` argument only through
   `cacheSize`, so `run_congr` turns the two runs into runs of the *same* input
   that differ only in their initial `unseen` list.
-* **Different `unseen` lists.**  `Instance.Chronological` makes
+* **Different `unseen` lists.**  `Instance.chronological` makes
   `filter (arrival ≤ t)` a *prefix* of the request list
   (`filter_eq_take_of_chronological`), so the two lists share a prefix and every
   occurrence past it arrives strictly after `t`.
@@ -176,11 +177,10 @@ private theorem mirror_earlyPayments (input : Instance Page) (t : Time) :
 
 /-- FIFO's behaviour before time `t` is what it would have been on the request
 sequence truncated at `t`. -/
-theorem schedule_upTo_eq (input : Instance Page) (valid : input.Valid) (t : Time)
-    (validUpTo : (input.upTo t).Valid) :
-    (schedule δ input valid).upTo t = (schedule δ (input.upTo t) validUpTo).upTo t := by
+theorem schedule_upTo_eq (input : Instance Page) (t : Time) :
+    (schedule δ input).upTo t = (schedule δ (input.upTo t)).upTo t := by
   obtain ⟨count, hfilter, hdrop⟩ :=
-    filter_eq_take_of_chronological (requests := input.requests) valid.chronological t
+    filter_eq_take_of_chronological (requests := input.requests) input.chronological t
   have htruncated : (input.upTo t).requests = input.requests.take count := hfilter
   have hcache : (input.upTo t).cacheSize = input.cacheSize := rfl
   -- Raise the truncated run to the fuel of the full run, then reinterpret it
@@ -213,7 +213,7 @@ theorem schedule_upTo_eq (input : Instance Page) (valid : input.Valid) (t : Time
       exact hdrop occurrence.request (mem_enumerateFrom_request hoccurrence)
   have hpayments := mirror_earlyPayments (δ := δ) input t (2 * input.requests.length)
     (initialState input) (initialState (input.upTo t))
-    (initial_timeInvariant input valid) (initial_timeInvariant (input.upTo t) validUpTo)
+    (initial_timeInvariant input) (initial_timeInvariant (input.upTo t))
     hmirror
   unfold earlyPayments at hpayments
   unfold Schedule.upTo
@@ -223,9 +223,9 @@ theorem schedule_upTo_eq (input : Instance Page) (valid : input.Valid) (t : Time
   exact congrArg (List.map Payment.fetchEvent) hpayments
 
 /-- **FIFO with any threshold `δ` is an online algorithm.** -/
-theorem schedule_online (δ : Cost) : Algorithm.Online (FIFO.schedule δ (Page := Page)) :=
-  Algorithm.online_of_upTo_eq fun input valid t validUpTo =>
-    schedule_upTo_eq input valid t validUpTo
+theorem algorithm_online (δ : Cost) : Algorithm.Online (FIFO.algorithm δ (Page := Page)) :=
+  Algorithm.online_of_upTo_eq fun input t =>
+    schedule_upTo_eq input t
 
 end
 end PagingWithDelay.FIFO

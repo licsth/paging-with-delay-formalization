@@ -199,33 +199,30 @@ def requestAt (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (m : ℕ
 
 /-- The adversarial instance: `runs` runs of `2k+2` requests, cache size `k`,
 starting from the initial queue `b, v_{k-1}, …, v₁`. -/
-def input (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) : Instance Page where
+def input (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (hk : 0 < k) : Instance Page where
   cacheSize := k
   initialCache := initialCache k pages
   requests := (List.range (runLength k * runs)).map (requestAt δ k runs pages)
-
-@[simp] theorem input_initialCache (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
-    (input δ k runs pages).initialCache = initialCache k pages := rfl
-
-@[simp] theorem input_cacheSize (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
-    (input δ k runs pages).cacheSize = k := rfl
-
-@[simp] theorem input_length (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
-    (input δ k runs pages).requests.length = runLength k * runs := by
-  simp [input]
-
-theorem input_chronological (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
-    (input δ k runs pages).Chronological := by
-  show List.Pairwise _ ((List.range (runLength k * runs)).map (requestAt δ k runs pages))
-  rw [List.pairwise_map]
-  exact List.pairwise_lt_range.imp fun {m m'} h => arrivalTime_mono k h.le
-
-theorem input_valid (δ : Cost) {k : ℕ} (runs : ℕ) (pages : Fin (k + 2) ↪ Page)
-    (hk : 0 < k) : (input δ k runs pages).Valid where
-  chronological := input_chronological δ k runs pages
+  chronological := by
+    rw [List.pairwise_map]
+    exact List.pairwise_lt_range.imp fun {m m'} h => arrivalTime_mono k h.le
   positiveCapacity := hk
   initialCache_nodup := initialCache_nodup k hk pages
   initialCache_full := initialCache_length k pages
+
+@[simp] theorem input_initialCache (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page)
+    (hk : 0 < k) : (input δ k runs pages hk).initialCache = initialCache k pages := rfl
+
+@[simp] theorem input_cacheSize (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page)
+    (hk : 0 < k) : (input δ k runs pages hk).cacheSize = k := rfl
+
+@[simp] theorem input_requests (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page)
+    (hk : 0 < k) : (input δ k runs pages hk).requests =
+      (List.range (runLength k * runs)).map (requestAt δ k runs pages) := rfl
+
+@[simp] theorem input_length (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page)
+    (hk : 0 < k) : (input δ k runs pages hk).requests.length = runLength k * runs := by
+  simp [input]
 
 end
 end PagingWithDelay.LowerBound

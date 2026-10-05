@@ -79,8 +79,8 @@ delay a request has yet to accrue certainly cannot see a request that has yet
 to arrive. -/
 theorem Algorithm.Nonclairvoyant.online {algorithm : Algorithm Page}
     (nonclairvoyant : Algorithm.Nonclairvoyant algorithm) : Algorithm.Online algorithm where
-  prefixDetermined first second hfirst hsecond t heq :=
-    nonclairvoyant.observationDetermined first second hfirst hsecond t
+  prefixDetermined first second t heq :=
+    nonclairvoyant.observationDetermined first second t
       (Instance.AgreeUpTo.of_upTo_eq heq)
 
 end

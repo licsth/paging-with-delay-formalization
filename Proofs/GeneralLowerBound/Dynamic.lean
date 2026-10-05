@@ -318,7 +318,7 @@ theorem exists_dynamicRun (initial pages : Finset Page) (k : ℕ)
 /-- The dynamic comparators in the trusted schedule model: every request is
 served at arrival, so the aggregate cost is at most `k² + number of requests`.
 The `k²` term pays to install all `k` caches. -/
-theorem exists_dynamic_comparators (input : Instance Page) (valid : input.Valid)
+theorem exists_dynamic_comparators (input : Instance Page)
     (pages : Finset Page) (hcard : pages.card = input.cacheSize + 1)
     (hstrict : input.requests.Pairwise (fun a b => a.arrival < b.arrival))
     (hrequests : ∀ r ∈ input.requests, r.page ∈ pages ∧ 0 < r.arrival) :
@@ -329,7 +329,7 @@ theorem exists_dynamic_comparators (input : Instance Page) (valid : input.Valid)
       (∑ i, (comparator i).totalCost input) ≤
         (input.cacheSize : Cost) * input.cacheSize + input.requests.length := by
   obtain ⟨run⟩ := exists_dynamicRun input.initialCache.toFinset pages input.cacheSize hcard
-    (initialCache_card_le input valid) input.requests hstrict hrequests
+    (initialCache_card_le input) input.requests hstrict hrequests
   have hzero (i : Fin input.cacheSize) : (run.schedule i).totalDelay input = 0 := by
     apply List.sum_eq_zero
     intro c hc

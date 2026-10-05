@@ -23,16 +23,6 @@ variable {Page : Type*}
     (input.upTo t).upTo t = input.upTo t := by
   simp [Instance.upTo, List.filter_filter]
 
-/-- A truncated instance is still a legal input: dropping requests preserves
-chronology, and the cache capacity and initial cache are untouched. -/
-theorem Instance.Valid.upTo {input : Instance Page} (valid : input.Valid) (t : Time) :
-    (input.upTo t).Valid where
-  chronological :=
-    List.Pairwise.sublist List.filter_sublist valid.chronological
-  positiveCapacity := valid.positiveCapacity
-  initialCache_nodup := valid.initialCache_nodup
-  initialCache_full := valid.initialCache_full
-
 variable [DecidableEq Page]
 
 namespace Algorithm
@@ -41,33 +31,25 @@ namespace Algorithm
 the input truncated at `t`.  This is the usual informal reading of "does not
 look into the future". -/
 theorem Online.upTo_eq {algorithm : Algorithm Page} (online : Online algorithm)
-    (input : Instance Page) (valid : input.Valid) (t : Time)
-    (validUpTo : (input.upTo t).Valid) :
-    (algorithm input valid).upTo t = (algorithm (input.upTo t) validUpTo).upTo t :=
-  online.prefixDetermined input (input.upTo t) valid validUpTo t
+    (input : Instance Page) (t : Time) :
+    (algorithm input).upTo t = (algorithm (input.upTo t)).upTo t :=
+  online.prefixDetermined input (input.upTo t) t
     (input.upTo_idem t).symm
 
 /-- Conversely, an algorithm that cannot tell the full input from its
 truncation is online, so the two phrasings agree. -/
 theorem online_of_upTo_eq {algorithm : Algorithm Page}
-    (h : ∀ (input : Instance Page) (valid : input.Valid) (t : Time)
-      (validUpTo : (input.upTo t).Valid),
-      (algorithm input valid).upTo t = (algorithm (input.upTo t) validUpTo).upTo t) :
+    (h : ∀ (input : Instance Page) (t : Time),
+      (algorithm input).upTo t = (algorithm (input.upTo t)).upTo t) :
     Online algorithm where
-  prefixDetermined first second hfirst hsecond t heq := by
-    have transport : ∀ (left right : Instance Page) (hleft : left.Valid)
-        (hright : right.Valid), left = right → algorithm left hleft = algorithm right hright := by
-      rintro left right hleft hright rfl
-      rfl
-    rw [h first hfirst t (hfirst.upTo t), h second hsecond t (hsecond.upTo t),
-      transport _ _ (hfirst.upTo t) (hsecond.upTo t) heq]
+  prefixDetermined first second t heq := by
+    rw [h first t, h second t, heq]
 
 theorem online_iff_upTo_eq (algorithm : Algorithm Page) :
     Online algorithm ↔
-      ∀ (input : Instance Page) (valid : input.Valid) (t : Time)
-        (validUpTo : (input.upTo t).Valid),
-        (algorithm input valid).upTo t = (algorithm (input.upTo t) validUpTo).upTo t :=
-  ⟨fun online input valid t validUpTo => online.upTo_eq input valid t validUpTo,
+      ∀ (input : Instance Page) (t : Time),
+        (algorithm input).upTo t = (algorithm (input.upTo t)).upTo t :=
+  ⟨fun online input t => online.upTo_eq input t,
     online_of_upTo_eq⟩
 
 end Algorithm

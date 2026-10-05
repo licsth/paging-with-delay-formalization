@@ -77,13 +77,13 @@ theorem initial_freshQueue (input : Instance Page) :
     FreshQueue input (initialState input) := by
   exact ⟨initial_recentQueue input, .nil⟩
 
-theorem step_freshQueue (input : Instance Page) (valid : input.Valid)
+theorem step_freshQueue (input : Instance Page)
     (state : State Page) (action : Action Page)
     (hfq : FreshQueue input state) (hcache : CacheInvariant input state)
     (haction : nextAction? δ state = some action) :
     FreshQueue input (step input state action) := by
   constructor
-  · exact step_recentQueue input valid state action hfq.recent hcache haction
+  · exact step_recentQueue input state action hfq.recent hcache haction
   · cases action with
     | arrival occurrence => simpa [step] using hfq.fresh
     | payment time page =>
@@ -107,7 +107,7 @@ theorem step_freshQueue (input : Instance Page) (valid : input.Valid)
             served := state.pending.filter fun occurrence => occurrence.request.page = page,
             queueAfter := insertPage input.cacheSize state.queue page } hrecent
 
-theorem run_freshQueue (input : Instance Page) (valid : input.Valid) :
+theorem run_freshQueue (input : Instance Page) :
     ∀ fuel state, FreshQueue input state → CacheInvariant input state →
       FreshQueue input (run δ input fuel state) := by
   intro fuel
@@ -119,14 +119,14 @@ theorem run_freshQueue (input : Instance Page) (valid : input.Valid) :
       cases ha : nextAction? δ state with
       | none => exact hfq
       | some action =>
-          exact ih _ (step_freshQueue input valid state action hfq hcache ha)
-            (step_cacheInvariant input valid state action hcache ha)
+          exact ih _ (step_freshQueue input state action hfq hcache ha)
+            (step_cacheInvariant input state action hcache ha)
 
-theorem final_freshPayments (input : Instance Page) (valid : input.Valid) :
+theorem final_freshPayments (input : Instance Page) :
     FreshPayments input.cacheSize input.initialCache
       (run δ input (2 * input.requests.length) (initialState input)).payments := by
-  exact (run_freshQueue input valid _ _ (initial_freshQueue input)
-    (initial_cacheInvariant input valid)).fresh
+  exact (run_freshQueue input _ _ (initial_freshQueue input)
+    (initial_cacheInvariant input)).fresh
 
 omit [DecidableEq Page] in private theorem drop_succ_eq_tail
     (n : ℕ) (xs : List Page) :
@@ -263,7 +263,7 @@ theorem page_mem_recentPages_between {capacity i j : ℕ} (hpositive : 0 < capac
 /-- Two actual payments of the same page are separated by more than the cache
 capacity.  Equivalently, the earlier page is evicted by payment `i+k` before
 it can be fetched again. -/
-theorem samePage_spacing (input : Instance Page) (valid : input.Valid)
+theorem samePage_spacing (input : Instance Page)
     {i j : ℕ}
     (hi : i < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
     (hj : j < (run δ input (2 * input.requests.length) (initialState input)).payments.length)
@@ -277,9 +277,9 @@ theorem samePage_spacing (input : Instance Page) (valid : input.Valid)
   have hnear : j ≤ i + input.cacheSize := Nat.le_of_not_gt hnot
   have hmem : payments[i].page ∈
       recentPages input.cacheSize input.initialCache (payments.take j) :=
-    page_mem_recentPages_between valid.positiveCapacity input.initialCache
-      valid.initialCache_full.le payments (Nat.le_of_lt hj) hij hnear
-  have hfresh := (final_freshPayments input valid).fresh_at j hj
+    page_mem_recentPages_between input.positiveCapacity input.initialCache
+      input.initialCache_full.le payments (Nat.le_of_lt hj) hij hnear
+  have hfresh := (final_freshPayments input).fresh_at j hj
   apply hfresh
   rw [← hpage]
   exact hmem

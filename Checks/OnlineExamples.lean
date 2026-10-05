@@ -1,4 +1,6 @@
-import Proofs.Basic.Online
+import Proofs.FIFO.Online
+import Proofs.FIFO.Nonclairvoyant
+import Proofs.Competitive.AlgorithmCost
 
 /-!
 # Witnesses for the online- and nonclairvoyant-algorithm definitions
@@ -7,18 +9,27 @@ import Proofs.Basic.Online
 definition that everything satisfies, or that nothing satisfies, would carry no
 information, so this file pins both predicates down from both sides:
 
-* `eagerAlgorithm_online` exhibits an online algorithm.  It reacts to the
-  requests rather than ignoring them, so it does not pass merely by being a
-  constant map.
+* FIFO is online and nonclairvoyant for every threshold
+  (`FIFO.algorithm_online`, `FIFO.algorithm_nonclairvoyant`).  Since an
+  `Algorithm` must produce a feasible schedule on every instance, it cannot pass
+  merely by ignoring the requests.
 * `clairvoyantAlgorithm_not_online` exhibits an algorithm that is rejected.  It
-  acts at time `0` only when the input happens to contain a second request
-  arriving later, which is exactly the lookahead the definition must forbid.
+  runs FIFO with threshold `0` when the input contains a second request and
+  FIFO with threshold `1` otherwise, so what it does at time `0` depends on a
+  request that arrives later — exactly the lookahead the definition must forbid.
 * `anticipatingAlgorithm_online` and
   `anticipatingAlgorithm_not_nonclairvoyant` exhibit an algorithm that is
-  online but rejected by nonclairvoyance.  It never looks at a request that has
-  not arrived; it looks at the delay a request that *has* arrived is going to
-  accrue.  So nonclairvoyance is strictly stronger than onlineness, and not an
-  elaborate way of restating it.
+  online but rejected by nonclairvoyance.  It chooses between the same two
+  thresholds by reading the delay curve of the first request at a waiting time
+  that has not yet elapsed.  It never looks at a request that has not arrived,
+  but it does look at delay that has not yet accrued.  So nonclairvoyance is
+  strictly stronger than onlineness, and not an elaborate way of restating it.
+
+The witnesses are assembled from FIFO, which is feasible for every threshold.
+Two facts about FIFO at time `0` separate the thresholds: with a positive
+threshold it never fetches at time `0` (`FIFO.zero_lt_time_of_mem_events`), and
+with threshold `0` it serves a growing request arriving at time `0` at once
+(`FIFO.exists_event_at_zero`).
 
 None of these witnesses is part of the paper's development; they exist so that
 a reader checking the model can see that the two definitions have content.
@@ -28,54 +39,69 @@ namespace PagingWithDelay
 
 noncomputable section
 
+/-! ## FIFO at time zero -/
+
+namespace FIFO
+
 variable {Page : Type*} [DecidableEq Page]
 
-/-! ## An online algorithm -/
+/-- With a positive threshold FIFO never fetches at time `0`: every payment
+releases `δ` units of delay, and none has accrued at time `0`. -/
+theorem zero_lt_time_of_mem_events {δ : Cost} (hδ : 0 < δ) (input : Instance Page)
+    {event : FetchEvent Page} (hevent : event ∈ (schedule δ input).events) :
+    0 < event.time := by
+  rw [schedule_events] at hevent
+  obtain ⟨payment, hpayment, rfl⟩ := List.mem_map.mp hevent
+  have hcost := final_thresholdPayments (δ := δ) input payment hpayment
+  show 0 < payment.time
+  rw [pos_iff_ne_zero]
+  intro hzero
+  have : payment.delayCost = 0 := by
+    simp [Payment.delayCost, hzero, Request.delay_zero]
+  exact hδ.ne' (hcost.symm.trans this)
 
-/-- Fetch every requested page at the moment it is requested, evicting
-everything else.  This ignores the future entirely, so it is online; it is
-generally *not* feasible, which is why the two notions are kept apart. -/
-def eagerAlgorithm : Algorithm Page := fun input _ =>
-  ⟨input.initialCache.toFinset, input.requests.map fun request =>
-    { time := request.arrival
-      fetched := request.page
-      cacheAfter := {request.page} }⟩
+/-- With threshold `0` FIFO serves a request arriving at time `0` on a page
+outside the initial cache at once, provided its delay grows as soon as it
+waits: the cost identity `ALG = (1+0)·M` leaves no room for delay. -/
+theorem exists_event_at_zero (input : Instance Page) {request : Request Page}
+    (hrequest : request ∈ input.requests) (harrival : request.arrival = 0)
+    (hpage : request.page ∉ input.initialCache)
+    (hgrows : ∀ wait, request.delay wait = 0 → wait = 0) :
+    ∃ event ∈ (schedule 0 input).events, event.time = 0 := by
+  have hcost := algorithmCostClaim (0 : Cost) input
+  unfold AlgorithmCostClaim algorithmCost at hcost
+  rw [Schedule.totalCost, fetchCount_eq_paymentCount, add_zero, one_mul] at hcost
+  have hdelay : (schedule 0 input).totalDelay input = 0 := by simpa using hcost
+  have hrequestCost : (schedule 0 input).requestCost request = 0 :=
+    List.sum_eq_zero_iff.mp hdelay _ (List.mem_map_of_mem hrequest)
+  have hwait := hgrows _ hrequestCost
+  have hnonempty := (schedule_feasible 0 input).eventuallyServed request hrequest
+  set s := ((schedule 0 input).serviceCandidates request).min' hnonempty with hs
+  have hservice : (schedule 0 input).serviceTime request = some s := by
+    simp [Schedule.serviceTime, hnonempty, hs]
+  have hszero : s = 0 := by
+    simpa [Schedule.serviceDelay, hservice, harrival] using hwait
+  have hmem : s ∈ (schedule 0 input).serviceCandidates request := Finset.min'_mem _ _
+  have hcache : request.page ∉ (schedule 0 input).cacheBefore request.arrival := by
+    simpa [Schedule.cacheBefore, harrival, schedule] using hpage
+  simp only [Schedule.serviceCandidates, if_neg hcache, List.mem_toFinset,
+    List.mem_map, List.mem_filter] at hmem
+  obtain ⟨event, ⟨hevent, _⟩, htime⟩ := hmem
+  exact ⟨event, hevent, htime.trans hszero⟩
 
-theorem eagerAlgorithm_online : Algorithm.Online (eagerAlgorithm (Page := Page)) where
-  prefixDetermined first second hfirst hsecond t heq := by
-    have hrequests :
-        first.requests.filter (fun request => decide (request.arrival ≤ t)) =
-          second.requests.filter (fun request => decide (request.arrival ≤ t)) := by
-      simpa using congrArg Instance.requests heq
-    have key : ∀ requests : List (Request Page),
-        ((requests.map fun request =>
-            ({ time := request.arrival
-               fetched := request.page
-               cacheAfter := {request.page} } : FetchEvent Page)).filter
-          fun event => decide (event.time ≤ t)) =
-        (requests.filter fun request => decide (request.arrival ≤ t)).map
-          fun request =>
-            ({ time := request.arrival
-               fetched := request.page
-               cacheAfter := {request.page} } : FetchEvent Page) := by
-      intro requests
-      induction requests with
-      | nil => rfl
-      | cons request rest ih =>
-          by_cases harrival : request.arrival ≤ t <;> simp [harrival, ih]
-    have hinitial : first.initialCache = second.initialCache := by
-      simpa [Instance.upTo] using congrArg Instance.initialCache heq
-    show Schedule.upTo _ t = Schedule.upTo _ t
-    simp only [eagerAlgorithm, Schedule.upTo, key, hrequests, hinitial]
+/-- Without requests FIFO does nothing. -/
+theorem schedule_events_eq_nil {δ : Cost} {input : Instance Page} (h : input.requests = []) :
+    (schedule δ input).events = [] := by
+  simp [schedule, h, run, initialState]
 
-end
+end FIFO
 
 /-! ## An algorithm that looks ahead is rejected -/
 
 namespace OnlineCounterexample
 
-/-- A request whose delay grows without bound, used only to build instances. -/
-noncomputable def request (page : ℕ) (arrival : Time) : Request ℕ where
+/-- A request whose delay grows at rate one, used only to build instances. -/
+def request (page : ℕ) (arrival : Time) : Request ℕ where
   page := page
   arrival := arrival
   delay := id
@@ -84,99 +110,131 @@ noncomputable def request (page : ℕ) (arrival : Time) : Request ℕ where
   delay_zero := rfl
   delay_unbounded := fun bound => ⟨bound, le_rfl⟩
 
-/-- One request at time `0`, from a cache holding page `2`. -/
-noncomputable def short : Instance ℕ := ⟨1, [2], [request 0 0]⟩
+/-- One request for page `0` at time `0`, from a cache holding page `2`. -/
+def short : Instance ℕ :=
+  ⟨1, [2], [request 0 0], by simp, one_pos, by simp, rfl⟩
 
 /-- The same request, plus one arriving later. -/
-noncomputable def long : Instance ℕ := ⟨1, [2], [request 0 0, request 1 1]⟩
-
-theorem short_valid : short.Valid where
-  chronological := by simp [Instance.Chronological, short]
-  positiveCapacity := by simp [short]
-  initialCache_nodup := by simp [short]
-  initialCache_full := by simp [short]
-
-theorem long_valid : long.Valid where
-  chronological := by simp [Instance.Chronological, long, request]
-  positiveCapacity := by simp [long]
-  initialCache_nodup := by simp [long]
-  initialCache_full := by simp [long]
+def long : Instance ℕ :=
+  ⟨1, [2], [request 0 0, request 1 1], by simp [request], one_pos, by simp, rfl⟩
 
 /-- The two instances are indistinguishable at time `0`: the second request
 has not arrived yet. -/
 theorem upTo_zero_eq : short.upTo 0 = long.upTo 0 := by
   simp [Instance.upTo, short, long, request]
 
-/-- An algorithm that acts at time `0` only when it can see that a second
-request is coming.  It is a function of the input, but not of its past. -/
-noncomputable def clairvoyantAlgorithm : Algorithm ℕ := fun input _ =>
-  if 2 ≤ input.requests.length then
-    ⟨input.initialCache.toFinset, [{ time := 0, fetched := 0, cacheAfter := {0} }]⟩
-  else
-    ⟨input.initialCache.toFinset, []⟩
+/-- FIFO with threshold `0` when it can see that a second request is coming,
+FIFO with threshold `1` otherwise.  It is a function of the input, but not of
+its past. -/
+def clairvoyantAlgorithm : Algorithm ℕ where
+  run input :=
+    if 2 ≤ input.requests.length then FIFO.schedule 0 input else FIFO.schedule 1 input
+  feasible input := by
+    split
+    · exact FIFO.schedule_feasible 0 input
+    · exact FIFO.schedule_feasible 1 input
 
-/-- Looking ahead is exactly what `Algorithm.Online` forbids. -/
+/-- Looking ahead is exactly what `Algorithm.Online` forbids: on `long` the
+algorithm fetches at time `0`, on `short` it does not. -/
 theorem clairvoyantAlgorithm_not_online :
     ¬ Algorithm.Online clairvoyantAlgorithm := by
   intro online
-  have h := online.prefixDetermined short long short_valid long_valid 0 upTo_zero_eq
-  simp [clairvoyantAlgorithm, short, long, Schedule.upTo] at h
+  have h := online.prefixDetermined short long 0 upTo_zero_eq
+  obtain ⟨event, hevent, htime⟩ := FIFO.exists_event_at_zero long
+    (request := request 0 0) (by simp [long]) rfl (by simp [long, request])
+    (fun wait hwait => hwait)
+  have hlong : event ∈ ((clairvoyantAlgorithm long).upTo 0).events := by
+    simp only [Schedule.upTo, List.mem_filter, decide_eq_true_eq]
+    exact ⟨by simpa [clairvoyantAlgorithm, long] using hevent, htime.le⟩
+  rw [← h] at hlong
+  simp only [Schedule.upTo, List.mem_filter, decide_eq_true_eq] at hlong
+  have hpos := FIFO.zero_lt_time_of_mem_events one_pos short
+    (by simpa [clairvoyantAlgorithm, short] using hlong.1)
+  exact absurd hlong.2 (not_le.mpr hpos)
 
 end OnlineCounterexample
 
 /-! ## An algorithm that anticipates delay is rejected
 
 `Algorithm.Online` and `Algorithm.Nonclairvoyant` differ, and the algorithm
-below is what separates them.  It fetches a page exactly when the request for
-it will eventually be expensive to keep waiting, a fact it reads off the delay
-curve at arrival.  Every event it produces is stamped with the arrival time of
-the request that produced it, so it never acts on a request that has not
-arrived: it is online.  But at the arrival itself no delay has accrued yet, so
-the number it consults has not been revealed, and nonclairvoyance rejects it. -/
+below is what separates them.  It runs FIFO with threshold `0` exactly when the
+first request will be expensive to keep waiting, a fact it reads off that
+request's delay curve.  Before the first request arrives FIFO does nothing
+under either threshold, so it never acts on a request that has not arrived: it
+is online.  But at the arrival itself no delay has accrued yet, so the number it
+consults has not been revealed, and nonclairvoyance rejects it. -/
 
-noncomputable section
+section Anticipating
 
 variable {Page : Type*} [DecidableEq Page]
 
-/-- Fetch, on arrival, exactly those pages whose request would accrue delay `2`
-after waiting one unit of time. -/
-def anticipatingAlgorithm : Algorithm Page := fun input _ =>
-  ⟨input.initialCache.toFinset, input.requests.filterMap fun request =>
-    if 2 ≤ request.delay 1 then
-      some { time := request.arrival, fetched := request.page, cacheAfter := {request.page} }
-    else none⟩
+/-- Whether the first request would accrue delay `2` after waiting one unit
+of time. -/
+def Anticipates (input : Instance Page) : Prop :=
+  ∃ request ∈ input.requests.head?, 2 ≤ request.delay 1
 
-theorem anticipatingAlgorithm_online : Algorithm.Online (anticipatingAlgorithm (Page := Page)) where
-  prefixDetermined first second hfirst hsecond t heq := by
-    have hrequests :
-        first.requests.filter (fun request => decide (request.arrival ≤ t)) =
-          second.requests.filter (fun request => decide (request.arrival ≤ t)) := by
-      simpa using congrArg Instance.requests heq
-    have key : ∀ requests : List (Request Page),
-        ((requests.filterMap fun request =>
-            if 2 ≤ request.delay 1 then
-              some ({ time := request.arrival
-                      fetched := request.page
-                      cacheAfter := {request.page} } : FetchEvent Page)
-            else none).filter fun event => decide (event.time ≤ t)) =
-        (requests.filter fun request => decide (request.arrival ≤ t)).filterMap fun request =>
-          if 2 ≤ request.delay 1 then
-            some ({ time := request.arrival
-                    fetched := request.page
-                    cacheAfter := {request.page} } : FetchEvent Page)
-          else none := by
-      intro requests
-      induction requests with
-      | nil => rfl
-      | cons request rest ih =>
-          by_cases hdelay : 2 ≤ request.delay 1 <;>
-            by_cases harrival : request.arrival ≤ t <;> simp [hdelay, harrival, ih]
-    have hinitial : first.initialCache = second.initialCache := by
-      simpa [Instance.upTo] using congrArg Instance.initialCache heq
-    show Schedule.upTo _ t = Schedule.upTo _ t
-    simp only [anticipatingAlgorithm, Schedule.upTo, key, hrequests, hinitial]
+instance : DecidablePred (Anticipates (Page := Page)) := fun _ => Classical.dec _
 
-end
+/-- FIFO with threshold `0` if the first request anticipates a high delay,
+FIFO with threshold `1` otherwise. -/
+def anticipatingAlgorithm : Algorithm Page where
+  run input :=
+    if Anticipates input then FIFO.schedule 0 input else FIFO.schedule 1 input
+  feasible input := by
+    split
+    · exact FIFO.schedule_feasible 0 input
+    · exact FIFO.schedule_feasible 1 input
+
+/-- Up to time `t`, the run of either branch is the FIFO run on the input
+truncated at `t`. -/
+private theorem anticipating_upTo (input : Instance Page) (t : Time) :
+    (anticipatingAlgorithm input).upTo t =
+      if Anticipates input then (FIFO.schedule 0 (input.upTo t)).upTo t
+      else (FIFO.schedule 1 (input.upTo t)).upTo t := by
+  unfold anticipatingAlgorithm
+  show (if Anticipates input then FIFO.schedule 0 input else FIFO.schedule 1 input).upTo t = _
+  split
+  · exact FIFO.schedule_upTo_eq input t
+  · exact FIFO.schedule_upTo_eq input t
+
+theorem anticipatingAlgorithm_online :
+    Algorithm.Online (anticipatingAlgorithm (Page := Page)) where
+  prefixDetermined first second t heq := by
+    rw [anticipating_upTo first t, anticipating_upTo second t, heq]
+    by_cases hempty : (second.upTo t).requests = []
+    · -- nothing has arrived: both thresholds leave the truncated input alone
+      have hnil (δ : Cost) : (FIFO.schedule δ (second.upTo t)).upTo t =
+          ⟨second.initialCache.toFinset, []⟩ := by
+        have hevents := FIFO.schedule_events_eq_nil (δ := δ) hempty
+        simp only [Schedule.upTo, hevents, List.filter_nil]
+        rfl
+      split <;> split <;> simp only [hnil]
+    · -- the first request has arrived, and both inputs start with it
+      have hhead (input : Instance Page) (h : (input.upTo t).requests ≠ []) :
+          input.requests.head? = (input.upTo t).requests.head? := by
+        cases hreq : input.requests with
+        | nil => simp [Instance.upTo, hreq] at h
+        | cons r rest =>
+            have hr : r.arrival ≤ t := by
+              by_contra hlt
+              apply h
+              have hchrono := input.chronological
+              rw [hreq, List.pairwise_cons] at hchrono
+              simp only [Instance.upTo, hreq, List.filter_eq_nil_iff, List.mem_cons,
+                decide_eq_true_eq]
+              rintro x (rfl | hx)
+              · exact hlt
+              · exact fun hxt => hlt ((hchrono.1 x hx).trans hxt)
+            simp [Instance.upTo, hreq, hr]
+      have hfirst : (first.upTo t).requests ≠ [] := by rw [heq]; exact hempty
+      have hsame : Anticipates first ↔ Anticipates second := by
+        unfold Anticipates
+        rw [hhead first hfirst, hhead second hempty, heq]
+      by_cases hant : Anticipates second
+      · simp [hant, hsame.mpr hant]
+      · simp [hant, mt hsame.mp hant]
+
+end Anticipating
 
 namespace NonclairvoyanceCounterexample
 
@@ -185,7 +243,7 @@ open OnlineCounterexample (request)
 /-- The request of `OnlineCounterexample.request` with its delay doubled.  At
 its arrival the two are indistinguishable — neither has accrued anything — and
 afterwards they differ. -/
-noncomputable def steepRequest (page : ℕ) (arrival : Time) : Request ℕ where
+def steepRequest (page : ℕ) (arrival : Time) : Request ℕ where
   page := page
   arrival := arrival
   delay := fun wait => 2 * wait
@@ -196,22 +254,12 @@ noncomputable def steepRequest (page : ℕ) (arrival : Time) : Request ℕ where
 
 /-- One request arriving at time `0`, accruing delay at rate one, from a cache
 holding page `2`. -/
-noncomputable def gentle : Instance ℕ := ⟨1, [2], [request 0 0]⟩
+def gentle : Instance ℕ :=
+  ⟨1, [2], [request 0 0], by simp, one_pos, by simp, rfl⟩
 
 /-- The same request arriving at time `0`, accruing delay at rate two. -/
-noncomputable def steep : Instance ℕ := ⟨1, [2], [steepRequest 0 0]⟩
-
-theorem gentle_valid : gentle.Valid where
-  chronological := by simp [Instance.Chronological, gentle]
-  positiveCapacity := by simp [gentle]
-  initialCache_nodup := by simp [gentle]
-  initialCache_full := by simp [gentle]
-
-theorem steep_valid : steep.Valid where
-  chronological := by simp [Instance.Chronological, steep]
-  positiveCapacity := by simp [steep]
-  initialCache_nodup := by simp [steep]
-  initialCache_full := by simp [steep]
+def steep : Instance ℕ :=
+  ⟨1, [2], [steepRequest 0 0], by simp, one_pos, by simp, rfl⟩
 
 /-- At time `0` the two instances have revealed the same thing: one request for
 page `0`, which has waited no time at all. -/
@@ -235,11 +283,33 @@ shows that no request beyond the present is ever consulted. -/
 theorem anticipatingAlgorithm_not_nonclairvoyant :
     ¬ Algorithm.Nonclairvoyant (anticipatingAlgorithm (Page := ℕ)) := by
   intro nonclairvoyant
-  have hschedules := nonclairvoyant.observationDetermined gentle steep gentle_valid steep_valid 0
-    agreeUpTo_zero
-  simp [anticipatingAlgorithm, Schedule.upTo, gentle, steep, request, steepRequest]
-    at hschedules
+  have h := nonclairvoyant.observationDetermined gentle steep 0 agreeUpTo_zero
+  have hsteep : Anticipates steep := ⟨steepRequest 0 0, by simp [steep], by
+    simp [steepRequest]⟩
+  have hgentle : ¬ Anticipates gentle := by
+    rintro ⟨r, hr, hdelay⟩
+    simp only [gentle, List.head?_cons, Option.mem_def, Option.some.injEq] at hr
+    subst hr
+    norm_num [request] at hdelay
+  obtain ⟨event, hevent, htime⟩ := FIFO.exists_event_at_zero steep
+    (request := steepRequest 0 0) (by simp [steep]) rfl (by simp [steep, steepRequest])
+    (fun wait hwait => by simpa [steepRequest] using hwait)
+  have hmem : event ∈ ((anticipatingAlgorithm steep).upTo 0).events := by
+    simp only [Schedule.upTo, List.mem_filter, decide_eq_true_eq]
+    refine ⟨?_, htime.le⟩
+    show event ∈ (if Anticipates steep then _ else _ : Schedule ℕ).events
+    rw [if_pos hsteep]
+    exact hevent
+  rw [← h] at hmem
+  simp only [Schedule.upTo, List.mem_filter, decide_eq_true_eq] at hmem
+  have hevent' : event ∈ (FIFO.schedule 1 gentle).events := by
+    have := hmem.1
+    change event ∈ (if Anticipates gentle then _ else _ : Schedule ℕ).events at this
+    rwa [if_neg hgentle] at this
+  exact absurd hmem.2 (not_le.mpr (FIFO.zero_lt_time_of_mem_events one_pos gentle hevent'))
 
 end NonclairvoyanceCounterexample
+
+end
 
 end PagingWithDelay

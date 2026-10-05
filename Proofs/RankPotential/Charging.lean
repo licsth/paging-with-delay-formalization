@@ -117,7 +117,7 @@ theorem cases_exhaustive (i : ℕ) :
 theorem initialCache_card_le (feasible : comparator.Feasible S.input) :
     comparator.initialCache.card ≤ S.cacheSize := by
   rw [feasible.initialCache, ← S.size]
-  exact (List.toFinset_card_le _).trans S.valid.initialCache_full.le
+  exact (List.toFinset_card_le _).trans S.input.initialCache_full.le
 
 /-! ### Event indices -/
 

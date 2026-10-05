@@ -39,12 +39,12 @@ theorem staticComparator_cacheBefore (initial pages : Finset Page) (hole : Page)
     List.foldl_cons, List.foldl_nil, if_neg (not_lt.mpr hle)]
   rw [hfill _ _ (Analysis.resetEvents_time _ _), Analysis.resetEvents_fold _ _ hcard]
 
-/-- The initial cache of a valid instance has at most `cacheSize` pages. -/
-theorem initialCache_card_le (input : Instance Page) (valid : input.Valid) :
+/-- The initial cache of a instance has at most `cacheSize` pages. -/
+theorem initialCache_card_le (input : Instance Page) :
     input.initialCache.toFinset.card ≤ input.cacheSize :=
-  (List.toFinset_card_le _).trans valid.initialCache_full.le
+  (List.toFinset_card_le _).trans input.initialCache_full.le
 
-theorem staticComparator_feasible (input : Instance Page) (valid : input.Valid)
+theorem staticComparator_feasible (input : Instance Page)
     (pages : Finset Page) (hole : Page) (hhole : hole ∈ pages)
     (hcard : pages.card = input.cacheSize + 1) (terminal : Time)
     (hrequests : ∀ r ∈ input.requests, r.page ∈ pages ∧ 0 < r.arrival ∧ r.arrival ≤ terminal) :
@@ -53,7 +53,7 @@ theorem staticComparator_feasible (input : Instance Page) (valid : input.Valid)
     rw [Finset.card_erase_of_mem hhole, hcard]
     omega
   have hinit : input.initialCache.toFinset.card ≤ (pages.erase hole).card :=
-    hheld ▸ initialCache_card_le input valid
+    hheld ▸ initialCache_card_le input
   constructor
   · rfl
   · apply List.pairwise_append.mpr
@@ -78,7 +78,7 @@ theorem staticComparator_feasible (input : Instance Page) (valid : input.Valid)
       simpa [hheld] using h
     · simp only [List.mem_singleton] at he
       subst event
-      simpa using valid.positiveCapacity
+      simpa using input.positiveCapacity
   · intro r hr
     have h := hrequests r hr
     by_cases hp : r.page = hole
@@ -156,7 +156,7 @@ theorem staticComparator_requestCost_le (initial pages : Finset Page) (hole : Pa
 /-- Summing the static strategies counts each request's terminal delay only
 once. Installing the caches contributes at most `pages.card²` fetches in
 total. -/
-theorem sum_staticComparator_cost_le (input : Instance Page) (valid : input.Valid)
+theorem sum_staticComparator_cost_le (input : Instance Page)
     (pages : Finset Page) (hcard : pages.card = input.cacheSize + 1)
     (terminal : Time)
     (hrequests : ∀ r ∈ input.requests, r.page ∈ pages ∧ 0 < r.arrival ∧ r.arrival ≤ terminal) :
@@ -168,7 +168,7 @@ theorem sum_staticComparator_cost_le (input : Instance Page) (valid : input.Vali
       input.initialCache.toFinset.card ≤ (pages.erase hole).card := by
     intro hole hhole
     rw [Finset.card_erase_of_mem hhole, hcard, Nat.add_sub_cancel]
-    exact initialCache_card_le input valid
+    exact initialCache_card_le input
   have hdelay (requests : List (Request Page))
       (hr : ∀ r ∈ requests, r.page ∈ pages ∧ 0 < r.arrival ∧ r.arrival ≤ terminal) :
       (∑ hole ∈ pages,

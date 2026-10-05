@@ -466,7 +466,7 @@ theorem potential_zero_eq_triangular (feasible : comparator.Feasible S.input) :
     potential S comparator 0 = triangular S.cacheSize := by
   unfold potential
   rw [S.queue_zero, eventIndex, Analysis.lazyCache_zero, feasible.initialCache,
-    rankPotential_toFinset S.valid.initialCache_nodup, S.initialCache_length]
+    rankPotential_toFinset S.input.initialCache_nodup, S.initialCache_length]
 
 /-- **`Φ ≤ K`** at every boundary. -/
 theorem potential_le_triangular {i : ℕ} (hi : i ≤ S.count) :
@@ -574,31 +574,30 @@ end
 
 /-! ### The main theorem -/
 
-/-- The setup of threshold-one FIFO on a valid instance. -/
-noncomputable def setupOne (input : Instance Page) (valid : input.Valid) : Setup Page where
+/-- The setup of threshold-one FIFO on a instance. -/
+noncomputable def setupOne (input : Instance Page) : Setup Page where
   cacheSize := input.cacheSize
-  positive := valid.positiveCapacity
+  positive := input.positiveCapacity
   threshold := 1
   threshold_pos := zero_lt_one
   input := input
-  valid := valid
   size := rfl
 
 /-- **The main theorem.**  Threshold-one FIFO is `(2k+2)`-competitive with no
 additive constant: `ALG = 2M` and `M ≤ (k+1)·(S + D) = (k+1)·OPT`. -/
-theorem competitiveRatio (input : Instance Page) (valid : input.Valid) :
+theorem competitiveRatio (input : Instance Page) :
     ∀ comparator : Schedule Page, comparator.Feasible input →
-      (FIFO.schedule 1 input valid).totalCost input ≤
+      (FIFO.schedule 1 input).totalCost input ≤
         (2 * input.cacheSize + 2 : ℕ) * comparator.totalCost input := by
   intro comparator feasible
-  have hM := paymentCount_le (S := setupOne input valid) feasible
-  have hcost := FIFO.algorithmCostClaim 1 input valid
+  have hM := paymentCount_le (S := setupOne input) feasible
+  have hcost := FIFO.algorithmCostClaim 1 input
   unfold FIFO.AlgorithmCostClaim FIFO.algorithmCost at hcost
   rw [hcost]
-  have hcount : (FIFO.paymentCount 1 input valid : Cost) = ((setupOne input valid).count : Cost) := rfl
+  have hcount : (FIFO.paymentCount 1 input : Cost) = ((setupOne input).count : Cost) := rfl
   rw [hcount]
   simp only [setupOne, div_one] at hM
-  calc (1 + 1 : Cost) * ((setupOne input valid).count : Cost)
+  calc (1 + 1 : Cost) * ((setupOne input).count : Cost)
       ≤ (1 + 1 : Cost) * ((input.cacheSize + 1 : ℕ) * comparator.fetchCount +
           (input.cacheSize + 1 : ℕ) * comparator.totalDelay input) :=
         mul_le_mul_right hM _

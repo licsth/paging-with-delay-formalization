@@ -18,7 +18,7 @@ structure TimeInvariant (state : State Page) : Prop where
   now_before_unseen : ∀ occurrence ∈ state.unseen,
     state.now ≤ occurrence.request.arrival
 
-theorem initial_timeInvariant (input : Instance Page) (valid : input.Valid) :
+theorem initial_timeInvariant (input : Instance Page) :
     TimeInvariant (initialState input) := by
   have enumerate_authentic : ∀ (n : ℕ) (requests : List (Request Page))
       (occurrence : Occurrence Page), occurrence ∈ enumerateFrom n requests →
@@ -50,7 +50,7 @@ theorem initial_timeInvariant (input : Instance Page) (valid : input.Valid) :
   · simp [initialState]
   · simp [initialState]
   · simpa [initialState, enumerate] using
-      enumerate_pairwise 0 input.requests valid.chronological
+      enumerate_pairwise 0 input.requests input.chronological
   · intro occurrence h
     exact bot_le
 
@@ -185,11 +185,10 @@ theorem run_timeInvariant (input : Instance Page) :
           exact ih _ (step_timeInvariant input state action htime ha)
             (step_belowThreshold input state action hbelow ha)
 
-theorem final_payment_times_chronological (input : Instance Page)
-    (valid : input.Valid) :
+theorem final_payment_times_chronological (input : Instance Page) :
     (run δ input (2 * input.requests.length) (initialState input)).payments.Pairwise
       fun earlier later => earlier.time ≤ later.time :=
-  (run_timeInvariant input _ _ (initial_timeInvariant input valid)
+  (run_timeInvariant input _ _ (initial_timeInvariant input)
     (initial_belowThreshold input)).payments_chronological
 
 end

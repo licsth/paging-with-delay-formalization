@@ -269,7 +269,7 @@ The mark hypothesis `_hq` is not used: the short payment is available whatever
 the mark is.  It is kept so that the transitions here match
 `PhaseCount.Step.payShort` one for one — the mark is what tells the adversary
 that the *long* payment is available instead, and by `PhaseCount.pay_cases`
-exactly one of the two branches applies in any valid state. -/
+exactly one of the two branches applies in any state. -/
 theorem pay_short (hcert : Certificate V start processed alpha c L q m now)
     (hL : L = {d}) (_hq : q = some d) (hK : (V \ {c, d}).Nonempty)
     (hpage : beta.page = d) (harrival : now < beta.arrival)

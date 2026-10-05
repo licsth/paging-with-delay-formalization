@@ -56,8 +56,8 @@ pays `δ` that often. -/
 theorem exists_comparator (δ : Cost) {k : ℕ} (runs : ℕ) (pages : Fin (k + 2) ↪ Page)
     (hk : 0 < k) :
     ∃ comparator : Schedule Page,
-      comparator.Feasible (input δ k runs pages) ∧
-        comparator.totalCost (input δ k runs pages) ≤ (1 + δ) * runs + 2 :=
+      comparator.Feasible (input δ k runs pages hk) ∧
+        comparator.totalCost (input δ k runs pages hk) ≤ (1 + δ) * runs + 2 :=
   ⟨comparator k runs pages, comparator_feasible hk pages,
     le_of_eq (comparator_totalCost hk pages)⟩
 

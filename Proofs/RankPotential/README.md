@@ -35,7 +35,7 @@ final theorem specialises to `δ = 1`.
 
 ## Files
 
-- `Setup.lean`: the run of `δ`-FIFO on a valid instance, described through
+- `Setup.lean`: the run of `δ`-FIFO on an instance, described through
   its eviction order (`seq`, `queue`, `pageAt`, `timeAt`), with the facts read
   off the event-loop invariants of `EventLoop/`.
 - `Windows.lean`: payment windows and their three properties.

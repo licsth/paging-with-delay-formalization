@@ -145,42 +145,41 @@ noncomputable section
 /-- Appending a request does not change which events happen before its
 arrival. -/
 theorem Online.appendRequest_mem_events {algorithm : Algorithm Page}
-    (online : Online algorithm) (input : Instance Page) (valid : input.Valid)
-    (request : Request Page) (extendedValid : (input.appendRequest request).Valid)
+    (online : Online algorithm) (input : Instance Page)
+    (request : Request Page) (hlast : ∀ r ∈ input.requests, r.arrival ≤ request.arrival)
     (e : FetchEvent Page) (he : e.time < request.arrival) :
-    e ∈ (algorithm (input.appendRequest request) extendedValid).events ↔
-      e ∈ (algorithm input valid).events := by
-  have hprefix := online.appendRequest_prefix input valid request extendedValid he
+    e ∈ (algorithm (input.appendRequest request hlast)).events ↔
+      e ∈ (algorithm input).events := by
+  have hprefix := online.appendRequest_prefix input request hlast he
   constructor
   · intro hmem
-    have : e ∈ ((algorithm (input.appendRequest request) extendedValid).upTo e.time).events :=
+    have : e ∈ ((algorithm (input.appendRequest request hlast)).upTo e.time).events :=
       List.mem_filter.mpr ⟨hmem, by simp⟩
     rw [hprefix] at this
     exact (List.mem_filter.mp this).1
   · intro hmem
-    have : e ∈ ((algorithm input valid).upTo e.time).events :=
+    have : e ∈ ((algorithm input).upTo e.time).events :=
       List.mem_filter.mpr ⟨hmem, by simp⟩
     rw [← hprefix] at this
     exact (List.mem_filter.mp this).1
 
 /-- A request already served before the new arrival keeps its service time. -/
 theorem Online.appendRequest_serviceTime {algorithm : Algorithm Page}
-    (online : Online algorithm) (feasible : Feasible algorithm)
-    (input : Instance Page) (valid : input.Valid)
-    (request : Request Page) (extendedValid : (input.appendRequest request).Valid)
+    (online : Online algorithm) (input : Instance Page) (request : Request Page)
+    (hlast : ∀ r ∈ input.requests, r.arrival ≤ request.arrival)
     (earlier : Request Page) (harrival : earlier.arrival < request.arrival)
     {time : Time} (htime : time < request.arrival)
-    (hservice : (algorithm input valid).serviceTime earlier = some time) :
-    (algorithm (input.appendRequest request) extendedValid).serviceTime earlier = some time := by
-  set old := algorithm input valid with hold
-  set new := algorithm (input.appendRequest request) extendedValid with hnew
+    (hservice : (algorithm input).serviceTime earlier = some time) :
+    (algorithm (input.appendRequest request hlast)).serviceTime earlier = some time := by
+  set old := algorithm input with hold
+  set new := algorithm (input.appendRequest request hlast) with hnew
   have hcache : new.cacheBefore earlier.arrival = old.cacheBefore earlier.arrival := by
-    apply online.cacheBefore_eq feasible _ _ _ _ (by rfl)
+    apply online.cacheBefore_eq _ _ (by rfl)
     intro s hs
-    exact input.appendRequest_upTo request (hs.trans harrival)
+    exact input.appendRequest_upTo request hlast (hs.trans harrival)
   have hevents : ∀ e : FetchEvent Page, e.time < request.arrival →
       (e ∈ new.events ↔ e ∈ old.events) :=
-    fun e he => online.appendRequest_mem_events input valid request extendedValid e he
+    fun e he => online.appendRequest_mem_events input request hlast e he
   have hcongr : ∀ {t : Time}, t < request.arrival →
       (t ∈ new.serviceCandidates earlier ↔ t ∈ old.serviceCandidates earlier) :=
     fun {t} ht => Schedule.mem_serviceCandidates_congr earlier hcache hevents ht
@@ -193,16 +192,15 @@ theorem Online.appendRequest_serviceTime {algorithm : Algorithm Page}
 
 /-- Consequently the delay cost of every earlier served request is unchanged. -/
 theorem Online.appendRequest_requestCost {algorithm : Algorithm Page}
-    (online : Online algorithm) (feasible : Feasible algorithm)
-    (input : Instance Page) (valid : input.Valid)
-    (request : Request Page) (extendedValid : (input.appendRequest request).Valid)
+    (online : Online algorithm) (input : Instance Page) (request : Request Page)
+    (hlast : ∀ r ∈ input.requests, r.arrival ≤ request.arrival)
     (earlier : Request Page) (harrival : earlier.arrival < request.arrival)
     {time : Time} (htime : time < request.arrival)
-    (hservice : (algorithm input valid).serviceTime earlier = some time) :
-    (algorithm (input.appendRequest request) extendedValid).requestCost earlier =
-      (algorithm input valid).requestCost earlier := by
+    (hservice : (algorithm input).serviceTime earlier = some time) :
+    (algorithm (input.appendRequest request hlast)).requestCost earlier =
+      (algorithm input).requestCost earlier := by
   rw [Schedule.requestCost_of_serviceTime _ _ _
-      (online.appendRequest_serviceTime feasible input valid request extendedValid earlier
+      (online.appendRequest_serviceTime input request hlast earlier
         harrival htime hservice),
     Schedule.requestCost_of_serviceTime _ _ _ hservice]
 

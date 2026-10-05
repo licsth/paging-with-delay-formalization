@@ -64,12 +64,12 @@ theorem initialCache_subset_pageUniverse (input : Instance Page) :
   intro page hpage
   exact mem_pageUniverse.mpr (Or.inl (List.mem_toFinset.mp hpage))
 
-/-- On a valid instance the universe has at least `cacheSize` pages. -/
-theorem cacheSize_le_card_pageUniverse {input : Instance Page} (valid : input.Valid) :
+/-- On a instance the universe has at least `cacheSize` pages. -/
+theorem cacheSize_le_card_pageUniverse {input : Instance Page} :
     input.cacheSize ≤ input.pageUniverse.card := by
-  calc input.cacheSize = input.initialCache.length := valid.initialCache_full.symm
+  calc input.cacheSize = input.initialCache.length := input.initialCache_full.symm
     _ = input.initialCache.toFinset.card :=
-        (List.toFinset_card_of_nodup valid.initialCache_nodup).symm
+        (List.toFinset_card_of_nodup input.initialCache_nodup).symm
     _ ≤ input.pageUniverse.card :=
         Finset.card_le_card (initialCache_subset_pageUniverse input)
 
