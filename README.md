@@ -62,7 +62,7 @@ The event loop in `EventLoop.lean` keeps the cache as the pages of the most rece
 
 ### Paging with delay: a matching upper bound on `k+1` pages
 
-`paging_with_delay_upper_bound_k_plus_one_pages`: FIFO with threshold `(k+1)/k` is nonclairvoyant, online and strictly `(2k+1)`-competitive on the same inputs as the lower bound, so on `k+1` pages the competitive ratio is exactly `2k+1`. There is no additive term since both schedules start from the common initial cache. The proof (`Proofs/KPlusOne/`) reuses the payment accounting with the write-up's stronger offline potential change on `k+1` pages: only `k` is charged per offline fetch, giving `M <= k OPT` and `ALG <= (2k+1) OPT`.
+`paging_with_delay_upper_bound_k_plus_one_pages`: FIFO with threshold `(k+1)/k` is nonclairvoyant, online and strictly `(2k+1)`-competitive on the same inputs as the lower bound, so on `k+1` pages the competitive ratio is exactly `2k+1`. The proof (`Proofs/KPlusOne/`) reuses the payment accounting with the write-up's stronger offline potential change on `k+1` pages: only `k` is charged per offline fetch, giving `M <= k OPT` and `ALG <= (2k+1) OPT`.
 
 ### Paging with deadlines: the `k+1/2` lower bound
 

@@ -1,13 +1,10 @@
-# The `(2k+2)` upper bound via the rank potential
+# The rank-potential analysis of FIFO
 
-This directory proves `RankPotential.competitiveRatio`, the statement behind
-`paging_with_delay_upper_bound`: threshold-one FIFO satisfies
-`ALG ≤ (2k+2)·OPT` against every feasible comparator, with no additive
-constant. It follows the write-up's Section "Upper bounds for the competitive
-ratio of FIFO": payment windows, the rank potential, and three charging cases.
-Everything is stated for an arbitrary positive threshold `δ`, and only the
-final theorem specialises to `δ = 1`. `Setup` itself takes any trigger;
-`Proofs/DeadlineUpperBound/` uses it with the deadline trigger.
+This directory contains the charging argument for FIFO, following the write-up's Section "Upper bounds for the competitive ratio of FIFO": payment windows, the rank potential, and three charging cases. Everything is stated for an arbitrary positive threshold `δ` and, through `Setup`, for any trigger. It yields three of the public results:
+
+- `paging_with_delay_upper_bound`: at `δ = 1`, `ALG <= (2k+2) OPT` (`competitiveRatio`, here);
+- `paging_with_delay_upper_bound_k_plus_one_pages`: with a stronger potential change on `k+1` pages, `ALG <= (2k+1) OPT` at `δ = (k+1)/k` (`Proofs/KPlusOne/`);
+- the deadline upper bounds, where Case 3 cannot occur (`Proofs/DeadlineUpperBound/`).
 
 ## Correspondence with the write-up
 
@@ -37,43 +34,18 @@ final theorem specialises to `δ = 1`. `Setup` itself takes any trigger;
 
 ## Files
 
-- `Setup.lean`: the run of FIFO with a trigger on an instance, described through
-  its eviction order (`seq`, `queue`, `pageAt`, `timeAt`), with the facts read
-  off the event-loop invariants of `EventLoop/`.
+- `Setup.lean`: the run of FIFO with a trigger, described through its eviction order (`seq`, `queue`, `pageAt`, `timeAt`), with facts read off the event-loop invariants of `Proofs/EventLoop/`.
 - `Windows.lean`: payment windows and their three properties.
 - `LazyCache.lean`: the lazy offline cache.
-- `Charging.lean`: the comparator's event indices, the potential, the potential
-  changes, the three cases, and the per-payment charges.
+- `Charging.lean`: the comparator's event indices, the potential, its changes, the three cases, and the per-payment charges.
 - `Final.lean`: summation over all payments, payment accounting, and the theorem.
 
 ## The lazy cache
 
-`Schedule.Feasible` lets one fetch event evict any number of pages, and at
-such an event the rank potential can fall by more than `k`. Instead of
-narrowing the model, the accounting reads the comparator through a lazy cache
-`L n`: it starts at the common initial cache, keeps every page until its slot
-is needed, and always contains the comparator's actual cache. The three cases
-are decided on `L`; case 3 transfers to the real comparator because a page
-outside `L` is outside the real cache, and the fetch count charged is the
-comparator's own. No schedule is built from `L`, so the theorem's comparator
-is exactly the one the statement quantifies over.
+`Schedule.Feasible` lets one fetch event evict any number of pages, and then the rank potential can fall by more than `k`. Instead of narrowing the model, the accounting reads the comparator through a lazy cache `L n`: it starts at the common initial cache, keeps every page until its slot is needed, and always contains the comparator's actual cache. The cases are decided on `L`; Case 3 transfers to the real comparator because a page outside `L` is outside the real cache, and the fetch count charged is the comparator's own. No schedule is built from `L`, so the comparator is exactly the one the statement quantifies over.
+
+The lazy cache is taken over the instance's page universe (`Instance.pageUniverse`), ignoring comparator fetches of other pages. This makes `ΔΦ ≥ 1` available on `k+1` pages, where such a fetch would otherwise evict a page and add nothing, and costs nothing in general, since only pages of the universe are requested.
 
 ## The `k+1`-page improvement
 
-The accounting is stated with a general charge `c` per offline fetch
-(`payment_accounting_of_gain`, `paymentCount_le_of_gain`): it holds whenever
-every associated case-2 event has gain `k + ΔΦ ≥ 2k+1-c`, with `ΔΦ` the change
-of the complement potential `Σ_{C_ALG ∩ C_OPT} rank` (the write-up's `-ΔΦ`).
-The general bound takes `c = k+1` from `ΔΦ ≥ 0`. On `k+1` pages
-`Proofs/KPlusOne/Final.lean` proves the write-up's stronger
-`ΔΦ ≥ 1` at those events (`gainAt_ge_succ_of_evicted_outside`: the evicted
-page is the one page outside FIFO's cache, so the fetched page is inside it),
-takes `c = k`, and obtains `M ≤ k·S + ((k+1)/δ)·D`
-(`paymentCount_le_k_plus_one`), hence `ALG ≤ (2k+1)·OPT` at `δ = (k+1)/k`
-(`competitive_of_pageUniverse`).
-
-The lazy cache is taken over the instance's page universe
-(`Instance.pageUniverse`): a comparator fetch of a page outside the universe
-is ignored by it. This is what makes `ΔΦ ≥ 1` available on `k+1` pages — such
-a fetch would otherwise evict the page and add nothing — and it costs nothing
-in general, since only pages of the universe are ever requested.
+The accounting is stated with a general charge `c` per offline fetch (`payment_accounting_of_gain`, `paymentCount_le_of_gain`): it holds whenever every associated Case-2 event has gain `k + ΔΦ ≥ 2k+1-c`, with `ΔΦ` the change of the complement potential `Σ_{C_ALG ∩ C_OPT} rank` (the write-up's `-ΔΦ`). The general bound takes `c = k+1` from `ΔΦ ≥ 0`. On `k+1` pages, `Proofs/KPlusOne/Final.lean` proves `ΔΦ ≥ 1` at those events (`gainAt_ge_succ_of_evicted_outside`: the evicted page is the one page outside FIFO's cache, so the fetched page is inside it), takes `c = k`, and obtains `M ≤ k·S + ((k+1)/δ)·D` (`paymentCount_le_k_plus_one`), hence `ALG ≤ (2k+1)·OPT` at `δ = (k+1)/k` (`competitive_of_pageUniverse`).
