@@ -171,6 +171,7 @@ structure Algorithm (Page : Type*) [DecidableEq Page] where
   /-- Every instance receives a feasible schedule. -/
   feasible : ∀ input : Instance Page, (run input).Feasible input
 
+/-- Lets an algorithm be applied to an instance like a function: `algorithm input` means `algorithm.run input`. -/
 instance : CoeFun (Algorithm Page) fun _ => Instance Page → Schedule Page :=
   ⟨Algorithm.run⟩
 
@@ -197,6 +198,7 @@ structure DeadlineAlgorithm (Page : Type*) [DecidableEq Page] extends Algorithm 
   meetsDeadlines : ∀ (input : Instance Page), ∀ request ∈ input.requests,
     (run input).requestCost request = 0
 
+/-- The same coercion for deadline algorithms; Lean does not inherit it through `extends`. -/
 instance : CoeFun (DeadlineAlgorithm Page) fun _ => Instance Page → Schedule Page :=
   ⟨fun algorithm => algorithm.run⟩
 
