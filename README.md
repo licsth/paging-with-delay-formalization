@@ -36,7 +36,7 @@ An algorithm is _online_ (`Algorithm.Online`) when its schedule up to time `t` i
 
 ### Deadlines
 
-The deadline of a request (`Request.deadline`) is the last time its delay is still zero. A `DeadlineAlgorithm` is an algorithm that meets every deadline on every instance, so its cost is its number of fetches. `DeadlineAlgorithm.Competitive` and `DeadlineAlgorithm.StrictlyCompetitive` compare it with every deadline algorithm.
+To reuse the formalization, the deadline of a request (`Request.deadline`) is modeled as the last time its delay is still zero. A `DeadlineAlgorithm` is an algorithm that meets every deadline on every instance, so its cost is its number of fetches. `DeadlineAlgorithm.Competitive` and `DeadlineAlgorithm.StrictlyCompetitive` compare it with every deadline algorithm.
 
 `Algorithm.Nonclairvoyant` is too strong for deadline algorithms: a deadline at `t` shows in the delay only after `t`, so a request would have to be served on arrival. `DeadlineAlgorithm.Nonclairvoyant` instead lets an algorithm learn a deadline when it is reached: its schedule up to `t` is determined by the requests that have arrived by `t` and those of their deadlines that are at most `t` (`Request.DeadlineAgreeUpTo`). It also implies onlineness (`DeadlineAlgorithm.Nonclairvoyant.online`).
 
