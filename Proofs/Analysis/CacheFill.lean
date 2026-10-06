@@ -43,47 +43,24 @@ theorem fillEvents_time (initial : Finset Page) (pages : List Page)
   | nil => simp [fillEvents] at he
   | cons page rest ih =>
       rcases List.mem_cons.mp he with rfl | he
-      · rfl
-      · exact ih _ he
+      exacts [rfl, ih _ he]
 
-theorem fillEvents_valid (initial : Finset Page) (pages : List Page)
-    (hnodup : pages.Nodup) (hnew : ∀ page ∈ pages, page ∉ initial) :
-    Schedule.ValidTransitionsFrom initial (fillEvents initial pages) := by
-  induction pages generalizing initial with
+/-- The fill may start from a *sub*set `base` of the actual previous cache: the
+first fetch then also evicts the pages outside `base`. -/
+theorem fillEvents_valid_of_subset {base initial : Finset Page} (hbase : base ⊆ initial)
+    (pages : List Page) (hnodup : pages.Nodup) (hnew : ∀ page ∈ pages, page ∉ initial) :
+    Schedule.ValidTransitionsFrom initial (fillEvents base pages) := by
+  induction pages generalizing base initial with
   | nil => trivial
   | cons page rest ih =>
       have hp := hnew page (by simp)
       have hnd := List.nodup_cons.mp hnodup
-      refine ⟨by simp, ?_, ih _ hnd.2 ?_⟩
+      refine ⟨by simp, ?_, ih subset_rfl hnd.2 fun p hrest => ?_⟩
       · ext p
         simp only [Finset.mem_sdiff, Finset.mem_insert, Finset.mem_singleton]
-        aesop
-      · intro p hrest
-        simp only [Finset.mem_insert, not_or]
-        exact ⟨fun heq => hnd.1 (heq ▸ hrest), hnew p (by simp [hrest])⟩
-
-/-- The fill may start from a *sub*set of the actual previous cache: the first
-fetch then also evicts the pages outside `base`. -/
-theorem fillEvents_valid_of_subset {base initial : Finset Page} (hbase : base ⊆ initial)
-    (pages : List Page) (hnodup : pages.Nodup) (hnew : ∀ page ∈ pages, page ∉ initial) :
-    Schedule.ValidTransitionsFrom initial (fillEvents base pages) := by
-  cases pages with
-  | nil => trivial
-  | cons page rest =>
-      have hp := hnew page (by simp)
-      have hnd := List.nodup_cons.mp hnodup
-      refine ⟨by simp, ?_, ?_⟩
-      · ext p
-        simp only [Finset.mem_sdiff, Finset.mem_insert, Finset.mem_singleton]
-        constructor
-        · rintro ⟨rfl | hp', hnot⟩
-          · rfl
-          · exact absurd (hbase hp') hnot
-        · rintro rfl
-          exact ⟨Or.inl rfl, hp⟩
-      · refine fillEvents_valid _ _ hnd.2 ?_
-        intro p hrest
-        simp only [Finset.mem_insert, not_or]
+        exact ⟨fun ⟨h, hnot⟩ => h.resolve_right fun h' => hnot (hbase h'),
+          fun h => ⟨.inl h, h ▸ hp⟩⟩
+      · simp only [Finset.mem_insert, not_or]
         exact ⟨fun heq => hnd.1 (heq ▸ hrest), fun hb => hnew p (by simp [hrest]) (hbase hb)⟩
 
 theorem fillEvents_cache_subset (initial : Finset Page) (pages : List Page)
@@ -93,14 +70,9 @@ theorem fillEvents_cache_subset (initial : Finset Page) (pages : List Page)
   | nil => simp [fillEvents] at he
   | cons page rest ih =>
       rcases List.mem_cons.mp he with rfl | he
-      · simp only [List.toFinset_cons]
-        intro p hp
-        simp only [Finset.mem_insert] at hp
-        rcases hp with rfl | hp
-        · simp
-        · exact Finset.mem_union_left _ hp
-      · have h := ih _ he
-        simpa [List.toFinset_cons, Finset.insert_union] using h
+      · rw [List.toFinset_cons, Finset.union_insert]
+        exact Finset.insert_subset_insert _ Finset.subset_union_left
+      · simpa [Finset.insert_union] using ih _ he
 
 /-- After all fill events, the initial cache and all listed pages are held. -/
 theorem fillEvents_fold (initial : Finset Page) (pages : List Page) :
@@ -146,28 +118,16 @@ is untouched, so the initial cache must be no larger than the target for it to
 be the target already. -/
 theorem resetEvents_fold (initial target : Finset Page) (hcard : initial.card ≤ target.card) :
     (resetEvents initial target).foldl (fun _ event => event.cacheAfter) initial = target := by
-  have h : ∀ (events : List (FetchEvent Page)) (a b : Finset Page), events ≠ [] →
-      events.foldl (fun _ event => event.cacheAfter) a =
-        events.foldl (fun _ event => event.cacheAfter) b := by
-    intro events a b hne
-    cases events with
-    | nil => exact absurd rfl hne
-    | cons e rest => rfl
-  by_cases hempty : (target \ initial).toList = []
-  · have hsub : target ⊆ initial := by
-      intro p hp
-      by_contra hnot
-      have : p ∈ (target \ initial).toList := Finset.mem_toList.mpr (Finset.mem_sdiff.mpr ⟨hp, hnot⟩)
-      simp [hempty] at this
-    rw [resetEvents, hempty, fillEvents, List.foldl_nil]
-    exact (Finset.eq_of_subset_of_card_le hsub hcard).symm
-  · have hne : fillEvents (initial ∩ target) (target \ initial).toList ≠ [] := by
-      intro hnil
-      have := congrArg List.length hnil
-      rw [fillEvents_length] at this
-      exact hempty (List.length_eq_zero_iff.mp this)
-    rw [resetEvents, h _ initial (initial ∩ target) hne, fillEvents_fold, Finset.toList_toFinset,
-      inter_union_sdiff']
+  have hunion := inter_union_sdiff' initial target
+  rw [← Finset.toList_toFinset (target \ initial)] at hunion
+  unfold resetEvents
+  cases hlist : (target \ initial).toList with
+  | nil =>
+      have hsub := Finset.sdiff_eq_empty_iff_subset.mp (Finset.toList_eq_nil.mp hlist)
+      exact (Finset.eq_of_subset_of_card_le hsub hcard).symm
+  | cons page rest =>
+      rw [hlist] at hunion
+      simpa [fillEvents, fillEvents_fold, Finset.insert_union] using hunion
 
 theorem resetEvents_length_le (initial target : Finset Page) :
     (resetEvents initial target).length ≤ target.card := by

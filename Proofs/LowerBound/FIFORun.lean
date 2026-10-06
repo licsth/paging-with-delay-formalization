@@ -19,20 +19,23 @@ variable {Page : Type*} [DecidableEq Page]
 
 noncomputable section
 
-/-- The replay state after `i` arrivals and the `i` fetches they caused. -/
-structure Settled (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (i : ℕ)
-    (state : State Page) : Prop where
+/-- A replay state: `i` fetches made, the first `j` requests arrived, and `pend` pending. -/
+structure ReplayState (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (i j : ℕ)
+    (pend : List (Occurrence Page)) (state : State Page) : Prop where
   queue : state.queue = queueAt k pages i
-  unseen : state.unseen = unseenFrom δ k runs pages i
-  pending : state.pending = []
+  unseen : state.unseen = unseenFrom δ k runs pages j
+  pending : state.pending = pend
   payments : state.payments.length = i
+
+/-- The replay state after `i` arrivals and the `i` fetches they caused. -/
+abbrev Settled (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (i : ℕ) :
+    State Page → Prop :=
+  ReplayState δ k runs pages i i []
 
 theorem settled_initial (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) {hk : 0 < k} :
     Settled δ k runs pages 0 (initialState (input δ k runs pages hk)) where
   queue := by simp [initialState, queueAt_zero]
-  unseen := by
-    show enumerate (input δ k runs pages hk).requests = _
-    exact unseenFrom_zero δ k runs pages hk
+  unseen := unseenFrom_zero δ k runs pages hk
   pending := rfl
   payments := rfl
 
@@ -47,6 +50,80 @@ theorem unseen_head_eq {δ : Cost} {k runs : ℕ} {pages : Fin (k + 2) ↪ Page}
   · rw [unseenFrom_nil δ k runs pages hj] at h
     exact absurd h (by simp)
 
+section Steps
+
+variable {δ : Cost} {k runs : ℕ} {hk : 0 < k} {pages : Fin (k + 2) ↪ Page} {i j : ℕ}
+  {pend : List (Occurrence Page)} {state : State Page}
+
+/-- The arrival of request `j`, whose page is not cached, makes it pending. -/
+theorem ReplayState.arrive (hs : ReplayState δ k runs pages i j pend state)
+    (hmiss : page k pages (pageCode k j) ∉ queueAt k pages i) :
+    ReplayState δ k runs pages i (j + 1) (pend ++ [occAt δ k runs pages j])
+      (step (input δ k runs pages hk) state (.arrival (occAt δ k runs pages j))) where
+  queue := hs.queue
+  unseen := (congrArg List.tail hs.unseen).trans (unseenFrom_tail δ k runs pages j)
+  pending := by simp only [step, occAt_page, hs.queue, hs.pending, if_neg hmiss]
+  payments := hs.payments
+
+/-- A payment fetches the next page of the eviction order. -/
+theorem ReplayState.pay (hs : ReplayState δ k runs pages i j pend state) {t : Time} {p : Page}
+    (hp : p = fetchedPage k pages (i + 1)) {pend' : List (Occurrence Page)}
+    (hpend : pend.filter (fun o => o.request.page ≠ p) = pend') :
+    ReplayState δ k runs pages (i + 1) j pend'
+      (step (input δ k runs pages hk) state (.payment t p)) where
+  queue := by subst hp; rw [← queueAt_succ k hk pages i, ← hs.queue]; rfl
+  unseen := hs.unseen
+  pending := by simp only [step, hs.pending, hpend]
+  payments := by simp [step, hs.payments]
+
+/-- With nothing pending, the next request arrives. -/
+theorem Settled.nextAction (hs : Settled δ k runs pages i state)
+    (hi : i < runLength k * runs) :
+    nextAction? (.threshold δ) state = some (.arrival (occAt δ k runs pages i)) :=
+  nextAction_arrival (hs.unseen.trans (unseenFrom_cons δ k runs pages hi))
+    (nextPayment_none hs.pending)
+
+/-- A page whose only pending request is `m` reaches the threshold at `critTime k m`. -/
+theorem thresholdTime_occAt (hδ : 0 < δ) {m : ℕ}
+    (hfilter : (state.pending.filter fun o => o.request.page = page k pages (pageCode k m)) =
+      [occAt δ k runs pages m])
+    (hnow : state.now ≤ critTime k m) :
+    thresholdTime δ state (page k pages (pageCode k m)) = critTime k m :=
+  thresholdTime_single hδ state _ _ _ _ (width_pos k m) (width_le_horizon k runs m) hfilter rfl
+    hnow
+
+theorem nextPayment_occAt (hδ : 0 < δ) {m : ℕ} (hpend : state.pending = [occAt δ k runs pages m])
+    (hnow : state.now ≤ critTime k m) :
+    nextPayment? (.threshold δ) state = some (critTime k m, page k pages (pageCode k m)) := by
+  rw [nextPayment_single hpend, occAt_page,
+    thresholdTime_occAt (runs := runs) hδ (by simp [hpend]) hnow]
+
+/-- Of two pending pages, the one reaching the threshold first is paid first. -/
+theorem nextPayment_pair_occAt (hδ : 0 < δ) {m m' : ℕ}
+    (hpend : state.pending = [occAt δ k runs pages m, occAt δ k runs pages m'])
+    (hne : page k pages (pageCode k m) ≠ page k pages (pageCode k m'))
+    (hnow : state.now ≤ critTime k m') (hlt : critTime k m' < critTime k m) :
+    nextPayment? (.threshold δ) state = some (critTime k m', page k pages (pageCode k m')) := by
+  have hthr := thresholdTime_occAt (runs := runs) (pages := pages) (m := m') hδ
+    (by simp [hpend, hne]) hnow
+  have hthr' := thresholdTime_occAt (runs := runs) (pages := pages) (m := m) hδ
+    (by simp [hpend, Ne.symm hne]) (hnow.trans hlt.le)
+  simpa only [occAt_page, hthr] using nextPayment_pair (δ := δ) hpend (by simpa using hne)
+    (by simpa only [occAt_page, hthr, hthr'] using hlt)
+
+/-- A payment due strictly before the next arrival is the next action. -/
+theorem nextAction_pay {m : ℕ} {p : Page}
+    (hp : nextPayment? (.threshold δ) state = some (critTime k m, p))
+    (hu : state.unseen = unseenFrom δ k runs pages j)
+    (hlt : critQuarters k m < arrivalQuarters k j) :
+    nextAction? (.threshold δ) state = some (.payment (critTime k m) p) :=
+  nextAction_payment hp fun occ rest hocc => by
+    rw [hu] at hocc
+    rw [unseen_head_eq hocc, occAt_arrival, critTime_eq, arrivalTime_eq]
+    exact quarter_lt hlt
+
+end Steps
+
 /-- **A beat.**  From a settled state, one arrival and the fetch it triggers
 lead to the next settled state. -/
 theorem beat_step {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
@@ -56,47 +133,12 @@ theorem beat_step {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     (hlt : critQuarters k i < arrivalQuarters k (i + 1))
     {state : State Page} (hs : Settled δ k runs pages i state) :
     Settled δ k runs pages (i + 1) (run (.threshold δ) (input δ k runs pages hk) 2 state) := by
-  have hunseen : state.unseen =
-      occAt δ k runs pages i :: unseenFrom δ k runs pages (i + 1) := by
-    rw [hs.unseen, unseenFrom_cons δ k runs pages hiN]
-  have hact1 : nextAction? (.threshold δ) state = some (Action.arrival (occAt δ k runs pages i)) :=
-    nextAction_arrival hunseen (nextPayment_none hs.pending)
-  rw [show (2 : ℕ) = 1 + 1 from rfl, run_step _ 1 hact1]
-  set s1 := step (input δ k runs pages hk) state (Action.arrival (occAt δ k runs pages i))
-    with hs1def
-  have hs1queue : s1.queue = queueAt k pages i := by
-    rw [hs1def]; simp only [step]; exact hs.queue
-  have hs1unseen : s1.unseen = unseenFrom δ k runs pages (i + 1) := by
-    rw [hs1def]; simp only [step]; rw [hunseen]; rfl
-  have hs1pending : s1.pending = [occAt δ k runs pages i] := by
-    rw [hs1def]; simp only [step, occAt_page, hs.queue, hs.pending, if_neg hmiss]; rfl
-  have hs1now : s1.now = arrivalTime k i := by rw [hs1def]; simp only [step]; rfl
-  have hs1payments : s1.payments = state.payments := by rw [hs1def]; simp only [step]
-  have hthr : thresholdTime δ s1 (page k pages (pageCode k i)) = critTime k i := by
-    refine thresholdTime_single hδ s1 _ (occAt δ k runs pages i) (width k i)
-      (horizon k runs) (width_pos k i) (width_le_horizon k runs i) ?_ rfl ?_
-    · rw [hs1pending]; simp
-    · rw [hs1now]; exact le_self_add
-  have hpay : nextPayment? (.threshold δ) s1 = some (critTime k i, page k pages (pageCode k i)) := by
-    rw [nextPayment_single hs1pending]
-    simp only [occAt_page, hthr]
-  have hact2 : nextAction? (.threshold δ) s1 =
-      some (Action.payment (critTime k i) (page k pages (pageCode k i))) := by
-    refine nextAction_payment hpay ?_
-    intro occ rest hocc
-    rw [hs1unseen] at hocc
-    rw [unseen_head_eq hocc, occAt_arrival, critTime_eq, arrivalTime_eq]
-    exact quarter_lt hlt
-  rw [run_step _ 0 hact2, run_zero]
-  set s2 := step (input δ k runs pages hk) s1
-    (Action.payment (critTime k i) (page k pages (pageCode k i))) with hs2def
-  refine ⟨?_, ?_, ?_, ?_⟩
-  · rw [hs2def]
-    simp only [step, input_cacheSize, hs1queue, hfetch]
-    exact queueAt_succ k hk pages i
-  · rw [hs2def]; simp only [step]; exact hs1unseen
-  · rw [hs2def]; simp only [step, hs1pending]; simp
-  · rw [hs2def]; simp only [step, hs1payments]; simp [hs.payments]
+  have h1 : ReplayState δ k runs pages i (i + 1) [occAt δ k runs pages i] _ :=
+    hs.arrive (hk := hk) hmiss
+  rw [run_step _ _ (hs.nextAction hiN),
+    run_step _ _ (nextAction_pay (nextPayment_occAt hδ h1.pending le_self_add) h1.unseen hlt),
+    run_zero]
+  exact h1.pay (by rw [hfetch]; rfl) (by simp)
 
 /-- **The transposed beat.**  At the pair of a run whose arrival order and
 criticality order disagree, two arrivals precede the two fetches they cause,
@@ -114,121 +156,28 @@ theorem transposed_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     (hnextC : critQuarters k i < arrivalQuarters k (i + 2))
     {state : State Page} (hs : Settled δ k runs pages i state) :
     Settled δ k runs pages (i + 2) (run (.threshold δ) (input δ k runs pages hk) 4 state) := by
-  have hiN' : i < runLength k * runs := by omega
-  -- step 1: the early request arrives
-  have hunseen : state.unseen =
-      occAt δ k runs pages i :: unseenFrom δ k runs pages (i + 1) := by
-    rw [hs.unseen, unseenFrom_cons δ k runs pages hiN']
-  have hact1 : nextAction? (.threshold δ) state = some (Action.arrival (occAt δ k runs pages i)) :=
-    nextAction_arrival hunseen (nextPayment_none hs.pending)
-  rw [show (4 : ℕ) = 1 + 1 + 1 + 1 from rfl, run_step _ 3 hact1]
-  set s1 := step (input δ k runs pages hk) state (Action.arrival (occAt δ k runs pages i))
-    with hs1def
-  have hs1queue : s1.queue = queueAt k pages i := by
-    rw [hs1def]; simp only [step]; exact hs.queue
-  have hs1unseen : s1.unseen = unseenFrom δ k runs pages (i + 1) := by
-    rw [hs1def]; simp only [step]; rw [hunseen]; rfl
-  have hs1pending : s1.pending = [occAt δ k runs pages i] := by
-    rw [hs1def]; simp only [step, occAt_page, hs.queue, hs.pending, if_neg hmissC]; rfl
-  have hs1now : s1.now = arrivalTime k i := by rw [hs1def]; simp only [step]; rfl
-  have hs1payments : s1.payments = state.payments := by rw [hs1def]; simp only [step]
-  -- step 2: the overtaking request arrives before the first one turns critical
-  have hthr1 : thresholdTime δ s1 (page k pages (pageCode k i)) = critTime k i := by
-    refine thresholdTime_single hδ s1 _ (occAt δ k runs pages i) (width k i)
-      (horizon k runs) (width_pos k i) (width_le_horizon k runs i) ?_ rfl ?_
-    · rw [hs1pending]; simp
-    · rw [hs1now]; exact le_self_add
-  have hpay1 : nextPayment? (.threshold δ) s1 = some (critTime k i, page k pages (pageCode k i)) := by
-    rw [nextPayment_single hs1pending]; simp only [occAt_page, hthr1]
-  have hs1cons : s1.unseen =
-      occAt δ k runs pages (i + 1) :: unseenFrom δ k runs pages (i + 2) := by
-    rw [hs1unseen, unseenFrom_cons δ k runs pages hiN]
-  have hact2 : nextAction? (.threshold δ) s1 = some (Action.arrival (occAt δ k runs pages (i + 1))) := by
-    refine nextAction_arrival_of_le hs1cons hpay1 ?_
-    rw [occAt_arrival, critTime_eq, arrivalTime_eq]
-    exact quarter_le harrB
-  rw [run_step _ 2 hact2]
-  set s2 := step (input δ k runs pages hk) s1 (Action.arrival (occAt δ k runs pages (i + 1)))
-    with hs2def
-  have hs2queue : s2.queue = queueAt k pages i := by
-    rw [hs2def]; simp only [step]; exact hs1queue
-  have hs2unseen : s2.unseen = unseenFrom δ k runs pages (i + 2) := by
-    rw [hs2def]; simp only [step]; rw [hs1cons]; rfl
-  have hs2pending : s2.pending =
-      [occAt δ k runs pages i, occAt δ k runs pages (i + 1)] := by
-    rw [hs2def]; simp only [step, occAt_page, hs1queue, hs1pending, if_neg hmissB]; rfl
-  have hs2now : s2.now = arrivalTime k (i + 1) := by rw [hs2def]; simp only [step]; rfl
-  have hs2payments : s2.payments = state.payments := by
-    rw [hs2def]; simp only [step]; exact hs1payments
-  -- step 3: the overtaking request turns critical first
-  have hthr2C : thresholdTime δ s2 (page k pages (pageCode k i)) = critTime k i := by
-    refine thresholdTime_single hδ s2 _ (occAt δ k runs pages i) (width k i)
-      (horizon k runs) (width_pos k i) (width_le_horizon k runs i) ?_ rfl ?_
-    · rw [hs2pending]; simp [Ne.symm hne]
-    · rw [hs2now]
-      show arrivalTime k (i + 1) ≤ critTime k i
-      rw [arrivalTime_eq, critTime_eq]
-      exact quarter_le harrB
-  have hthr2B : thresholdTime δ s2 (page k pages (pageCode k (i + 1))) =
-      critTime k (i + 1) := by
-    refine thresholdTime_single hδ s2 _ (occAt δ k runs pages (i + 1)) (width k (i + 1))
-      (horizon k runs) (width_pos k (i + 1)) (width_le_horizon k runs (i + 1)) ?_ rfl ?_
-    · rw [hs2pending]; simp [hne]
-    · rw [hs2now]; exact le_self_add
-  have hpay2 : nextPayment? (.threshold δ) s2 =
-      some (critTime k (i + 1), page k pages (pageCode k (i + 1))) := by
-    have := nextPayment_pair (δ := δ) hs2pending (by simpa using hne)
-      (by simp only [occAt_page, hthr2B, hthr2C, critTime_eq]; exact quarter_lt hcritB)
-    simpa only [occAt_page, hthr2B] using this
-  have hact3 : nextAction? (.threshold δ) s2 =
-      some (Action.payment (critTime k (i + 1)) (page k pages (pageCode k (i + 1)))) := by
-    refine nextAction_payment hpay2 ?_
-    intro occ rest hocc
-    rw [hs2unseen] at hocc
-    rw [unseen_head_eq hocc, occAt_arrival, critTime_eq, arrivalTime_eq]
-    exact quarter_lt hnextB
-  rw [run_step _ 1 hact3]
-  set s3 := step (input δ k runs pages hk) s2
-    (Action.payment (critTime k (i + 1)) (page k pages (pageCode k (i + 1)))) with hs3def
-  have hs3queue : s3.queue = queueAt k pages (i + 1) := by
-    rw [hs3def]
-    simp only [step, input_cacheSize, hs2queue, hfetchB]
-    exact queueAt_succ k hk pages i
-  have hs3unseen : s3.unseen = unseenFrom δ k runs pages (i + 2) := by
-    rw [hs3def]; simp only [step]; exact hs2unseen
-  have hs3pending : s3.pending = [occAt δ k runs pages i] := by
-    rw [hs3def]; simp only [step, hs2pending]; simp [hne]
-  have hs3now : s3.now = critTime k (i + 1) := by rw [hs3def]; simp only [step]
-  have hs3payments : s3.payments.length = i + 1 := by
-    rw [hs3def]; simp only [step, hs2payments]; simp [hs.payments]
-  -- step 4: the early request turns critical last
-  have hthr3 : thresholdTime δ s3 (page k pages (pageCode k i)) = critTime k i := by
-    refine thresholdTime_single hδ s3 _ (occAt δ k runs pages i) (width k i)
-      (horizon k runs) (width_pos k i) (width_le_horizon k runs i) ?_ rfl ?_
-    · rw [hs3pending]; simp
-    · rw [hs3now]
-      show critTime k (i + 1) ≤ critTime k i
-      rw [critTime_eq, critTime_eq]
-      exact le_of_lt (quarter_lt hcritB)
-  have hpay3 : nextPayment? (.threshold δ) s3 = some (critTime k i, page k pages (pageCode k i)) := by
-    rw [nextPayment_single hs3pending]; simp only [occAt_page, hthr3]
-  have hact4 : nextAction? (.threshold δ) s3 =
-      some (Action.payment (critTime k i) (page k pages (pageCode k i))) := by
-    refine nextAction_payment hpay3 ?_
-    intro occ rest hocc
-    rw [hs3unseen] at hocc
-    rw [unseen_head_eq hocc, occAt_arrival, critTime_eq, arrivalTime_eq]
-    exact quarter_lt hnextC
-  rw [run_step _ 0 hact4, run_zero]
-  set s4 := step (input δ k runs pages hk) s3
-    (Action.payment (critTime k i) (page k pages (pageCode k i))) with hs4def
-  refine ⟨?_, ?_, ?_, ?_⟩
-  · rw [hs4def]
-    simp only [step, input_cacheSize, hs3queue, hfetchC]
-    exact queueAt_succ k hk pages (i + 1)
-  · rw [hs4def]; simp only [step]; exact hs3unseen
-  · rw [hs4def]; simp only [step, hs3pending]; simp
-  · rw [hs4def]; simp only [step]; simp [hs3payments]
+  have harrB' : arrivalTime k (i + 1) ≤ critTime k i := by
+    rw [arrivalTime_eq, critTime_eq]; exact quarter_le harrB
+  have hcritB' : critTime k (i + 1) < critTime k i := by
+    rw [critTime_eq, critTime_eq]; exact quarter_lt hcritB
+  -- the early request arrives, then the overtaking one before the first turns critical
+  have h1 : ReplayState δ k runs pages i (i + 1) [occAt δ k runs pages i] _ :=
+    hs.arrive (hk := hk) hmissC
+  have hact2 := nextAction_arrival_of_le (h1.unseen.trans (unseenFrom_cons δ k runs pages hiN))
+    (nextPayment_occAt hδ h1.pending le_self_add) harrB'
+  have h2 : ReplayState δ k runs pages i (i + 2)
+      [occAt δ k runs pages i, occAt δ k runs pages (i + 1)] _ := h1.arrive (hk := hk) hmissB
+  -- the overtaking request turns critical first
+  have hact3 := nextAction_pay (nextPayment_pair_occAt hδ h2.pending hne le_self_add hcritB')
+    h2.unseen hnextB
+  have h3 : ReplayState δ k runs pages (i + 1) (i + 2) [occAt δ k runs pages i] _ :=
+    h2.pay (hk := hk) (t := critTime k (i + 1)) (p := page k pages (pageCode k (i + 1)))
+      (by rw [hfetchB]; rfl) (by simp [hne])
+  -- the early request turns critical last
+  rw [run_step _ _ (hs.nextAction (by omega)), run_step _ _ hact2, run_step _ _ hact3,
+    run_step _ _ (nextAction_pay (nextPayment_occAt hδ h3.pending hcritB'.le) h3.unseen hnextC),
+    run_zero]
+  exact h3.pay (by rw [hfetchC]; rfl) (by simp)
 
 /-! ## The beats of the construction -/
 
@@ -288,67 +237,39 @@ theorem transposed_beat_at {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k
     Settled δ k runs pages (runLength k * r + (k + 3))
       (run (.threshold δ) (input δ k runs pages hk) 4 state) := by
   have hL : runLength k = 2 * k + 2 := rfl
+  have hcC := critQuarters_early k r hk
+  have hcB := critQuarters_late k r hk
+  have haB := arrivalQuarters_run k r (k + 2) (by omega)
+  rw [if_neg (by omega), if_pos rfl] at haB
+  have haNext := arrivalQuarters_lb k (runLength k * r + (k + 1) + 2)
+    (mod_ne_late k r (k + 3) hk (by omega) (by omega))
   have e2 : runLength k * r + (k + 1) + 1 = runLength k * r + (k + 2) := rfl
-  have e3 : runLength k * r + (k + 1) + 2 = runLength k * r + (k + 3) := rfl
-  have hiN : runLength k * r + (k + 1) + 1 < runLength k * runs := by
-    rw [e2]; exact run_index_lt hr (by omega)
-  have hcC : critQuarters k (runLength k * r + (k + 1)) =
-      4 * (runLength k * r + (k + 1)) + 8 := critQuarters_early k r hk
-  have hcB : critQuarters k (runLength k * r + (k + 1) + 1) =
-      4 * (runLength k * r + (k + 2)) := by rw [e2]; exact critQuarters_late k r hk
-  have haB : arrivalQuarters k (runLength k * r + (k + 1) + 1) =
-      4 * (runLength k * r + (k + 2)) - 2 := by
-    rw [e2, arrivalQuarters_run k r (k + 2) (by omega), if_neg (by omega), if_pos rfl]
-  have haNext : 4 * (runLength k * r + (k + 3)) + 1 ≤
-      arrivalQuarters k (runLength k * r + (k + 1) + 2) := by
-    rw [e3]; exact arrivalQuarters_lb k _ (mod_ne_late k r (k + 3) hk (by omega) (by omega))
-  have hres := transposed_beat hδ hk pages hiN
-    (by rw [e3]; exact pageCode_early k r hk)
-    (by rw [e2]; exact pageCode_late k r hk)
+  exact transposed_beat hδ hk pages (i := runLength k * r + (k + 1))
+    (run_index_lt hr (q := k + 2) (by omega))
+    (pageCode_early k r hk) (pageCode_late k r hk)
     (fun h => pageCode_early_ne_late k r hk
       (page_injOn pages (pageCode_lt k _ hk) (pageCode_lt k _ hk) h))
     (by rw [pageCode_early k r hk]; exact notMem_queueAt_early k hk pages r)
     (by rw [e2, pageCode_late k r hk]; exact notMem_queueAt_succ k hk pages _)
-    (by omega) (by omega) (by omega) (by omega) hs
-  rw [e3] at hres
-  exact hres
+    (by rw [e2]; omega) (by rw [e2]; omega) (by rw [e2]; omega) (by omega) hs
 
 /-! ## Chaining the beats -/
 
-/-- The part of a run before the transposed pair. -/
-theorem chain_pre {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
-    (pages : Fin (k + 2) ↪ Page) {r : ℕ} (hr : r < runs) {state : State Page}
-    (hs : Settled δ k runs pages (runLength k * r) state) :
-    ∀ q ≤ k + 1, Settled δ k runs pages (runLength k * r + q)
-      (run (.threshold δ) (input δ k runs pages hk) (2 * q) state) := by
-  intro q
-  induction q with
-  | zero => intro _; rw [Nat.mul_zero, run_zero, Nat.add_zero]; exact hs
-  | succ q ih =>
-      intro hq
-      have hprev := ih (by omega)
-      have hstep := beat_at hδ hk pages hr (q := q) (by unfold runLength; omega)
-        (by omega) (by omega) hprev
-      rw [show 2 * (q + 1) = 2 * q + 2 by ring, run_add]
-      exact hstep
-
-/-- The part of a run after the transposed pair. -/
-theorem chain_post {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
-    (pages : Fin (k + 2) ↪ Page) {r : ℕ} (hr : r < runs) {state : State Page}
-    (hs : Settled δ k runs pages (runLength k * r + (k + 3)) state) :
-    ∀ n, k + 3 + n ≤ runLength k →
-      Settled δ k runs pages (runLength k * r + (k + 3 + n))
+/-- A stretch of `n` beats from position `a` of a run, avoiding the transposed pair. -/
+theorem chain {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
+    (pages : Fin (k + 2) ↪ Page) {r a : ℕ} (hr : r < runs) {state : State Page}
+    (hs : Settled δ k runs pages (runLength k * r + a) state) :
+    ∀ n, a + n ≤ runLength k → (a + n ≤ k + 1 ∨ k + 3 ≤ a) →
+      Settled δ k runs pages (runLength k * r + (a + n))
         (run (.threshold δ) (input δ k runs pages hk) (2 * n) state) := by
   intro n
   induction n with
-  | zero => intro _; rw [Nat.mul_zero, run_zero]; exact hs
+  | zero => intro _ _; exact hs
   | succ n ih =>
-      intro hn
-      have hprev := ih (by omega)
-      have hstep := beat_at hδ hk pages hr (q := k + 3 + n) (by omega)
-        (by omega) (by omega) hprev
+      intro hn hgap
       rw [show 2 * (n + 1) = 2 * n + 2 by ring, run_add]
-      exact hstep
+      exact beat_at hδ hk pages hr (q := a + n) (by omega) (by omega) (by omega)
+        (ih (by omega) (by omega))
 
 /-- One whole run of the construction. -/
 theorem run_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
@@ -357,9 +278,10 @@ theorem run_beat {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
     Settled δ k runs pages (runLength k * (r + 1))
       (run (.threshold δ) (input δ k runs pages hk) (2 * runLength k) state) := by
   have hL : runLength k = 2 * k + 2 := rfl
-  have h1 := chain_pre hδ hk pages hr hs (k + 1) le_rfl
+  have h1 := chain hδ hk pages hr (a := 0) hs (k + 1) (by omega) (by omega)
+  rw [Nat.zero_add] at h1
   have h2 := transposed_beat_at hδ hk pages hr h1
-  have h3 := chain_post hδ hk pages hr h2 (k - 1) (by omega)
+  have h3 := chain hδ hk pages hr h2 (k - 1) (by omega) (by omega)
   have eidx : runLength k * (r + 1) = runLength k * r + (k + 3 + (k - 1)) := by
     have e : runLength k * (r + 1) = runLength k * r + runLength k := by ring
     omega
@@ -374,17 +296,12 @@ theorem settled_runs {δ : Cost} (hδ : 0 < δ) {k runs : ℕ} (hk : 0 < k)
           (initialState (input δ k runs pages hk))) := by
   intro r
   induction r with
-  | zero =>
-      intro _
-      rw [Nat.mul_zero, Nat.mul_zero, run_zero]
-      exact settled_initial δ k runs pages
+  | zero => intro _; exact settled_initial δ k runs pages
   | succ r ih =>
       intro hr
-      have hprev := ih (by omega)
-      have hstep := run_beat hδ hk pages (show r < runs by omega) hprev
       rw [show 2 * (runLength k * (r + 1)) = 2 * (runLength k * r) + 2 * runLength k by ring,
         run_add]
-      exact hstep
+      exact run_beat hδ hk pages (by omega) (ih (by omega))
 
 end
 end PagingWithDelay.LowerBound

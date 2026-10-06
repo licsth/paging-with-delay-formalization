@@ -12,7 +12,8 @@ algorithm.  A `Run` carries, side by side,
   requests pairwise separated, so that `Online.length_le_totalCost` charges one
   unit of the algorithm's cost to each of them;
 * the offline certificate of `Certificate.lean` for those same requests; and
-* the potential of `PhaseCount.lean`, which bounds the certificate's budget.
+* the run of `PhaseCount.lean` that led to the certificate's state, which
+  bounds its budget.
 
 `Run.advance` performs one operation: it looks at the algorithm's cache,
 releases one request at a page the algorithm does not hold, and applies the
@@ -21,9 +22,8 @@ whose page the algorithm has dropped, an auxiliary processing step otherwise.
 
 ## Timing
 
-Each request is free until its deadline and has accrued a unit of delay one
-overshoot later; its *charging window* runs from its arrival to that point.
-The invariants keep two clocks apart:
+Each request is free until its deadline and has accrued a unit of delay at the
+end of its *charging window*.  The invariants keep two clocks apart:
 
 * `clock` — nothing has arrived after it, nothing will arrive at or before it,
   and every charging window has closed by it *except* the distinguished
@@ -46,92 +46,71 @@ noncomputable section
 
 variable {Page : Type*} [DecidableEq Page]
 
-/-- The request the adversary releases: free until `arrival + window`, and
-carrying a whole unit of delay `overshoot` later. -/
-def releaseRequest (page : Page) (arrival window overshoot : Time) (hover : 0 < overshoot) :
-    Request Page :=
-  deadlineRequest page arrival window (1 / overshoot) (by
-    have : (0 : Time) < 1 / overshoot := by
-      simpa using hover
-    exact this)
+/-- The request the adversary releases: free until `deadline`, and carrying a
+whole unit of delay at `chargeEnd`.
+
+`Model.lean` has no hard deadlines, so the stand-in is a curve that stays at
+zero until the deadline and then grows at rate `1 / (chargeEnd - deadline)`.
+A continuous curve charges `rate * overshoot`, so charging a whole unit within
+an overshoot of `ε` needs `rate ≥ 1 / ε`; that is what lets the construction
+squeeze arbitrarily many chargeable requests into a bounded interval, which the
+drafts get for free from hard deadlines. -/
+def releaseRequest (page : Page) (arrival deadline chargeEnd : Time) (h : deadline < chargeEnd) :
+    Request Page where
+  page := page
+  arrival := arrival
+  delay := fun wait => (wait - (deadline - arrival)) / (chargeEnd - deadline)
+  delay_continuous := (continuous_id.sub continuous_const).div_const _
+  delay_mono := fun _ _ hle => by dsimp only; gcongr
+  delay_zero := by simp
+  delay_unbounded := fun bound => ⟨(deadline - arrival) + bound * (chargeEnd - deadline), by
+    rw [add_tsub_cancel_left, mul_div_cancel_right₀ _ (tsub_pos_of_lt h).ne']⟩
 
 omit [DecidableEq Page] in
-@[simp] theorem releaseRequest_page (page : Page) (arrival window overshoot : Time)
-    (hover : 0 < overshoot) : (releaseRequest page arrival window overshoot hover).page = page :=
-  rfl
+theorem releaseRequest_free (page : Page) {arrival deadline chargeEnd : Time}
+    (h : deadline < chargeEnd) :
+    (releaseRequest page arrival deadline chargeEnd h).delay (deadline - arrival) = 0 := by
+  simp [releaseRequest]
 
 omit [DecidableEq Page] in
-@[simp] theorem releaseRequest_arrival (page : Page) (arrival window overshoot : Time)
-    (hover : 0 < overshoot) :
-    (releaseRequest page arrival window overshoot hover).arrival = arrival := rfl
+theorem releaseRequest_penalty (page : Page) {arrival deadline chargeEnd : Time}
+    (h : deadline < chargeEnd) (harrival : arrival ≤ deadline) :
+    1 ≤ (releaseRequest page arrival deadline chargeEnd h).delay (chargeEnd - arrival) := by
+  simp [releaseRequest, tsub_tsub_tsub_cancel_right harrival, (tsub_pos_of_lt h).ne']
 
-omit [DecidableEq Page] in
-theorem releaseRequest_free (page : Page) (arrival window overshoot : Time)
-    (hover : 0 < overshoot) :
-    (releaseRequest page arrival window overshoot hover).delay
-      ((arrival + window) - arrival) = 0 :=
-  deadlineRequest_delay_window _ _ _ _ _
-
-omit [DecidableEq Page] in
-theorem releaseRequest_penalty (page : Page) (arrival window overshoot : Time)
-    (hover : 0 < overshoot) :
-    1 ≤ (releaseRequest page arrival window overshoot hover).delay (window + overshoot) := by
-  refine deadlineRequest_delay_penalty _ _ _ _ _ _ ?_
-  rw [div_mul_cancel₀ _ (ne_of_gt hover)]
-
-/-- A request of the shape the adversary releases: free inside its window, then
-growing at a fixed rate. -/
-def IsDeadlineShaped (request : Request Page) : Prop :=
-  ∃ (window rate : Time) (hrate : 0 < rate),
-    request = deadlineRequest request.page request.arrival window rate hrate
-
-omit [DecidableEq Page] in
-/-- What a deadline-shaped request looks like, written out in `Model.lean`'s
-own vocabulary: the delay curve is zero until `window` has elapsed and then
-grows at a fixed positive rate. -/
-theorem IsDeadlineShaped.exists_curve {request : Request Page} (shaped : IsDeadlineShaped request) :
-    ∃ window rate : Time, 0 < rate ∧ ∀ wait : Time, request.delay wait = rate * (wait - window) := by
-  obtain ⟨window, rate, hrate, heq⟩ := shaped
-  refine ⟨window, rate, hrate, fun wait => ?_⟩
-  rw [heq]
-  rfl
-
-omit [DecidableEq Page] in
-theorem releaseRequest_shaped (page : Page) (arrival window overshoot : Time)
-    (hover : 0 < overshoot) :
-    IsDeadlineShaped (releaseRequest page arrival window overshoot hover) :=
-  ⟨window, 1 / overshoot, by simpa using hover, rfl⟩
-
-/-- The state of the adaptive construction after finitely many operations. -/
-structure Run (algorithm : Algorithm Page) (k : ℕ) (V start : Finset Page) where
+/-- The state of the adaptive construction after finitely many operations,
+started with distinguished node `c` and cheap set `{d}`. -/
+structure Run (algorithm : Algorithm Page) (k : ℕ) (V : Finset Page) (c d : Page) where
   /-- The requests released so far. -/
   input : Instance Page
   size : input.cacheSize = k
+  /-- The initial cache is drawn from the universe. -/
+  initialPages : ∀ page ∈ input.initialCache, page ∈ V
+  /-- The certificate starts from the instance's initial cache, so the
+  comparator needs no start-up fetches. -/
+  startEq : input.initialCache.toFinset = V \ {c, d}
   /-- The deadline and the charging window of each released request. -/
   deadline : Request Page → Time
   chargeWindow : Request Page → Time
-  /-- The certificate's combinatorial state. -/
+  /-- The certificate's combinatorial state, reached in `steps` operations. -/
+  steps : ℕ
   state : PhaseCount.Certificate Page
+  history : PhaseCount.Run V (PhaseCount.initial c d) steps state
   stateValid : state.Valid V k
+  lengthEq : input.requests.length = steps + 1
   /-- The adversary's clock and the certificate's checkpoint. -/
   clock : Time
   checkpoint : Time
   processed : List (Window Page)
   alpha : Window Page
-  cert : Certificate V start processed alpha state.distinguished state.cheap state.mark
+  cert : Certificate V (V \ {c, d}) processed alpha state.distinguished state.cheap state.mark
     state.budget checkpoint
   clockPos : 0 < clock
   checkpointLe : checkpoint ≤ clock
   alphaLate : clock < alpha.deadline
-  /-- The initial cache is drawn from the universe. -/
-  initialPages : ∀ page ∈ input.initialCache, page ∈ V
-  /-- The certificate starts from the instance's initial cache, so the
-  comparator needs no start-up fetches. -/
-  startEq : input.initialCache.toFinset = start
   arrivals : ∀ request ∈ input.requests, request.arrival ≤ clock
-  /-- Every request was a miss when it arrived. -/
-  shaped : ∀ request ∈ input.requests, IsDeadlineShaped request
   pages : ∀ request ∈ input.requests, request.page ∈ V
+  /-- Every request was a miss when it arrived. -/
   misses : ∀ request ∈ input.requests,
     request.page ∉ (algorithm input).cacheBefore request.arrival
   penalty : ∀ request ∈ input.requests, 1 ≤ request.delay (chargeWindow request)
@@ -146,46 +125,45 @@ structure Run (algorithm : Algorithm Page) (k : ℕ) (V start : Finset Page) whe
     request.arrival + chargeWindow request ≤ alpha.deadline + 1
   link : ∀ request ∈ input.requests,
     (⟨request.page, request.arrival, deadline request⟩ : Window Page) ∈ alpha :: processed
-  /-- The number of certificate operations, and the potential bound behind the
-  budget count. -/
-  steps : ℕ
-  potentialBound : (2 * k + 1) * state.budget + 2 ≤ 2 * steps + state.potential
-  lengthEq : input.requests.length = steps + 1
+
+omit [DecidableEq Page] in
+theorem forall_mem_appendRequest {input : Instance Page} {request : Request Page}
+    {hlast : ∀ other ∈ input.requests, other.arrival ≤ request.arrival}
+    {P : Request Page → Prop}
+    (hold : ∀ other ∈ input.requests, P other) (hnew : P request) :
+    ∀ other ∈ (input.appendRequest request hlast).requests, P other :=
+  List.forall_mem_append.mpr ⟨hold, List.forall_mem_singleton.mpr hnew⟩
 
 /-! ## Starting the construction -/
 
-private theorem foldl_before_zero (events : List (FetchEvent Page)) (init : Finset Page) :
-    events.foldl (fun current event => if event.time < 0 then event.cacheAfter else current)
-      init = init := by
-  induction events generalizing init with
-  | nil => rfl
-  | cons event rest ih => simpa only [List.foldl_cons, not_lt_zero', if_false] using ih init
-
 /-- Before time `0` every schedule still holds its initial cache. -/
 theorem cacheBefore_zero (schedule : Schedule Page) :
-    schedule.cacheBefore 0 = schedule.initialCache :=
-  foldl_before_zero _ _
+    schedule.cacheBefore 0 = schedule.initialCache := by
+  unfold Schedule.cacheBefore
+  generalize schedule.initialCache = init
+  induction schedule.events generalizing init with
+  | nil => rfl
+  | cons event rest ih => simpa only [List.foldl_cons, not_lt_zero', if_false] using ih init
 
 /-- The construction starts, as in the write-up, at time `0`: the initial
 cache is `k` pages of the universe, `c` and `d` are the two pages outside it,
 and the first distinguished request is released at `c` at time `0`, before the
 algorithm can act.  The certificate therefore starts from the initial cache
 itself, `V \ {c, d}`. -/
-theorem exists_initial (algorithm : Algorithm Page) (_online : algorithm.Online) {k : ℕ} (hk : 1 ≤ k) {V : Finset Page}
+theorem exists_initial (algorithm : Algorithm Page) {k : ℕ} (hk : 1 ≤ k) {V : Finset Page}
     (hcard : V.card = k + 2) :
     ∃ (c d : Page), c ∈ V ∧ d ∈ V ∧ c ≠ d ∧
-      ∃ run : Run algorithm k V (V \ {c, d}), run.steps = 0 := by
+      ∃ run : Run algorithm k V c d, run.steps = 0 := by
   classical
   -- the initial cache: any `k` pages of the universe
   set empty : Instance Page := ⟨k, V.toList.take k, [], List.Pairwise.nil, hk,
-    (Finset.nodup_toList V).sublist (List.take_sublist _ _), by simp [hcard]⟩ with hempty
+    (Finset.nodup_toList V).sublist (List.take_sublist _ _), by simp [hcard]⟩
   have hinitial : ∀ page ∈ empty.initialCache, page ∈ V :=
     fun page hpage => Finset.mem_toList.mp (List.mem_of_mem_take hpage)
   have hsub : empty.initialCache.toFinset ⊆ V :=
     fun page hpage => hinitial page (List.mem_toFinset.mp hpage)
   have hcardInit : empty.initialCache.toFinset.card = k := by
-    rw [List.toFinset_card_of_nodup empty.initialCache_nodup,
-      empty.initialCache_full]
+    rw [List.toFinset_card_of_nodup empty.initialCache_nodup, empty.initialCache_full]
   -- the two pages outside the initial cache
   have hcardOut : (V \ empty.initialCache.toFinset).card = 2 := by
     have := Finset.card_sdiff_add_card_eq_card hsub
@@ -194,407 +172,208 @@ theorem exists_initial (algorithm : Algorithm Page) (_online : algorithm.Online)
   have hcOut : c ∈ V \ empty.initialCache.toFinset := by rw [hout]; simp
   have hdOut : d ∈ V \ empty.initialCache.toFinset := by rw [hout]; simp
   obtain ⟨hcV, hcmiss⟩ := Finset.mem_sdiff.mp hcOut
-  obtain ⟨hdV, _⟩ := Finset.mem_sdiff.mp hdOut
-  have hstart : empty.initialCache.toFinset = V \ {c, d} := by
-    rw [← hout, Finset.sdiff_sdiff_eq_self hsub]
+  have hdV : d ∈ V := (Finset.mem_sdiff.mp hdOut).1
   -- the first distinguished request, at time `0`
-  set alphaRequest : Request Page := releaseRequest c 0 2 1 zero_lt_one with halphaRequest
-  have halpha : ∀ r ∈ empty.requests, r.arrival ≤ alphaRequest.arrival := by simp [hempty]
-  have hrequests : (empty.appendRequest alphaRequest halpha).requests = [alphaRequest] := by
-    simp [hempty, Instance.appendRequest]
-  have hmiss : alphaRequest.page ∉
-      (algorithm (empty.appendRequest alphaRequest halpha)).cacheBefore
-        alphaRequest.arrival := by
-    have hfeas := algorithm.feasible (empty.appendRequest alphaRequest halpha)
-    rw [show alphaRequest.arrival = 0 from rfl, cacheBefore_zero, hfeas.initialCache]
+  set alpha : Request Page := releaseRequest c 0 2 3 (by norm_num) with halpha_def
+  have halpha : ∀ r ∈ empty.requests, r.arrival ≤ alpha.arrival := by simp [empty]
+  have hmiss : alpha.page ∉ (algorithm (empty.appendRequest alpha halpha)).cacheBefore 0 := by
+    rw [cacheBefore_zero, (algorithm.feasible _).initialCache]
     exact hcmiss
-  have hsingle : ∀ {motive : Request Page → Prop},
-      motive alphaRequest → ∀ request ∈ (empty.appendRequest alphaRequest halpha).requests,
-        motive request := by
-    intro motive hmotive request hrequest
-    rw [hrequests, List.mem_singleton] at hrequest
-    rw [hrequest]
-    exact hmotive
+  have hsingle : ∀ {P : Request Page → Prop}, P alpha →
+      ∀ request ∈ (empty.appendRequest alpha halpha).requests, P request :=
+    fun hP => forall_mem_appendRequest (by simp [empty]) hP
   refine ⟨c, d, hcV, hdV, hcd,
-    { input := empty.appendRequest alphaRequest halpha
+    { input := empty.appendRequest alpha halpha
       size := rfl
-      deadline := fun _ => 0 + 2
-      chargeWindow := fun _ => 2 + 1
+      initialPages := hinitial
+      startEq := by rw [← hout, Finset.sdiff_sdiff_eq_self hsub]; rfl
+      deadline := fun _ => 2
+      chargeWindow := fun _ => 3
+      steps := 0
       state := PhaseCount.initial c d
-      stateValid := PhaseCount.initial_valid hk hcV hdV hcd
+      history := .refl _
+      stateValid := PhaseCount.initial_valid hcV hdV hcd
+      lengthEq := rfl
       clock := 1
       checkpoint := 0
       processed := []
-      alpha := ⟨c, 0, 0 + 2⟩
+      alpha := ⟨c, 0, 2⟩
       cert := Certificate.initial hcV hdV hcd rfl le_rfl (by norm_num)
-      clockPos := by norm_num
-      checkpointLe := by norm_num
-      alphaLate := by norm_num
-      initialPages := hinitial
-      startEq := hstart
-      arrivals := hsingle (by simp [halphaRequest])
-      shaped := hsingle (by
-        rw [halphaRequest]
-        exact releaseRequest_shaped c 0 2 1 zero_lt_one)
-      pages := hsingle (by simp [halphaRequest, hcV])
+      clockPos := one_pos
+      checkpointLe := zero_le_one
+      alphaLate := one_lt_two
+      arrivals := hsingle zero_le_one
+      pages := hsingle hcV
       misses := hsingle hmiss
-      penalty := hsingle (releaseRequest_penalty c 0 2 1 zero_lt_one)
-      free := hsingle (by
-        simpa [halphaRequest] using releaseRequest_free c 0 2 1 zero_lt_one)
-      ordered := by rw [hrequests]; exact List.pairwise_singleton _ _
-      closed := hsingle (Or.inr (by simp [halphaRequest, PhaseCount.initial]))
-      alphaClosed := by
-        refine hsingle (fun _ => ?_)
-        simp only [halphaRequest, releaseRequest_arrival]
-        norm_num
-      link := hsingle (by simp [halphaRequest])
-      steps := 0
-      potentialBound := by
-        simp [PhaseCount.initial, PhaseCount.Certificate.potential]
-      lengthEq := by rw [hrequests]; rfl }, rfl⟩
+      penalty := hsingle (by simpa using releaseRequest_penalty c (arrival := 0) _ (zero_le _))
+      free := hsingle (releaseRequest_free c _)
+      ordered := List.pairwise_singleton _ _
+      closed := hsingle (Or.inr rfl)
+      alphaClosed := hsingle fun _ => by norm_num [halpha_def, releaseRequest]
+      link := hsingle (List.mem_singleton_self _) }, rfl⟩
 
 /-! ## One operation -/
+
+/-- **One operation, given the request and the certificate operation.**  The
+request at `p` arrives at `a`, after the clock, is free until `w` and has
+accrued a unit of delay at `e`.  The invariants about the input itself are
+maintained generically; the hypotheses are the ones about the new certificate,
+the new clock and the closing of charging windows. -/
+theorem Run.extend {algorithm : Algorithm Page} (online : algorithm.Online)
+    {k : ℕ} (hk : 1 ≤ k) {V : Finset Page} (hcard : V.card = k + 2) {c d : Page}
+    (run : Run algorithm k V c d) {p : Page} {a w e : Time}
+    (hta : run.clock < a) (haw : a < w) (hwe : w < e) (hpV : p ∈ V)
+    (hpc : p ≠ run.state.distinguished) (hmiss : p ∉ (algorithm run.input).cacheBefore a)
+    {state : PhaseCount.Certificate Page} (hstep : PhaseCount.Step V run.state state)
+    {clock checkpoint : Time} {processed : List (Window Page)} {alpha : Window Page}
+    (cert : Certificate V (V \ {c, d}) processed alpha state.distinguished state.cheap
+      state.mark state.budget checkpoint)
+    (hclock : a ≤ clock) (hcheckpoint : checkpoint ≤ clock) (halpha : clock < alpha.deadline)
+    (hlink : ∀ window ∈ run.alpha :: run.processed, window ∈ alpha :: processed)
+    (hlinkNew : (⟨p, a, w⟩ : Window Page) ∈ alpha :: processed)
+    (hclosed : ∀ request ∈ run.input.requests,
+      request.arrival + run.chargeWindow request ≤ clock ∨ request.page = state.distinguished)
+    (hclosedNew : e ≤ clock ∨ p = state.distinguished)
+    (halphaClosed : ∀ request ∈ run.input.requests, request.page = state.distinguished →
+      request.arrival + run.chargeWindow request ≤ alpha.deadline + 1)
+    (halphaClosedNew : p = state.distinguished → e ≤ alpha.deadline + 1) :
+    ∃ next : Run algorithm k V c d, next.steps = run.steps + 1 := by
+  classical
+  have hold : ∀ request ∈ run.input.requests, request.arrival ≠ a :=
+    fun request hrequest heq => (run.arrivals request hrequest).not_gt (heq ▸ hta)
+  have hearlier : ∀ request ∈ run.input.requests, request.arrival ≤ a :=
+    fun request hrequest => (run.arrivals request hrequest).trans hta.le
+  have hae : a + (e - a) = e := add_tsub_cancel_of_le (haw.trans hwe).le
+  set request := releaseRequest p a w e hwe
+  set deadline : Request Page → Time := fun other =>
+    if other.arrival = a then w else run.deadline other with hdeadline
+  set chargeWindow : Request Page → Time := fun other =>
+    if other.arrival = a then e - a else run.chargeWindow other with hchargeWindow
+  have hdl : ∀ other ∈ run.input.requests, deadline other = run.deadline other :=
+    fun other hother => if_neg (hold other hother)
+  have hcw : ∀ other ∈ run.input.requests, chargeWindow other = run.chargeWindow other :=
+    fun other hother => if_neg (hold other hother)
+  have hdlNew : deadline request = w := if_pos rfl
+  have hcwNew : chargeWindow request = e - a := if_pos rfl
+  refine ⟨{
+    input := run.input.appendRequest request hearlier
+    size := run.size
+    initialPages := run.initialPages
+    startEq := run.startEq
+    deadline := deadline
+    chargeWindow := chargeWindow
+    steps := run.steps + 1
+    state := state
+    history := run.history.tail hstep
+    stateValid := PhaseCount.Step.valid hcard hk run.stateValid hstep
+    lengthEq := by simp [Instance.appendRequest, run.lengthEq]
+    clock := clock
+    checkpoint := checkpoint
+    processed := processed
+    alpha := alpha
+    cert := cert
+    clockPos := run.clockPos.trans (hta.trans_le hclock)
+    checkpointLe := hcheckpoint
+    alphaLate := halpha
+    arrivals := forall_mem_appendRequest
+      (fun other hother => (hearlier other hother).trans hclock) hclock
+    pages := forall_mem_appendRequest run.pages hpV
+    misses := appendRequest_misses online run.input request hearlier run.misses hmiss
+    penalty := forall_mem_appendRequest
+      (fun other hother => hcw other hother ▸ run.penalty other hother)
+      (hcwNew ▸ releaseRequest_penalty p hwe haw.le)
+    free := forall_mem_appendRequest
+      (fun other hother => hdl other hother ▸ run.free other hother)
+      (hdlNew ▸ releaseRequest_free p hwe)
+    ordered := List.pairwise_append.mpr ⟨run.ordered.imp_of_mem fun hfirst _ h => by
+        rwa [hcw _ hfirst], List.pairwise_singleton _ _, fun first hfirst second hsecond => by
+        rw [List.mem_singleton.mp hsecond, hcw first hfirst]
+        rcases run.closed first hfirst with hclosedFirst | hpageFirst
+        · exact Or.inr (hclosedFirst.trans_lt hta)
+        · exact Or.inl (hpageFirst ▸ hpc.symm)⟩
+    closed := forall_mem_appendRequest
+      (fun other hother => hcw other hother ▸ hclosed other hother)
+      (show a + chargeWindow request ≤ clock ∨ p = state.distinguished by rwa [hcwNew, hae])
+    alphaClosed := forall_mem_appendRequest
+      (fun other hother => hcw other hother ▸ halphaClosed other hother)
+      (show p = state.distinguished → a + chargeWindow request ≤ alpha.deadline + 1 by
+        rwa [hcwNew, hae])
+    link := forall_mem_appendRequest
+      (fun other hother => hdl other hother ▸ hlink _ (run.link other hother))
+      (hdlNew ▸ hlinkNew) }, rfl⟩
 
 /-- **One operation of the construction.**  The adversary looks at the
 algorithm's cache just before the next arrival and releases one request there:
 the reserve request on the last cheap candidate when the algorithm has dropped
 it — which lets the certificate pay — and otherwise an auxiliary request, which
 the certificate processes for free. -/
-theorem Run.advance (algorithm : Algorithm Page) (online : algorithm.Online)
-    {k : ℕ} (hk : 1 ≤ k) {V start : Finset Page}
-    (hcard : V.card = k + 2) (run : Run algorithm k V start) :
-    ∃ next : Run algorithm k V start, next.steps = run.steps + 1 := by
-  classical
+theorem Run.advance {algorithm : Algorithm Page} (online : algorithm.Online)
+    {k : ℕ} (hk : 1 ≤ k) {V : Finset Page} (hcard : V.card = k + 2) {c d : Page}
+    (run : Run algorithm k V c d) :
+    ∃ next : Run algorithm k V c d, next.steps = run.steps + 1 := by
   obtain ⟨a, hta, haD⟩ := exists_between run.alphaLate
-  have hcV : run.state.distinguished ∈ V := run.stateValid.distinguished_mem
-  have hold : ∀ request ∈ run.input.requests, request.arrival ≠ a := by
-    intro request hrequest heq
-    exact absurd (heq ▸ run.arrivals request hrequest) (not_le_of_gt hta)
-  have hearlier : ∀ request ∈ run.input.requests, request.arrival ≤ a := fun request hrequest =>
-    (run.arrivals request hrequest).trans hta.le
-  have hapos : 0 < a := run.clockPos.trans hta
-  by_cases hpay : ∃ d, run.state.cheap = {d} ∧
-      d ∉ (algorithm run.input).cacheBefore a
-  · -- the payment: release the reserve request at `d`, then pay at `alpha.deadline`
-    obtain ⟨d, hcheap, hdmiss⟩ := hpay
-    have hdcheap : d ∈ run.state.cheap := by rw [hcheap]; simp
-    have hdV : d ∈ V := run.stateValid.mem_pages hdcheap
-    have hdc : d ≠ run.state.distinguished :=
-      Finset.ne_of_mem_erase (run.stateValid.cheap_subset hdcheap)
-    set D : Time := run.alpha.deadline with hD
-    have haD2 : a ≤ D + 2 := (haD.le.trans (le_self_add))
-    set window : Time := (D + 2) - a with hwindow
-    have hwindowpos : 0 < window := tsub_pos_of_lt (haD.trans_le le_self_add)
-    set beta : Request Page := releaseRequest d a window 1 zero_lt_one with hbeta
-    have hbetaDeadline : a + window = D + 2 := add_tsub_cancel_of_le haD2
-    have hbetaCharge : a + (window + 1) = D + 2 + 1 := by
-      rw [← add_assoc, hbetaDeadline]
-    have hmissNew : beta.page ∉
-        (algorithm run.input).cacheBefore beta.arrival := hdmiss
-    set deadline' : Request Page → Time :=
-      fun request => if request.arrival = a then D + 2 else run.deadline request with hdeadline'
-    set chargeWindow' : Request Page → Time :=
-      fun request => if request.arrival = a then window + 1 else run.chargeWindow request
-      with hchargeWindow'
-    have hcw : ∀ request ∈ run.input.requests,
-        chargeWindow' request = run.chargeWindow request := by
-      intro request hrequest
-      simp [hchargeWindow', hold request hrequest]
-    have hdl : ∀ request ∈ run.input.requests, deadline' request = run.deadline request := by
-      intro request hrequest
-      simp [hdeadline', hold request hrequest]
-    have hbetaCw : chargeWindow' beta = window + 1 := by simp [hchargeWindow', hbeta]
-    have hbetaDl : deadline' beta = D + 2 := by simp [hdeadline', hbeta]
-    have hcheapNonempty : (V \ {run.state.distinguished, d}).Nonempty :=
-      PhaseCount.refill_nonempty hcard hk hcV hdV (fun heq => hdc heq.symm)
-    have hcertArrival : run.checkpoint < beta.arrival := run.checkpointLe.trans_lt hta
-    -- the certificate operation, in both flavours
-    have hstep : ∃ newState : PhaseCount.Certificate Page,
-        PhaseCount.Step V run.state newState ∧ newState.distinguished = d ∧
-        Certificate V start (run.alpha :: run.processed) ⟨d, a, D + 2⟩
-          newState.distinguished newState.cheap newState.mark newState.budget D := by
+  have harrival : run.checkpoint < a := run.checkpointLe.trans_lt hta
+  set D : Time := run.alpha.deadline
+  by_cases hpay : ∃ p, run.state.cheap = {p} ∧ p ∉ (algorithm run.input).cacheBefore a
+  · -- the payment: release the reserve request at `p`, free until `D + 2`, then pay at `D`
+    obtain ⟨p, hcheap, hpmiss⟩ := hpay
+    obtain ⟨hpV, hcp⟩ := run.stateValid.pay_facts hcheap
+    have hK := PhaseCount.refill_nonempty hcard hk run.stateValid.distinguished_mem hpV hcp
+    obtain ⟨state, hstep, hdist, hcert⟩ : ∃ state, PhaseCount.Step V run.state state ∧
+        state.distinguished = p ∧
+        Certificate V (V \ {c, d}) (run.alpha :: run.processed) ⟨p, a, D + 2⟩
+          state.distinguished state.cheap state.mark state.budget D := by
       rcases PhaseCount.pay_cases run.stateValid hcheap with hmark | hmark
-      · exact ⟨_, PhaseCount.Step.payShort run.state d hcheap hmark, rfl,
-          run.cert.pay_short hcheap hmark hcheapNonempty rfl hcertArrival haD le_rfl
-            (by norm_num)⟩
-      · exact ⟨_, PhaseCount.Step.payLong run.state d hcheap hmark, rfl,
-          run.cert.pay_long hcheap hmark hcheapNonempty rfl hcertArrival haD le_rfl
-            (by norm_num)⟩
-    obtain ⟨newState, hstepping, hdistinguished, hcert⟩ := hstep
-    refine ⟨{
-      input := run.input.appendRequest beta hearlier
-      size := run.size
-      deadline := deadline'
-      chargeWindow := chargeWindow'
-      state := newState
-      stateValid := PhaseCount.Step.valid hcard hk run.stateValid hstepping
-      clock := D + 1
-      checkpoint := D
-      processed := run.alpha :: run.processed
-      alpha := ⟨d, a, D + 2⟩
-      cert := hcert
-      clockPos := lt_of_lt_of_le (run.clockPos.trans run.alphaLate) le_self_add
-      checkpointLe := le_self_add
-      alphaLate := show D + 1 < D + 2 from add_lt_add_of_le_of_lt le_rfl one_lt_two
-      initialPages := run.initialPages
-      startEq := run.startEq
-      arrivals := ?_
-      shaped := ?_
-      pages := ?_
-      misses := ?_
-      penalty := ?_
-      free := ?_
-      ordered := ?_
-      closed := ?_
-      alphaClosed := ?_
-      link := ?_
-      steps := run.steps + 1
-      potentialBound := ?_
-      lengthEq := ?_ }, rfl⟩
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · exact ((run.arrivals request hrequest).trans run.alphaLate.le).trans le_self_add
-      · rw [List.mem_singleton.mp hrequest]
-        exact (haD.le.trans le_self_add)
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · exact run.shaped request hrequest
-      · rw [List.mem_singleton.mp hrequest, hbeta]
-        exact releaseRequest_shaped d a window 1 zero_lt_one
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · exact run.pages request hrequest
-      · rw [List.mem_singleton.mp hrequest]
-        exact hdV
-    · exact appendRequest_misses online run.input beta hearlier
-        run.misses hmissNew
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · rw [hcw request hrequest]
-        exact run.penalty request hrequest
-      · rw [List.mem_singleton.mp hrequest, hbetaCw]
-        exact releaseRequest_penalty d a window 1 zero_lt_one
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · rw [hdl request hrequest]
-        exact run.free request hrequest
-      · rw [List.mem_singleton.mp hrequest, hbetaDl]
-        have hfree := releaseRequest_free d a window 1 zero_lt_one
-        rw [hbetaDeadline] at hfree
-        exact hfree
-    · refine List.pairwise_append.mpr ⟨?_, List.pairwise_singleton _ _, ?_⟩
-      · refine run.ordered.imp_of_mem ?_
-        intro first second hfirst _ hcase
-        rcases hcase with hpages | hwindows
-        · exact Or.inl hpages
-        · exact Or.inr (by rw [hcw first hfirst]; exact hwindows)
-      · intro first hfirst second hsecond
-        rw [List.mem_singleton] at hsecond
-        subst hsecond
-        rcases run.closed first hfirst with hclosedFirst | hpageFirst
-        · refine Or.inr ?_
-          rw [hcw first hfirst]
-          exact hclosedFirst.trans_lt hta
-        · exact Or.inl (by rw [hpageFirst]; exact fun heq => hdc heq.symm)
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · refine Or.inl ?_
-        rw [hcw request hrequest]
-        rcases run.closed request hrequest with hclosedRequest | hpageRequest
-        · exact hclosedRequest.trans (run.alphaLate.le.trans le_self_add)
-        · exact run.alphaClosed request hrequest hpageRequest
-      · refine Or.inr ?_
-        rw [List.mem_singleton.mp hrequest, hdistinguished]
-        rfl
-    · intro request hrequest hpage
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · rw [hcw request hrequest]
-        rcases run.closed request hrequest with hclosedRequest | hpageRequest
-        · exact hclosedRequest.trans ((run.alphaLate.le.trans le_self_add).trans le_self_add)
-        · exact (run.alphaClosed request hrequest hpageRequest).trans
-            (add_le_add (show D ≤ D + 2 from le_self_add) le_rfl)
-      · rw [List.mem_singleton.mp hrequest, hbetaCw]
-        exact le_of_eq hbetaCharge
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · rw [hdl request hrequest]
-        exact List.mem_cons_of_mem _ (run.link request hrequest)
-      · rw [List.mem_singleton.mp hrequest, hbetaDl]
-        exact List.mem_cons_self ..
-    · have hstepbound := PhaseCount.Step.potential_le hcard run.stateValid hstepping
-      have hprev := run.potentialBound
-      omega
-    · rw [Instance.appendRequest]
-      simp [run.lengthEq]
+      · exact ⟨_, .payShort run.state p hcheap hmark, rfl,
+          run.cert.pay_short hcheap hmark hK rfl harrival haD le_rfl (by simp)⟩
+      · exact ⟨_, .payLong run.state p hcheap hmark, rfl,
+          run.cert.pay_long hcheap hmark hK rfl harrival haD le_rfl (by simp)⟩
+    -- every old charging window has closed by `D + 1`
+    have hshut : ∀ request ∈ run.input.requests,
+        request.arrival + run.chargeWindow request ≤ D + 1 :=
+      fun request hrequest => (run.closed request hrequest).elim
+        (fun h => h.trans (run.alphaLate.le.trans le_self_add)) (run.alphaClosed request hrequest)
+    -- free until `D + 2`, a unit of delay at `D + 3`; the clock moves to `D + 1`, the
+    -- checkpoint to `D`, and only the new, distinguished request's window stays open
+    exact run.extend online hk hcard hta (haD.trans_le le_self_add) (lt_add_one (D + 2)) hpV
+      (Ne.symm hcp) hpmiss hstep hcert (haD.le.trans le_self_add) le_self_add
+      (by simp only [D]; norm_num) (fun _ => List.mem_cons_of_mem _) List.mem_cons_self
+      (fun request hrequest => Or.inl (hshut request hrequest)) (Or.inr hdist.symm)
+      (fun request hrequest _ => (hshut request hrequest).trans (by norm_num)) fun _ => le_rfl
   · -- an auxiliary request: the algorithm still holds the last cheap candidate
     push_neg at hpay
     obtain ⟨x, hxV, hxc, hxmiss⟩ := exists_uncovered_ne (algorithm run.input)
       (algorithm.feasible run.input) run.size hcard.ge a run.state.distinguished
     have hnonempty : (run.state.cheap.erase x).Nonempty := by
-      by_cases hsingleton : ∃ y, run.state.cheap = {y}
-      · obtain ⟨y, hy⟩ := hsingleton
-        have hycov := hpay y hy
-        have hyx : y ≠ x := fun heq => hxmiss (heq ▸ hycov)
-        exact ⟨y, Finset.mem_erase.mpr ⟨hyx, by rw [hy]; simp⟩⟩
-      · obtain ⟨y, hy⟩ := run.stateValid.nonempty
-        have hcard1 : 1 ≤ run.state.cheap.card := Finset.card_pos.mpr ⟨y, hy⟩
-        have hcard2 : 2 ≤ run.state.cheap.card := by
-          rcases Nat.lt_or_ge run.state.cheap.card 2 with hlt | hge
-          · exact absurd (Finset.card_eq_one.mp (by omega)) hsingleton
-          · exact hge
-        rw [← Finset.card_pos]
-        by_cases hxcheap : x ∈ run.state.cheap
-        · rw [Finset.card_erase_of_mem hxcheap]; omega
-        · rw [Finset.erase_eq_of_notMem hxcheap]; omega
+      rw [Finset.nonempty_iff_ne_empty, Ne, Finset.erase_eq_empty_iff]
+      rintro (h | h)
+      · exact run.stateValid.nonempty.ne_empty h
+      · exact hxmiss (hpay x h)
     obtain ⟨w, haw, hwD⟩ := exists_between haD
     obtain ⟨e, hwe, heD⟩ := exists_between hwD
-    have hae : a ≤ e := haw.le.trans hwe.le
-    set window : Time := w - a with hwindow
-    set overshoot : Time := e - w with hovershoot
-    have hwindowpos : 0 < window := tsub_pos_of_lt haw
-    have hovershootpos : 0 < overshoot := tsub_pos_of_lt hwe
-    set gamma : Request Page := releaseRequest x a window overshoot hovershootpos with hgamma
-    have hgammaDeadline : a + window = w := add_tsub_cancel_of_le haw.le
-    have hgammaCharge : a + (window + overshoot) = e := by
-      rw [hwindow, hovershoot, add_comm (w - a) (e - w), tsub_add_tsub_cancel hwe.le haw.le,
-        add_tsub_cancel_of_le hae]
-    set deadline' : Request Page → Time :=
-      fun request => if request.arrival = a then w else run.deadline request with hdeadline'
-    set chargeWindow' : Request Page → Time :=
-      fun request => if request.arrival = a then window + overshoot
-        else run.chargeWindow request with hchargeWindow'
-    have hcw : ∀ request ∈ run.input.requests,
-        chargeWindow' request = run.chargeWindow request := by
-      intro request hrequest
-      simp [hchargeWindow', hold request hrequest]
-    have hdl : ∀ request ∈ run.input.requests, deadline' request = run.deadline request := by
-      intro request hrequest
-      simp [hdeadline', hold request hrequest]
-    have hgammaCw : chargeWindow' gamma = window + overshoot := by simp [hchargeWindow', hgamma]
-    have hgammaDl : deadline' gamma = w := by simp [hdeadline', hgamma]
-    have hxerase : x ∈ V.erase run.state.distinguished := Finset.mem_erase.mpr ⟨hxc, hxV⟩
-    refine ⟨{
-      input := run.input.appendRequest gamma hearlier
-      size := run.size
-      deadline := deadline'
-      chargeWindow := chargeWindow'
-      state := ⟨run.state.distinguished, run.state.cheap.erase x,
-        if run.state.mark = some x then none else run.state.mark, run.state.budget⟩
-      stateValid := PhaseCount.Step.valid hcard hk run.stateValid
-        (PhaseCount.Step.process run.state x hxc hnonempty)
-      clock := e
-      checkpoint := e
-      processed := ⟨x, a, w⟩ :: run.processed
-      alpha := run.alpha
-      cert := by
-        have := run.cert.process hxerase hnonempty (gamma := ⟨x, a, w⟩) rfl
-          (run.checkpointLe.trans_lt hta) hae heD
-        exact this
-      clockPos := hapos.trans_le hae
-      checkpointLe := le_rfl
-      alphaLate := heD
-      initialPages := run.initialPages
-      startEq := run.startEq
-      arrivals := ?_
-      shaped := ?_
-      pages := ?_
-      misses := ?_
-      penalty := ?_
-      free := ?_
-      ordered := ?_
-      closed := ?_
-      alphaClosed := ?_
-      link := ?_
-      steps := run.steps + 1
-      potentialBound := ?_
-      lengthEq := ?_ }, rfl⟩
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · exact (run.arrivals request hrequest).trans (hta.le.trans hae)
-      · rw [List.mem_singleton.mp hrequest]
-        exact hae
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · exact run.shaped request hrequest
-      · rw [List.mem_singleton.mp hrequest, hgamma]
-        exact releaseRequest_shaped x a window overshoot hovershootpos
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · exact run.pages request hrequest
-      · rw [List.mem_singleton.mp hrequest]
-        exact hxV
-    · exact appendRequest_misses online run.input gamma hearlier
-        run.misses hxmiss
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · rw [hcw request hrequest]
-        exact run.penalty request hrequest
-      · rw [List.mem_singleton.mp hrequest, hgammaCw]
-        exact releaseRequest_penalty x a window overshoot hovershootpos
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · rw [hdl request hrequest]
-        exact run.free request hrequest
-      · rw [List.mem_singleton.mp hrequest, hgammaDl]
-        have hfree := releaseRequest_free x a window overshoot hovershootpos
-        rw [hgammaDeadline] at hfree
-        exact hfree
-    · refine List.pairwise_append.mpr ⟨?_, List.pairwise_singleton _ _, ?_⟩
-      · refine run.ordered.imp_of_mem ?_
-        intro first second hfirst _ hcase
-        rcases hcase with hpages | hwindows
-        · exact Or.inl hpages
-        · exact Or.inr (by rw [hcw first hfirst]; exact hwindows)
-      · intro first hfirst second hsecond
-        rw [List.mem_singleton] at hsecond
-        subst hsecond
-        rcases run.closed first hfirst with hclosedFirst | hpageFirst
-        · refine Or.inr ?_
-          rw [hcw first hfirst]
-          exact hclosedFirst.trans_lt hta
-        · exact Or.inl (by rw [hpageFirst]; exact fun heq => hxc heq.symm)
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · rcases run.closed request hrequest with hclosedRequest | hpageRequest
-        · exact Or.inl (by rw [hcw request hrequest]; exact hclosedRequest.trans (hta.le.trans hae))
-        · exact Or.inr hpageRequest
-      · refine Or.inl ?_
-        rw [List.mem_singleton.mp hrequest, hgammaCw]
-        exact le_of_eq hgammaCharge
-    · intro request hrequest hpage
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · rw [hcw request hrequest]
-        exact run.alphaClosed request hrequest hpage
-      · rw [List.mem_singleton.mp hrequest] at hpage
-        exact absurd hpage hxc
-    · intro request hrequest
-      rcases List.mem_append.mp hrequest with hrequest | hrequest
-      · rw [hdl request hrequest]
-        rcases List.mem_cons.mp (run.link request hrequest) with hmem | hmem
-        · rw [hmem]; exact List.mem_cons_self ..
-        · exact List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hmem)
-      · rw [List.mem_singleton.mp hrequest, hgammaDl]
-        exact List.mem_cons_of_mem _ (List.mem_cons_self ..)
-    · have hstepbound := PhaseCount.Step.potential_le hcard run.stateValid
-        (PhaseCount.Step.process run.state x hxc hnonempty)
-      have hprev := run.potentialBound
-      omega
-    · rw [Instance.appendRequest]
-      simp [run.lengthEq]
+    have hae : a ≤ e := (haw.trans hwe).le
+    -- free until `w`, a unit of delay at `e < D`; clock and checkpoint move to `e`
+    exact run.extend online hk hcard hta haw hwe hxV hxc hxmiss
+      (.process run.state x hxc hnonempty)
+      (run.cert.process (Finset.mem_erase.mpr ⟨hxc, hxV⟩) hnonempty (gamma := ⟨x, a, w⟩) rfl
+        harrival hae heD) hae le_rfl heD
+      (fun _ h => by simp at h ⊢; tauto) (by simp)
+      (fun request hrequest => (run.closed request hrequest).imp_left
+        fun h => h.trans (hta.le.trans hae)) (Or.inl le_rfl) run.alphaClosed
+      fun h => absurd h hxc
 
 /-! ## Running the construction for as long as we like -/
 
 /-- **The construction runs for any number of operations.** -/
-theorem exists_run (algorithm : Algorithm Page) (online : algorithm.Online)
-    {k : ℕ} (hk : 1 ≤ k) {V : Finset Page}
-    (hcard : V.card = k + 2) (steps : ℕ) :
+theorem exists_run {algorithm : Algorithm Page} (online : algorithm.Online)
+    {k : ℕ} (hk : 1 ≤ k) {V : Finset Page} (hcard : V.card = k + 2) (steps : ℕ) :
     ∃ (c d : Page), c ∈ V ∧ d ∈ V ∧ c ≠ d ∧
-      ∃ run : Run algorithm k V (V \ {c, d}), run.steps = steps := by
+      ∃ run : Run algorithm k V c d, run.steps = steps := by
   induction steps with
-  | zero => exact exists_initial algorithm online hk hcard
+  | zero => exact exists_initial algorithm hk hcard
   | succ previous ih =>
       obtain ⟨c, d, hc, hd, hcd, run, hsteps⟩ := ih
-      obtain ⟨next, hnext⟩ := Run.advance algorithm online hk hcard run
+      obtain ⟨next, hnext⟩ := run.advance online hk hcard
       exact ⟨c, d, hc, hd, hcd, next, by rw [hnext, hsteps]⟩
 
 end

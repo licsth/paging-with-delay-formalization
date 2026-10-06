@@ -68,27 +68,13 @@ theorem requestCost_scale (schedule : Schedule Page) (c : Cost) (hc : 0 < c)
     schedule.requestCost (scaleRequest c hc request) = c * schedule.requestCost request :=
   rfl
 
-theorem serviceCandidates_scale (schedule : Schedule Page) (c : Cost) (hc : 0 < c)
-    (request : Request Page) :
-    schedule.serviceCandidates (scaleRequest c hc request) =
-      schedule.serviceCandidates request :=
-  rfl
-
 theorem feasible_scale_iff (schedule : Schedule Page) (c : Cost) (hc : 0 < c)
     (input : Instance Page) :
-    schedule.Feasible (scaleInstance c hc input) ↔ schedule.Feasible input := by
-  constructor
-  · intro h
-    exact ⟨h.initialCache, h.chronological, h.validTransitions, h.capacity,
-      fun request hrequest => by
-        rw [← serviceCandidates_scale schedule c hc]
-        exact h.eventuallyServed _ (List.mem_map_of_mem hrequest)⟩
-  · intro h
-    refine ⟨h.initialCache, h.chronological, h.validTransitions, h.capacity, ?_⟩
-    intro request hrequest
-    obtain ⟨original, horiginal, rfl⟩ := List.mem_map.mp hrequest
-    rw [serviceCandidates_scale]
-    exact h.eventuallyServed original horiginal
+    schedule.Feasible (scaleInstance c hc input) ↔ schedule.Feasible input :=
+  ⟨fun h => ⟨h.initialCache, h.chronological, h.validTransitions, h.capacity,
+      fun r hr => h.eventuallyServed (scaleRequest c hc r) (List.mem_map_of_mem hr)⟩,
+    fun h => ⟨h.initialCache, h.chronological, h.validTransitions, h.capacity,
+      List.forall_mem_map.mpr h.eventuallyServed⟩⟩
 
 /-- The algorithm that answers an input with `algorithm`'s schedule for the
 scaled input.  It is online when `algorithm` is. -/
@@ -130,46 +116,28 @@ theorem exists_input_large (algorithm : ThresholdAlgorithm Page)
   set scaled := scaleInstance c hc input with hscaled
   have hscaledSize : scaled.cacheSize = k := hsize
   -- the comparator pays no delay, so scaling does not change its cost
-  have hzero : ∀ (inp : Instance Page), (∀ r ∈ inp.requests, comparator.requestCost r = 0) →
-      comparator.totalDelay inp = 0 := by
-    intro inp h
-    exact List.sum_eq_zero fun x hx => by
-      obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hx
-      exact h r hr
-  have hscaledDelay : ∀ r ∈ scaled.requests, comparator.requestCost r = 0 := by
-    intro r hr
-    obtain ⟨original, horiginal, rfl⟩ := List.mem_map.mp hr
-    rw [requestCost_scale, hdelay original horiginal, mul_zero]
   have hcompCost : comparator.totalCost scaled = comparator.totalCost input := by
-    simp only [Schedule.totalCost, hzero _ hdelay, hzero _ hscaledDelay]
+    have h0 : comparator.totalDelay input = 0 := List.sum_eq_zero (by simpa using hdelay)
+    have hs : comparator.totalDelay scaled = c * comparator.totalDelay input := by
+      simp [Schedule.totalDelay, scaled, scaleInstance, Function.comp_def, requestCost_scale,
+        List.sum_map_mul_left]
+    simp only [Schedule.totalCost, hs, h0, mul_zero]
   -- the threshold algorithm pays `1 + δ` for every request
   have halg := cost_ge algorithm scaled
     (fun r => window (scaleRequest c⁻¹ (inv_pos.mpr hc) r))
-    (by
-      intro r hr
-      obtain ⟨original, horiginal, rfl⟩ := List.mem_map.mp hr
-      exact hmisses original horiginal)
+    (List.forall_mem_map.mpr hmisses)
     (by
       intro r hr wait hwait
       obtain ⟨original, horiginal, rfl⟩ := List.mem_map.mp hr
       simp only [scaleRequest_inv] at hwait
       rw [hscaledSize]
-      show algorithm.threshold k < c * original.delay wait
-      calc algorithm.threshold k < c := by rw [hcdef]; exact lt_add_one _
-        _ = c * 1 := (mul_one c).symm
-        _ ≤ c * original.delay wait := mul_le_mul_right
-            ((hpenalty original horiginal).trans (original.delay_mono hwait.le)) c)
-    (by
-      refine List.pairwise_map.mpr (hordered.imp ?_)
-      intro first second h
-      simpa only [scaleRequest_inv] using h)
-  rw [hscaledSize] at halg
-  refine ⟨scaled, comparator, hscaledSize, (pageUniverse_scale c hc input).symm ▸ hcard,
-    (feasible_scale_iff _ c hc input).mpr hfeasible, ?_, hcompCost ▸ hcost⟩
-  have hlen : scaled.requests.length = N := by
-    rw [hscaled, scaleInstance, List.length_map, hlength]
-  rw [hlen] at halg
-  exact halg
+      exact (lt_add_one _).trans_le (le_mul_of_one_le_right (zero_le c)
+        ((hpenalty original horiginal).trans (original.delay_mono hwait.le))))
+    (List.pairwise_map.mpr (by simpa only [scaleRequest_inv] using hordered))
+  have hlen : scaled.requests.length = N := (List.length_map _).trans hlength
+  rw [hscaledSize, hlen] at halg
+  exact ⟨scaled, comparator, hscaledSize, (pageUniverse_scale c hc input).symm ▸ hcard,
+    (feasible_scale_iff _ c hc input).mpr hfeasible, halg, hcompCost ▸ hcost⟩
 
 end ThresholdLowerBound
 

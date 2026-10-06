@@ -4,23 +4,13 @@ import Proofs.EventLoop.ServiceSemantics
 # Feasibility of the schedule produced by FIFO, for every trigger
 
 An `Algorithm` in `Model.lean` must produce a feasible schedule on every
-instance.  This file proves that FIFO's emitted trace is feasible, for *every*
-trigger, threshold or deadline,
+instance.  This file proves `(FIFO.schedule trigger input).Feasible input` for
+every trigger, which `Algorithm.lean` uses to package the event loop as the
+algorithm `FIFO.algorithm` that the public theorems name.  Nothing in the
+argument constrains the trigger: a payment is legal whenever it is made.
 
-```text
-(FIFO.schedule trigger input).Feasible input
-```
-
-which `Algorithm.lean` uses to package the event loop as the algorithm
-`FIFO.algorithm` that the public theorems name.
-
-Nothing in the argument constrains the trigger: a payment is legal whenever
-it is made, so feasibility is a fact about the shape of
-the event loop, not about the amount of delay it tolerates.
-
-Nothing here is new mathematics.  Each of the five checks in
-`Schedule.Feasible` is discharged from an invariant that the competitive proof
-already had to establish about `FIFO.run`:
+Each of the five checks in `Schedule.Feasible` is discharged from an invariant
+that the competitive proof already had to establish about `FIFO.run`:
 
 | field | source |
 | --- | --- |
@@ -29,12 +19,6 @@ already had to establish about `FIFO.run`:
 | `validTransitions` | `FreshPayments`: a payment page is absent from the replayed queue |
 | `capacity` | `recentPages_length`, via `FreshPayments.queueAfter_at` |
 | `eventuallyServed` | the hit/batch partition also used by `FIFO.algorithmCostClaim` |
-
-The point of the file is to let a reader check the model rather than trust it.
-`Schedule.Feasible` is otherwise only ever used as a hypothesis on the
-comparator, so without this theorem the paper-facing bound would constrain a
-cost expression without asserting that the trace it is computed from is an
-admissible paging solution.
 -/
 
 namespace PagingWithDelay.FIFO
@@ -57,23 +41,9 @@ private theorem insertPage_toFinset_sdiff (capacity : ℕ) (queue : List Page)
     (page : Page) (hpage : page ∉ queue) :
     (insertPage capacity queue page).toFinset \ queue.toFinset = {page} := by
   ext candidate
-  simp only [Finset.mem_sdiff, List.mem_toFinset, Finset.mem_singleton]
   unfold insertPage
-  split
-  · simp only [List.mem_append, List.mem_singleton]
-    constructor
-    · rintro ⟨hold | hnew, hnot⟩
-      · exact False.elim (hnot hold)
-      · exact hnew
-    · rintro rfl
-      exact ⟨Or.inr rfl, hpage⟩
-  · simp only [List.mem_append, List.mem_singleton]
-    constructor
-    · rintro ⟨hold | hnew, hnot⟩
-      · exact False.elim (hnot (List.mem_of_mem_tail hold))
-      · exact hnew
-    · rintro rfl
-      exact ⟨Or.inr rfl, hpage⟩
+  split <;> simp only [Finset.mem_sdiff, List.mem_toFinset, Finset.mem_singleton, List.mem_append,
+    List.mem_singleton] <;> grind [List.mem_of_mem_tail]
 
 /-! ## Transition legality from an indexed cache history -/
 
@@ -92,15 +62,10 @@ private theorem validTransitionsFrom_of_steps :
   | nil => intro _ _; trivial
   | cons event rest ih =>
       intro cache hstep
-      have head := hstep 0 (by simp)
-      have hcache : event.cacheAfter = cache 1 := head.1
-      have hmem : event.fetched ∈ event.cacheAfter := head.2.1
-      have hdiff : event.cacheAfter \ cache 0 = {event.fetched} := head.2.2
+      obtain ⟨hcache, hmem, hdiff⟩ := hstep 0 (by simp)
       refine ⟨hmem, hdiff, ?_⟩
-      rw [hcache]
-      refine ih (fun i => cache (i + 1)) ?_
-      intro i hi
-      exact hstep (i + 1) (Nat.succ_lt_succ hi)
+      rw [show event.cacheAfter = cache 1 from hcache]
+      exact ih (fun i => cache (i + 1)) fun i hi => hstep (i + 1) (Nat.succ_lt_succ hi)
 
 /-! ## The replayed queue after each payment
 
@@ -136,16 +101,10 @@ private theorem validTransitionsFrom_map_fetchEvent {capacity : ℕ} {initial : 
   intro i hi
   have hlen : i < payments.length := by simpa using hi
   have hstep := queueAfter_eq_insertPage hfresh i hlen
-  have hmiss : payments[i].page ∉ recentPages capacity initial (payments.take i) :=
-    hfresh.fresh_at i hlen
-  refine ⟨?_, ?_, ?_⟩ <;>
-    simp only [List.getElem_map, Payment.fetchEvent_cacheAfter,
-      Payment.fetchEvent_fetched]
-  · rw [hfresh.queueAfter_at i hlen]
-  · rw [List.mem_toFinset, hstep]
-    exact mem_insertPage_self _ _ _
-  · rw [hstep]
-    exact insertPage_toFinset_sdiff _ _ _ hmiss
+  simp only [List.getElem_map, Payment.fetchEvent_cacheAfter, Payment.fetchEvent_fetched]
+  refine ⟨by rw [hfresh.queueAfter_at i hlen], ?_, ?_⟩ <;> rw [hstep]
+  · exact List.mem_toFinset.mpr (mem_insertPage_self _ _ _)
+  · exact insertPage_toFinset_sdiff _ _ _ (hfresh.fresh_at i hlen)
 
 /-- A fresh payment log never records a queue exceeding the cache capacity. -/
 private theorem queueAfter_toFinset_card_le {capacity : ℕ} (hpositive : 0 < capacity)

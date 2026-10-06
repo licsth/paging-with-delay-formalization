@@ -33,19 +33,13 @@ noncomputable section
 
 theorem arrival_le_of_mem_serviceCandidates (schedule : Schedule Page) (request : Request Page)
     {c : Time} (h : c ∈ schedule.serviceCandidates request) : request.arrival ≤ c := by
-  have hfetch : ∀ x ∈ ((schedule.events.filter fun event =>
-      request.arrival ≤ event.time ∧ request.page = event.fetched).map
-        FetchEvent.time).toFinset, request.arrival ≤ x := by
-    intro x hx
-    rw [List.mem_toFinset] at hx
-    obtain ⟨event, hevent, rfl⟩ := List.mem_map.mp hx
-    exact (of_decide_eq_true (List.mem_filter.mp hevent).2).1
   unfold Schedule.serviceCandidates at h
-  split at h
-  · rcases Finset.mem_insert.mp h with rfl | h
-    · exact le_rfl
-    · exact hfetch c h
-  · exact hfetch c h
+  split at h <;> simp only [Finset.mem_insert, List.mem_toFinset, List.mem_map,
+    List.mem_filter, decide_eq_true_eq] at h
+  · rcases h with rfl | ⟨_, ⟨_, h, _⟩, rfl⟩
+    exacts [le_rfl, h]
+  · obtain ⟨_, ⟨_, h, _⟩, rfl⟩ := h
+    exact h
 
 /-- A request whose arrival is itself a service candidate costs nothing. -/
 theorem requestCost_eq_zero_of_arrival_mem (schedule : Schedule Page) (request : Request Page)
@@ -65,27 +59,12 @@ theorem mem_serviceCandidates_of_fetch (schedule : Schedule Page) (request : Req
     {event : FetchEvent Page} (hevent : event ∈ schedule.events)
     (htime : request.arrival ≤ event.time) (hpage : request.page = event.fetched) :
     event.time ∈ schedule.serviceCandidates request := by
-  have hmem : event.time ∈ ((schedule.events.filter fun e =>
-      request.arrival ≤ e.time ∧ request.page = e.fetched).map FetchEvent.time).toFinset := by
-    rw [List.mem_toFinset]
-    exact List.mem_map.mpr ⟨event, List.mem_filter.mpr ⟨hevent, by simp [htime, hpage]⟩, rfl⟩
   unfold Schedule.serviceCandidates
-  split
-  · exact Finset.mem_insert_of_mem hmem
-  · exact hmem
+  split <;> simp only [Finset.mem_insert, List.mem_toFinset, List.mem_map, List.mem_filter,
+    decide_eq_true_eq]
+  exacts [Or.inr ⟨event, ⟨hevent, htime, hpage⟩, rfl⟩, ⟨event, ⟨hevent, htime, hpage⟩, rfl⟩]
 
 /-! ## Arrival times against the phase boundaries -/
-
-theorem arrivalQuarters_pos (k r q : ℕ) (hk : 0 < k) (hq : q < runLength k) :
-    0 < arrivalQuarters k (runLength k * r + q) := by
-  have hL : runLength k = 2 * k + 2 := rfl
-  rw [arrivalQuarters_run k r q hq]
-  split_ifs <;> omega
-
-theorem arrivalQuarters_le' (k r q : ℕ) (hq : q < runLength k) :
-    arrivalQuarters k (runLength k * r + q) ≤ 4 * (runLength k * r + q) + 2 := by
-  rw [arrivalQuarters_run k r q hq]
-  split_ifs <;> omega
 
 theorem phaseQuarters_succ (k r : ℕ) :
     phaseQuarters k (r + 1) = 4 * (runLength k * r + (k + 2)) - 2 := by
@@ -100,16 +79,10 @@ theorem phaseTime_succ (k r : ℕ) :
 theorem phaseQuarters_lt_arrival (k r q : ℕ) (hk : 0 < k) (hq : q < runLength k) :
     phaseQuarters k r < arrivalQuarters k (runLength k * r + q) := by
   have hL : runLength k = 2 * k + 2 := rfl
-  rcases Nat.eq_zero_or_pos r with rfl | hr
-  · have := arrivalQuarters_pos k 0 q hk hq
-    unfold phaseQuarters
-    rw [if_pos rfl]
-    omega
-  · have e : runLength k * (r - 1) + runLength k = runLength k * r := by
-      rw [← Nat.mul_succ]; congr 1; omega
-    unfold phaseQuarters
-    rw [if_neg (by omega), arrivalQuarters_run k r q hq]
-    split_ifs <;> omega
+  rw [arrivalQuarters_run k r q hq]
+  rcases r with _ | r
+  · simp only [phaseQuarters, if_pos]; split_ifs <;> omega
+  · rw [phaseQuarters_succ, Nat.mul_succ]; split_ifs <;> omega
 
 theorem arrivalQuarters_le_phaseQuarters_succ (k r q : ℕ) (hk : 0 < k) (hq : q ≤ k + 2) :
     arrivalQuarters k (runLength k * r + q) ≤ phaseQuarters k (r + 1) := by
@@ -128,13 +101,13 @@ theorem arrivalQuarters_le_phaseQuarters_succ_succ (k r q : ℕ) (hq : q < runLe
     arrivalQuarters k (runLength k * r + q) ≤ phaseQuarters k (r + 2) := by
   have hL : runLength k = 2 * k + 2 := rfl
   have e : runLength k * (r + 1) = runLength k * r + runLength k := by ring
-  have h := arrivalQuarters_le' k r q hq
-  rw [show r + 2 = (r + 1) + 1 from rfl, phaseQuarters_succ]
+  have h := arrivalQuarters_le k (runLength k * r + q)
+  rw [phaseQuarters_succ]
   omega
 
 theorem arrivalQuarters_le_final (k r q runs : ℕ) (hr : r < runs) (hq : q < runLength k) :
     arrivalQuarters k (runLength k * r + q) ≤ 4 * (runLength k * runs) + 4 := by
-  have h := arrivalQuarters_le' k r q hq
+  have h := arrivalQuarters_le k (runLength k * r + q)
   have := run_index_lt hr hq
   omega
 
@@ -233,14 +206,10 @@ theorem serviceCandidate_eq_finalTime {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2
     {c : Time} (hc : c ∈ (comparator k runs pages).serviceCandidates request) :
     c = finalTime k runs := by
   unfold Schedule.serviceCandidates at hc
-  split at hc
-  · rename_i hhit
-    exact absurd hhit hmiss
-  · rw [List.mem_toFinset] at hc
-    obtain ⟨event, hevent, rfl⟩ := List.mem_map.mp hc
-    have hfilter := List.mem_filter.mp hevent
-    exact fetched_zero_time hk pages runs hfilter.1
-      (by rw [← (of_decide_eq_true hfilter.2).2, hpage])
+  simp only [if_neg hmiss, List.mem_toFinset, List.mem_map, List.mem_filter,
+    decide_eq_true_eq] at hc
+  obtain ⟨event, ⟨hevent, -, hp⟩, rfl⟩ := hc
+  exact fetched_zero_time hk pages runs hevent (hp.symm.trans hpage)
 
 theorem page_mem_heldCache_of_vCodes {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page)
     {c d : ℕ} (h : c ∈ vCodes k) : page k pages c ∈ heldCache k pages d :=
@@ -272,141 +241,90 @@ theorem comparator_serves {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
   by_cases h1 : q = 1
   · subst h1
     -- the request on `a`, served by the comparator's last fetch
-    have hpage : (requestAt δ k runs pages (runLength k * r + 1)).page = page k pages 0 := by
-      show page k pages (pageCode k (runLength k * r + 1)) = page k pages 0
-      rw [pageCode_a k r hk]
+    have hpage : (requestAt δ k runs pages (runLength k * r + 1)).page = page k pages 0 :=
+      congrArg (page k pages) (pageCode_a k r hk)
     have hmiss : (requestAt δ k runs pages (runLength k * r + 1)).page ∉
-        (comparator k runs pages).cacheBefore
-          (requestAt δ k runs pages (runLength k * r + 1)).arrival := by
-      rw [hpage]
-      show page k pages 0 ∉
-        (comparator k runs pages).cacheBefore (arrivalTime k (runLength k * r + 1))
-      rw [cacheBefore_early hk pages hr (show (1 : ℕ) ≤ k + 2 by omega)]
-      exact page_zero_notMem_heldCache hk pages _ (swapBC_two_lt k r hk)
-        (by unfold swapBC; split_ifs <;> omega)
-    have haq : arrivalQuarters k (runLength k * r + 1) = 4 * (runLength k * r + 1) + 2 := by
-      rw [arrivalQuarters_run k r 1 hq, if_neg (by omega), if_neg (by omega)]
-    have hwq : widthQuarters k (runLength k * r + 1) = 2 := by
-      unfold widthQuarters
-      rw [mod_run k r 1 hq, if_neg (by omega)]
+        (comparator k runs pages).cacheBefore (arrivalTime k (runLength k * r + 1)) := by
+      rw [hpage, cacheBefore_early hk pages hr (by omega)]
+      exact page_zero_notMem_heldCache hk pages _ (swapBC_two_lt k r hk) (swapBC_two_ne_zero r)
+    have haq := arrivalQuarters_run k r 1 hq
+    rw [if_neg (by omega), if_neg (by omega)] at haq
     have hle : arrivalQuarters k (runLength k * r + 1) ≤ 4 * (runLength k * runs) + 4 := by
       omega
-    have harr : (requestAt δ k runs pages (runLength k * r + 1)).arrival ≤ finalTime k runs := by
-      show arrivalTime k (runLength k * r + 1) ≤ finalTime k runs
-      rw [arrivalTime_eq, finalTime]
-      exact quarter_le hle
     have hmem : finalTime k runs ∈ (comparator k runs pages).serviceCandidates
         (requestAt δ k runs pages (runLength k * r + 1)) :=
-      mem_serviceCandidates_of_fetch (comparator k runs pages) _
-        (event := finalEvent k runs pages) (finalEvent_mem k runs pages) harr hpage
-    have hservice : (comparator k runs pages).serviceTime
-        (requestAt δ k runs pages (runLength k * r + 1)) = some (finalTime k runs) :=
-      Schedule.serviceTime_eq_some_of_le_candidates _ _ _ hmem
-        fun c hc => le_of_eq (serviceCandidate_eq_finalTime hk pages hpage hmiss hc).symm
+      mem_serviceCandidates_of_fetch _ _ (event := finalEvent k runs pages)
+        (finalEvent_mem k runs pages) (quarter_le hle) hpage
+    have hservice := Schedule.serviceTime_eq_some_of_le_candidates _ _ _ hmem
+      fun c hc => (serviceCandidate_eq_finalTime hk pages hpage hmiss hc).ge
     refine ⟨⟨_, hmem⟩, ?_⟩
     rw [if_pos rfl, Schedule.requestCost_eq_of_serviceTime _ _ _ hservice]
-    show curve δ 1 (width k (runLength k * r + 1)) (horizon k runs)
+    show curve δ 1 ((widthQuarters k (runLength k * r + 1) : Cost) / 4) (horizon k runs)
       (finalTime k runs - arrivalTime k (runLength k * r + 1)) = δ
-    rw [arrivalTime_eq, finalTime, quarter_sub hle, horizon_eq]
-    show curve δ 1 ((widthQuarters k (runLength k * r + 1) : Cost) / 4) _ _ = δ
-    rw [hwq]
-    refine curve_eq_threshold _ _ _ _ (by norm_num) (quarter_le (by omega))
-      (quarter_le (by omega))
+    rw [arrivalTime_eq, finalTime, quarter_sub hle, horizon_eq, widthQuarters_run k r 1 hq,
+      if_neg (by omega)]
+    exact curve_eq_threshold _ _ _ _ (by norm_num) (quarter_le (by omega)) (quarter_le (by omega))
   · rw [if_neg h1]
     by_cases h2 : q = k + 2
     · subst h2
       -- the request on `b`: the comparator's fetch happens exactly now
-      have hpage : (requestAt δ k runs pages (runLength k * r + (k + 2))).page =
-          (phaseEvent k pages (r + 1)).fetched := by
-        show page k pages (pageCode k (runLength k * r + (k + 2))) = _
-        rw [pageCode_moved k r hk]
-        rfl
       have harr : (requestAt δ k runs pages (runLength k * r + (k + 2))).arrival =
           (phaseEvent k pages (r + 1)).time := (phaseTime_succ k r).symm
-      have hmem := mem_serviceCandidates_of_fetch (comparator k runs pages)
-        (requestAt δ k runs pages (runLength k * r + (k + 2)))
-        (phaseEvent_mem k runs (r + 1) pages (by omega)) (le_of_eq harr) hpage
+      have hmem := mem_serviceCandidates_of_fetch (comparator k runs pages) _
+        (phaseEvent_mem k runs (r + 1) pages (by omega)) harr.le
+        (congrArg (page k pages) (pageCode_moved k r hk))
       rw [← harr] at hmem
       exact ⟨⟨_, hmem⟩, requestCost_eq_zero_of_arrival_mem _ _ hmem⟩
     · -- everything else is a hit
       have hhit : (requestAt δ k runs pages (runLength k * r + q)).page ∈
-          (comparator k runs pages).cacheBefore
-            (requestAt δ k runs pages (runLength k * r + q)).arrival := by
-        show page k pages (pageCode k (runLength k * r + q)) ∈
-          (comparator k runs pages).cacheBefore (arrivalTime k (runLength k * r + q))
+          (comparator k runs pages).cacheBefore (arrivalTime k (runLength k * r + q)) := by
+        show page k pages (pageCode k (runLength k * r + q)) ∈ _
         rcases Nat.lt_or_ge q (k + 3) with hlt | hge
         · rw [cacheBefore_early hk pages hr (by omega)]
-          rcases (show q = 0 ∨ q = k + 1 ∨ (2 ≤ q ∧ q ≤ k) by omega) with h | h | h
-          · rw [pageCode_held k r q hk (Or.inl h)]
+          by_cases hv : 2 ≤ q ∧ q ≤ k
+          · exact page_mem_heldCache_of_vCodes hk pages (pageCode_v k r q hk hq (Or.inl hv))
+          · rw [pageCode_held k r q hk (by omega)]
             exact Finset.mem_insert_self _ _
-          · rw [pageCode_held k r q hk (Or.inr h)]
-            exact Finset.mem_insert_self _ _
-          · exact page_mem_heldCache_of_vCodes hk pages (pageCode_v k r q hk hq (Or.inl h))
         · rw [cacheBefore_late hk pages hr hge hq]
           exact page_mem_heldCache_of_vCodes hk pages (pageCode_v k r q hk hq (Or.inr hge))
       exact ⟨⟨_, arrival_mem_serviceCandidates_of_hit _ _ hhit⟩,
         Schedule.requestCost_eq_zero_of_mem_cacheBefore _ _ hhit⟩
 
+/-- `comparator_serves`, indexed by global arrival rank. -/
+theorem comparator_serves_of_lt {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
+    (pages : Fin (k + 2) ↪ Page) {m : ℕ} (hm : m < runLength k * runs) :
+    ((comparator k runs pages).serviceCandidates (requestAt δ k runs pages m)).Nonempty ∧
+      (comparator k runs pages).requestCost (requestAt δ k runs pages m)
+        = if m % runLength k = 1 then δ else 0 := by
+  have h := comparator_serves (δ := δ) hk pages (Nat.div_lt_of_lt_mul hm)
+    (Nat.mod_lt m (runLength_pos k))
+  rwa [Nat.div_add_mod m (runLength k)] at h
+
 /-! ## Summing over the instance -/
 
-omit [DecidableEq Page] in
-theorem range_append (a b : ℕ) : List.range (a + b) = List.range a ++ List.range' a b := by
-  rw [List.range_eq_range', List.range_eq_range', ← List.range'_append_1, Nat.zero_add]
-
-/-- One run contributes exactly one paying request, the one on `a`. -/
-theorem block_sum (δ : Cost) (k d : ℕ) :
-    (((List.range' (runLength k * d) (runLength k)).map
-      (fun m => if m % runLength k = 1 then δ else 0)).sum) = δ := by
-  obtain ⟨n, hn⟩ : ∃ n, runLength k = n + 2 := ⟨2 * k, rfl⟩
-  rw [hn]
-  have h0 : ((n + 2) * d) % (n + 2) = 0 := Nat.mul_mod_right _ _
-  have h1 : ((n + 2) * d + 1) % (n + 2) = 1 := by
-    rw [Nat.mul_add_mod, Nat.mod_eq_of_lt (by omega)]
-  have hz : (((List.range' ((n + 2) * d + 2) n).map
-      (fun m => if m % (n + 2) = 1 then δ else 0)).sum) = 0 := by
-    apply List.sum_eq_zero
-    intro x hx
-    obtain ⟨m, hm, rfl⟩ := List.mem_map.mp hx
-    rw [List.mem_range'_1] at hm
-    have hmod : m % (n + 2) = m - (n + 2) * d := by
-      conv_lhs => rw [show m = (n + 2) * d + (m - (n + 2) * d) by omega]
-      rw [Nat.mul_add_mod, Nat.mod_eq_of_lt (by omega)]
-    rw [hmod, if_neg (by omega)]
-  rw [show List.range' ((n + 2) * d) (n + 2) =
-      (n + 2) * d :: ((n + 2) * d + 1) :: List.range' ((n + 2) * d + 2) n from rfl,
-    List.map_cons, List.map_cons, List.sum_cons, List.sum_cons, h0, h1, hz,
-    if_neg (by omega), if_pos rfl, add_zero, zero_add]
-
-theorem sum_costs (δ : Cost) (k : ℕ) : ∀ runs : ℕ,
-    (((List.range (runLength k * runs)).map
-      (fun m => if m % runLength k = 1 then δ else 0)).sum) = δ * runs := by
-  intro runs
+/-- One request per run pays, the one on `a`. -/
+theorem sum_costs (δ : Cost) (k runs : ℕ) :
+    ((List.range (runLength k * runs)).map
+      (fun m => if m % runLength k = 1 then δ else 0)).sum = δ * runs := by
+  have hL : 1 < runLength k := by unfold runLength; omega
+  rw [← List.sum_toFinset _ List.nodup_range, List.toFinset_range]
   induction runs with
   | zero => simp
   | succ runs ih =>
-      rw [show runLength k * (runs + 1) = runLength k * runs + runLength k by ring,
-        range_append, List.map_append, List.sum_append, ih, block_sum]
-      push_cast
-      ring
-
-theorem comparator_requestCost_mod {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
-    (pages : Fin (k + 2) ↪ Page) {m : ℕ} (hm : m < runLength k * runs) :
-    (comparator k runs pages).requestCost (requestAt δ k runs pages m)
-      = if m % runLength k = 1 then δ else 0 := by
-  have h := (comparator_serves (δ := δ) hk pages (Nat.div_lt_of_lt_mul hm)
-    (Nat.mod_lt m (runLength_pos k))).2
-  rwa [Nat.div_add_mod m (runLength k)] at h
+      rw [Nat.mul_succ, Finset.sum_range_add, ih,
+        Finset.sum_eq_single_of_mem 1 (Finset.mem_range.mpr hL)]
+      · simp [Nat.mod_eq_of_lt hL, mul_add]
+      · intro q hq hq1
+        simp [Nat.mod_eq_of_lt (Finset.mem_range.mp hq), hq1]
 
 theorem comparator_totalDelay {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
     (pages : Fin (k + 2) ↪ Page) :
     (comparator k runs pages).totalDelay (input δ k runs pages hk) = δ * runs := by
   show (((List.range (runLength k * runs)).map (requestAt δ k runs pages)).map
     (comparator k runs pages).requestCost).sum = _
-  rw [List.map_map]
-  simp only [Function.comp_def]
-  rw [List.map_congr_left (g := fun m => if m % runLength k = 1 then δ else 0)
-    fun m hm => comparator_requestCost_mod hk pages (List.mem_range.mp hm)]
-  exact sum_costs δ k runs
+  rw [List.map_map, ← sum_costs δ k runs]
+  exact congrArg List.sum (List.map_congr_left fun m hm =>
+    (comparator_serves_of_lt hk pages (List.mem_range.mp hm)).2)
 
 /-! ## The comparator of the paper -/
 
@@ -420,9 +338,7 @@ theorem comparator_feasible {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
   eventuallyServed := by
     intro request hrequest
     obtain ⟨m, hm, rfl⟩ := List.mem_map.mp hrequest
-    have h := (comparator_serves (δ := δ) hk pages
-      (Nat.div_lt_of_lt_mul (List.mem_range.mp hm)) (Nat.mod_lt m (runLength_pos k))).1
-    rwa [Nat.div_add_mod m (runLength k)] at h
+    exact (comparator_serves_of_lt hk pages (List.mem_range.mp hm)).1
 
 theorem comparator_totalCost {δ : Cost} {k : ℕ} (hk : 0 < k) {runs : ℕ}
     (pages : Fin (k + 2) ↪ Page) :

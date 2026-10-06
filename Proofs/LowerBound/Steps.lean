@@ -20,16 +20,10 @@ noncomputable section
 /-! ## Times, in quarters -/
 
 theorem quarter_le {a b : ℕ} (h : a ≤ b) : ((a : Cost) / 4) ≤ ((b : Cost) / 4) := by
-  rw [← NNReal.coe_le_coe]
-  push_cast
-  have : (a : ℝ) ≤ b := by exact_mod_cast h
-  linarith
+  gcongr
 
 theorem quarter_lt {a b : ℕ} (h : a < b) : ((a : Cost) / 4) < ((b : Cost) / 4) := by
-  rw [← NNReal.coe_lt_coe]
-  push_cast
-  have : (a : ℝ) < b := by exact_mod_cast h
-  linarith
+  gcongr
 
 /-- Quarters after time zero at which the request with arrival rank `m` reaches
 the threshold. -/
@@ -93,10 +87,6 @@ omit [DecidableEq Page] in
 @[simp] theorem occAt_arrival (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (m : ℕ) :
     (occAt δ k runs pages m).request.arrival = arrivalTime k m := rfl
 
-omit [DecidableEq Page] in
-@[simp] theorem occAt_delay (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (m : ℕ) :
-    (occAt δ k runs pages m).request.delay = curve δ 1 (width k m) (horizon k runs) := rfl
-
 /-! ## The threshold time of a single pending request -/
 
 theorem curve_ge_threshold (δ η w B : Cost) (hw : 0 < w) {x : Time} (hx : w ≤ x) :
@@ -104,15 +94,9 @@ theorem curve_ge_threshold (δ η w B : Cost) (hw : 0 < w) {x : Time} (hx : w �
   rw [curve, min_eq_right ((one_le_div hw).mpr hx), mul_one]
   exact le_add_of_nonneg_right (zero_le _)
 
-theorem le_tsub_iff_of_pos {a w t : Time} (hw : 0 < w) : w ≤ t - a ↔ a + w ≤ t := by
-  rcases le_or_gt a t with h | h
-  · rw [le_tsub_iff_right h, add_comm]
-  · constructor
-    · intro hle
-      rw [tsub_eq_zero_of_le h.le] at hle
-      exact absurd (le_antisymm hle (zero_le w)) hw.ne'
-    · intro hle
-      exact absurd (le_self_add.trans hle) (not_le.mpr h)
+theorem le_tsub_iff_of_pos {a w t : Time} (hw : 0 < w) : w ≤ t - a ↔ a + w ≤ t :=
+  ⟨fun h => (le_tsub_iff_left (tsub_pos_iff_lt.mp (hw.trans_le h)).le).mp h,
+    le_tsub_of_add_le_left⟩
 
 /-- When exactly one pending request is for `p`, the threshold is met exactly
 at that request's own crossing time. -/
@@ -130,18 +114,9 @@ theorem thresholdTime_single {δ : Cost} (hδ : 0 < δ) (state : State Page) (p 
   have hset : {t : Time | state.now ≤ t ∧ δ ≤ pendingCost state p t}
       = Set.Ici (occ.request.arrival + w) := by
     ext t
-    simp only [Set.mem_setOf_eq, Set.mem_Ici, hcost]
-    constructor
-    · rintro ⟨-, h2⟩
-      by_contra hcon
-      rw [not_le] at hcon
-      have hlt : t - occ.request.arrival < w := by
-        rw [← not_le, le_tsub_iff_of_pos hw, not_le]
-        exact hcon
-      exact absurd h2 (not_le.mpr (curve_lt_threshold δ 1 w B hδ hwB hlt))
-    · intro hle
-      exact ⟨hnow.trans hle,
-        curve_ge_threshold δ 1 w B hw ((le_tsub_iff_of_pos hw).mpr hle)⟩
+    simp only [Set.mem_setOf_eq, Set.mem_Ici, hcost, ← le_tsub_iff_of_pos hw]
+    exact ⟨fun ⟨_, h⟩ => not_lt.mp fun hlt => (curve_lt_threshold δ 1 w B hδ hwB hlt).not_ge h,
+      fun h => ⟨hnow.trans ((le_tsub_iff_of_pos hw).mp h), curve_ge_threshold δ 1 w B hw h⟩⟩
   unfold thresholdTime
   rw [hset]
   exact csInf_Ici
@@ -199,27 +174,18 @@ theorem run_step {δ : Cost} (input : Instance Page) (fuel : ℕ) {state : State
   rw [run, h]
 
 theorem run_none {δ : Cost} (input : Instance Page) {state : State Page}
-    (h : nextAction? (.threshold δ) state = none) : ∀ fuel, run (.threshold δ) input fuel state = state := by
-  intro fuel
-  induction fuel with
-  | zero => rfl
-  | succ fuel _ => rw [run, h]
+    (h : nextAction? (.threshold δ) state = none) : ∀ fuel, run (.threshold δ) input fuel state = state
+  | 0 => rfl
+  | _ + 1 => by rw [run, h]
 
 theorem run_add {δ : Cost} (input : Instance Page) : ∀ (a b : ℕ) (state : State Page),
-    run (.threshold δ) input (a + b) state = run (.threshold δ) input b (run (.threshold δ) input a state) := by
-  intro a
-  induction a with
-  | zero => intro b state; rw [Nat.zero_add]; rfl
-  | succ a ih =>
-      intro b state
+    run (.threshold δ) input (a + b) state = run (.threshold δ) input b (run (.threshold δ) input a state)
+  | 0, b, state => by rw [Nat.zero_add]; rfl
+  | a + 1, b, state => by
+      rw [Nat.add_right_comm]
       cases h : nextAction? (.threshold δ) state with
-      | none =>
-          rw [run_none input h (a + 1 + b), run_none input h (a + 1), run_none input h b]
-      | some act =>
-          have e1 : run (.threshold δ) input (a + 1 + b) state = run (.threshold δ) input (a + b) (step input state act) := by
-            rw [show a + 1 + b = (a + b) + 1 by omega]
-            exact run_step input (a + b) h
-          rw [e1, run_step input a h, ih b]
+      | none => rw [run_none input h, run_none input h, run_none input h]
+      | some act => rw [run_step input _ h, run_step input _ h, run_add input a]
 
 end
 end PagingWithDelay.LowerBound

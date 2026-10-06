@@ -17,9 +17,7 @@ either that fetch happens inside the window, or the request pays at least what
 its curve has accrued by the end of the window.  Charging the first alternative
 to the fetch and the second to the request's own delay gives one unit of
 `totalCost` per request either way, which is what the drafts' charging lemma
-needs — provided the curve has reached `1` by the end of the window that the
-adversary uses for charging.  A penalty of `2`, as suggested for "serve it and
-come back", is comfortably enough; the argument only needs `1`.
+needs, provided the curve has reached `1` by the end of the charging window.
 
 Note the two-sided nature of the statement: the window used here has to be
 *strictly longer* than the interval on which the curve is still zero.  A
@@ -65,28 +63,9 @@ theorem fetch_in_window_or_cost (schedule : Schedule Page) (request : Request Pa
     schedule.exists_fetch_of_miss request hserved hmiss
   by_cases hwindow : event.time ≤ request.arrival + window
   · exact Or.inl ⟨event, hevent, hpage, harrival, hwindow⟩
-  · refine Or.inr ?_
-    have hlate : window < event.time - request.arrival := by
-      rw [lt_tsub_iff_left]
-      exact lt_of_not_ge hwindow
-    have hdelay : schedule.serviceDelay request = event.time - request.arrival := by
-      rw [serviceDelay, hservice]
-      rfl
-    rw [requestCost, hdelay]
-    exact request.delay_mono hlate.le
-
-/-- The form the drafts use: with a curve that has reached `1` by the end of the
-window, every request whose page is absent on arrival costs the schedule at
-least one unit — either a fetch inside the window, or delay. -/
-theorem fetch_in_window_or_unit_cost (schedule : Schedule Page) (request : Request Page)
-    (hserved : (schedule.serviceCandidates request).Nonempty)
-    (hmiss : request.page ∉ schedule.cacheBefore request.arrival) {window : Time}
-    (hpenalty : 1 ≤ request.delay window) :
-    (∃ event ∈ schedule.events, event.fetched = request.page ∧
-        request.arrival ≤ event.time ∧ event.time ≤ request.arrival + window) ∨
-      1 ≤ schedule.requestCost request :=
-  (schedule.fetch_in_window_or_cost request hserved hmiss window).imp id
-    fun hcost => hpenalty.trans hcost
+  · refine Or.inr (request.delay_mono ?_)
+    rw [serviceDelay, hservice, Option.getD_some, le_tsub_iff_left harrival]
+    exact (lt_of_not_ge hwindow).le
 
 end Schedule
 

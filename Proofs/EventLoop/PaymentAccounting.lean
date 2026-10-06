@@ -14,8 +14,14 @@ omit [DecidableEq Page] in theorem enumerateFrom_map_request
   | cons request rest ih => simp [enumerateFrom, ih]
 
 omit [DecidableEq Page] in theorem enumerate_map_request (requests : List (Request Page)) :
-    (enumerate requests).map Occurrence.request = requests := by
-  exact enumerateFrom_map_request 0 requests
+    (enumerate requests).map Occurrence.request = requests :=
+  enumerateFrom_map_request 0 requests
+
+omit [DecidableEq Page] in
+theorem mem_enumerateFrom_request {start : ℕ} {requests : List (Request Page)}
+    {occurrence : Occurrence Page} (hmem : occurrence ∈ enumerateFrom start requests) :
+    occurrence.request ∈ requests :=
+  enumerateFrom_map_request start requests ▸ List.mem_map_of_mem hmem
 
 /-- Delay charged to the occurrences recorded as served by a payment. -/
 def Payment.delayCost (payment : Payment Page) : Cost :=

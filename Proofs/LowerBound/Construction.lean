@@ -181,7 +181,7 @@ theorem width_le (k m : ℕ) : width k m ≤ 7 / 4 := by
   split_ifs <;> · rw [← NNReal.coe_le_coe]; push_cast; norm_num
 
 /-- A request reaches the threshold long before the tails start, so the
-threshold is met exactly at `width` (`curve_at_width`). -/
+threshold is met exactly at `width` (`curve_eq_threshold`). -/
 theorem width_le_horizon (k runs m : ℕ) : width k m ≤ horizon k runs :=
   (width_le k m).trans
     (le_trans (by rw [← NNReal.coe_le_coe]; push_cast; norm_num) (two_le_horizon k runs))

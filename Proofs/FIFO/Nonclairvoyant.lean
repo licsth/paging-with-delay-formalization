@@ -18,12 +18,11 @@ two requests that have revealed the same thing by `t` (`Reveals`).
 
 ## Strategy
 
-The proof is the one for onlineness (`Proofs/FIFO/Online.lean`) with
-the simulation relaxed, and it reuses that proof's machinery from
-`Proofs/EventLoop/RunComparison.lean`: a common fuel by
-`run_eq_of_le`, a common instance by `run_congr`, and `no_early_payments` for
-the tail of a run.  Two differences remain, and they are what
-`Proofs/EventLoop/Observation.lean` is for.
+The two runs are compared with the machinery of
+`Proofs/EventLoop/RunComparison.lean`: a common fuel by `run_eq_of_le`, a
+common instance by `run_congr`, and `no_early_payments` for the tail of a run.
+Two difficulties remain, and they are what `Proofs/EventLoop/Observation.lean`
+is for.
 
 * **The two runs never reach a common state.**  Their pending requests carry
   different delay curves, so `Mirror` below relates states only up to `t`:
@@ -109,16 +108,9 @@ private theorem Mirror.step (obs : Reveals trigger R) (input : Instance Page) {t
       have harrival : first.request.arrival = second.request.arrival :=
         obs.arrival hoccurrence
       refine ⟨harrival, hearly, mirror.queue_eq, ?_, mirror.payments_agree, ?_⟩
-      · show List.Forall₂ (OccurrenceRel (R t))
-          (if first.request.page ∈ s₁.queue then s₁.pending else s₁.pending ++ [first])
-          (if second.request.page ∈ s₂.queue then s₂.pending else s₂.pending ++ [second])
-        rw [← hpage, ← mirror.queue_eq]
-        by_cases hmem : first.request.page ∈ s₁.queue
-        · rw [if_pos hmem, if_pos hmem]
-          exact mirror.pending_agree
-        · rw [if_neg hmem, if_neg hmem]
-          exact List.rel_append mirror.pending_agree
-            (List.Forall₂.cons hoccurrence List.Forall₂.nil)
+      · simp only [FIFO.step, ← hpage, ← mirror.queue_eq]
+        split_ifs
+        exacts [mirror.pending_agree, List.rel_append mirror.pending_agree (.cons hoccurrence .nil)]
       · cases hshared with
         | nil =>
             exact ⟨[], [], rest₁.tail, rest₂.tail, by simp [FIFO.step, h₁],
@@ -161,8 +153,8 @@ private theorem nextAction_agree_of_early_head (obs : Reveals trigger R) {t : Ti
   have arrivals : nextPayment? trigger s₁ = none → nextPayment? trigger s₂ = none := by
     intro hnone
     rcases hpayment with heq | ⟨_, _, hleft, _⟩
-    · rw [← heq]; exact hnone
-    · rw [hnone] at hleft; exact absurd hleft (by simp)
+    · exact heq ▸ hnone
+    · simp [hnone] at hleft
   cases hfirst : nextPayment? trigger s₁ with
   | none =>
       refine ⟨.arrival head₁, .arrival head₂, ?_, ?_, ActionAgree.arrival hheads, hearly⟩
@@ -186,8 +178,7 @@ private theorem nextAction_agree_of_early_head (obs : Reveals trigger R) {t : Ti
             ∃ time₂ page₂, nextPayment? trigger s₂ = some (time₂, page₂) ∧ t < time₂ := by
           rcases hpayment with heq | ⟨left, right, hleft, hright, _, hright_late⟩
           · exact ⟨time, page, by rw [← heq]; exact hfirst, hlate⟩
-          · rw [hfirst] at hleft
-            cases hleft
+          · cases hfirst ▸ hleft
             exact ⟨right.1, right.2, hright, hright_late⟩
         have hbefore₁ : head₁.request.arrival ≤ time := hearly.trans hlate.le
         have hbefore₂ : head₂.request.arrival ≤ time₂ := by
@@ -233,10 +224,8 @@ private theorem mirror_earlyEvents (obs : Reveals trigger R) (input : Instance P
           exact advance action₁ action₂ hagree hearly haction₁ haction₂
       | nil =>
           simp only [List.nil_append] at h₁ h₂
-          have hunseen₁ : ∀ occurrence ∈ s₁.unseen, t < occurrence.request.arrival := by
-            rw [h₁]; exact hrest₁
-          have hunseen₂ : ∀ occurrence ∈ s₂.unseen, t < occurrence.request.arrival := by
-            rw [h₂]; exact hrest₂
+          have hunseen₁ : ∀ occurrence ∈ s₁.unseen, t < occurrence.request.arrival := h₁ ▸ hrest₁
+          have hunseen₂ : ∀ occurrence ∈ s₂.unseen, t < occurrence.request.arrival := h₂ ▸ hrest₂
           by_cases hdue : ∃ time page, nextPayment? trigger s₁ = some (time, page) ∧ time ≤ t
           · obtain ⟨time, page, hselected, hle⟩ := hdue
             exact advance (.payment time page) (.payment time page)
@@ -300,10 +289,7 @@ theorem schedule_upTo_eq_of_reveals (obs : Reveals trigger R) (first second : In
     · show enumerate second.requests = _
       simp only [enumerate, enumerateFrom_take]
       exact (List.take_append_drop count₂ (enumerateFrom 0 second.requests)).symm
-    · refine enumerateFrom_agree ?_ 0 0
-      rw [show (first.upTo t).requests = first.requests.take count₁ from hfilter₁,
-        show (second.upTo t).requests = second.requests.take count₂ from hfilter₂] at hrequests
-      exact hrequests
+    · exact enumerateFrom_agree (by rw [← hfilter₁, ← hfilter₂]; exact hrequests) 0 0
     · intro occurrence hoccurrence
       have hmem : occurrence.request ∈ first.requests.take count₁ :=
         mem_enumerateFrom_request hoccurrence

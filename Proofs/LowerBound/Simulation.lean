@@ -54,53 +54,26 @@ theorem pageCode_generic (k r q : ℕ) (h : q < runLength k)
 theorem pageCode_early (k r : ℕ) (hk : 0 < k) :
     pageCode k (runLength k * r + (k + 1)) = fetchedCode k (runLength k * r + (k + 3)) := by
   have hL : runLength k = 2 * k + 2 := rfl
-  rw [pageCode_run k r (k + 1) (by omega),
-    show critPos k (k + 1) = k + 3 by unfold critPos; rw [if_pos rfl],
-    fetchedCode_eq k r (k + 3) (by omega) (by omega)]
+  rw [pageCode_run k r (k + 1) (by omega), fetchedCode_eq k r (k + 3) (by omega) (by omega)]
+  simp [critPos]
 
 /-- The overtaken request keeps its own fetch position. -/
 theorem pageCode_late (k r : ℕ) (hk : 0 < k) :
     pageCode k (runLength k * r + (k + 2)) = fetchedCode k (runLength k * r + (k + 2)) := by
   have hL : runLength k = 2 * k + 2 := rfl
-  rw [pageCode_run k r (k + 2) (by omega),
-    show critPos k (k + 2) = k + 2 by
-      unfold critPos; rw [if_neg (by omega), if_pos rfl],
-    fetchedCode_eq k r (k + 2) (by omega) (by omega)]
-
-theorem critPos_bounds (k q : ℕ) (hk : 0 < k) (h : q < runLength k) :
-    1 ≤ critPos k q ∧ critPos k q ≤ 2 * k + 2 := by
-  have hL : runLength k = 2 * k + 2 := rfl
-  unfold critPos
-  split_ifs <;> omega
+  rw [pageCode_run k r (k + 2) (by omega), fetchedCode_eq k r (k + 2) (by omega) (by omega)]
+  simp [critPos]
 
 theorem pageCode_lt (k m : ℕ) (hk : 0 < k) : pageCode k m < k + 2 := by
-  have hmod : m % runLength k < runLength k := Nat.mod_lt m (runLength_pos k)
-  obtain ⟨h1, h2⟩ := critPos_bounds k (m % runLength k) hk hmod
-  exact swapBC_lt k _ _ (codeAt_lt k _ hk h1 h2) hk
+  have hmod : m % runLength k < 2 * k + 2 := Nat.mod_lt m (runLength_pos k)
+  exact swapBC_lt k _ _ (codeAt_lt k _ hk (by unfold critPos; split_ifs <;> omega)
+    (by unfold critPos; split_ifs <;> omega)) hk
 
 /-- The `b` and `c` of one run are different pages. -/
 theorem pageCode_early_ne_late (k r : ℕ) (hk : 0 < k) :
     pageCode k (runLength k * r + (k + 1)) ≠ pageCode k (runLength k * r + (k + 2)) := by
-  have hL : runLength k = 2 * k + 2 := rfl
-  rw [pageCode_run k r (k + 1) (by omega), pageCode_run k r (k + 2) (by omega),
-    show critPos k (k + 1) = k + 3 by unfold critPos; rw [if_pos rfl],
-    show critPos k (k + 2) = k + 2 by unfold critPos; rw [if_neg (by omega), if_pos rfl],
-    show codeAt k (k + 3) = 2 by unfold codeAt; split_ifs <;> omega,
-    show codeAt k (k + 2) = 1 by unfold codeAt; split_ifs <;> omega]
-  intro h
-  exact absurd (swapBC_injective r h) (by omega)
-
-/-- The extra separation needed by the transposed pair: `a` is fetched `k+1`
-positions before the repeat request on `c`, and they are different pages. -/
-theorem fetchedCode_a_ne (k r : ℕ) (hk : 0 < k) :
-    fetchedCode k (runLength k * r + 2) ≠ fetchedCode k (runLength k * r + (k + 3)) := by
-  have hL : runLength k = 2 * k + 2 := rfl
-  rw [fetchedCode_eq k r 2 (by omega) (by omega),
-    fetchedCode_eq k r (k + 3) (by omega) (by omega),
-    show codeAt k 2 = 0 by unfold codeAt; split_ifs <;> omega,
-    show codeAt k (k + 3) = 2 by unfold codeAt; split_ifs <;> omega]
-  unfold swapBC
-  split_ifs <;> omega
+  rw [pageCode_early k r hk, pageCode_late k r hk]
+  exact (fetchedCode_ne hk (by omega) (by omega) (by omega)).symm
 
 /-! ## The queue -/
 
@@ -204,25 +177,14 @@ theorem unseenFrom_tail (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page
 omit [DecidableEq Page] in
 theorem enumerateFrom_range' (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) :
     ∀ (len j : ℕ), enumerateFrom j ((List.range' j len).map (requestAt δ k runs pages)) =
-      (List.range' j len).map (occAt δ k runs pages) := by
-  intro len
-  induction len with
-  | zero => intro j; rfl
-  | succ len ih =>
-      intro j
-      rw [show List.range' j (len + 1) = j :: List.range' (j + 1) len from rfl]
-      simp only [List.map_cons, enumerateFrom]
-      rw [ih (j + 1)]
-      rfl
+      (List.range' j len).map (occAt δ k runs pages)
+  | 0, _ => rfl
+  | len + 1, j => congrArg (occAt δ k runs pages j :: ·) (enumerateFrom_range' δ k runs pages len (j + 1))
 
 omit [DecidableEq Page] in
 theorem unseenFrom_zero (δ : Cost) (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) (hk : 0 < k) :
     enumerate (input δ k runs pages hk).requests = unseenFrom δ k runs pages 0 := by
-  show enumerateFrom 0 ((List.range (runLength k * runs)).map (requestAt δ k runs pages)) = _
-  rw [List.range_eq_range']
-  rw [enumerateFrom_range' δ k runs pages (runLength k * runs) 0]
-  unfold unseenFrom
-  rw [Nat.sub_zero]
+  simpa [unseenFrom, List.range_eq_range'] using enumerateFrom_range' δ k runs pages _ 0
 
 end
 end PagingWithDelay.LowerBound

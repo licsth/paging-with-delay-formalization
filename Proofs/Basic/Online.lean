@@ -6,7 +6,7 @@ import Model
 `Model.lean` defines onlineness by comparing two instances that agree up to a
 time.  `online_iff_upTo_eq` shows this is the same as the phrasing such an
 algorithm is usually given: its behaviour up to `t` is unchanged if the request
-sequence is truncated at `t`.  That form is what the FIFO proof uses.
+sequence is truncated at `t`.
 
 Witnesses that the definition is neither vacuously true nor vacuously false are
 in `Checks/OnlineExamples.lean`.
@@ -27,30 +27,15 @@ variable [DecidableEq Page]
 
 namespace Algorithm
 
-/-- An online algorithm behaves, before time `t`, exactly as it would have on
-the input truncated at `t`.  This is the usual informal reading of "does not
-look into the future". -/
-theorem Online.upTo_eq {algorithm : Algorithm Page} (online : Online algorithm)
-    (input : Instance Page) (t : Time) :
-    (algorithm input).upTo t = (algorithm (input.upTo t)).upTo t :=
-  online.prefixDetermined input (input.upTo t) t
-    (input.upTo_idem t).symm
-
-/-- Conversely, an algorithm that cannot tell the full input from its
-truncation is online, so the two phrasings agree. -/
-theorem online_of_upTo_eq {algorithm : Algorithm Page}
-    (h : ∀ (input : Instance Page) (t : Time),
-      (algorithm input).upTo t = (algorithm (input.upTo t)).upTo t) :
-    Online algorithm where
-  prefixDetermined first second t heq := by
-    rw [h first t, h second t, heq]
-
+/-- An algorithm is online exactly when its behaviour before time `t` is
+unchanged if the input is truncated at `t`.  This is the usual informal reading
+of "does not look into the future". -/
 theorem online_iff_upTo_eq (algorithm : Algorithm Page) :
     Online algorithm ↔
       ∀ (input : Instance Page) (t : Time),
         (algorithm input).upTo t = (algorithm (input.upTo t)).upTo t :=
-  ⟨fun online input t => online.upTo_eq input t,
-    online_of_upTo_eq⟩
+  ⟨fun online input t => online.prefixDetermined _ _ t (input.upTo_idem t).symm,
+    fun h => ⟨fun first second t heq => by rw [h first t, h second t, heq]⟩⟩
 
 end Algorithm
 

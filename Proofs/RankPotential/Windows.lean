@@ -54,28 +54,17 @@ def lastEviction (i : ℕ) : Option ℕ :=
 
 theorem lastEviction_mem {i j : ℕ} (h : S.lastEviction i = some j) : j ∈ S.evictions i := by
   unfold lastEviction at h
-  split at h
-  · rename_i hne
-    rw [Option.some_inj] at h
-    rw [← h]
-    exact Finset.max'_mem _ hne
-  · simp at h
+  split at h <;> cases h
+  exact Finset.max'_mem _ _
 
 theorem le_lastEviction {i j j' : ℕ} (h : S.lastEviction i = some j) (hj' : j' ∈ S.evictions i) :
     j' ≤ j := by
   unfold lastEviction at h
-  split at h
-  · rw [Option.some_inj] at h
-    rw [← h]
-    exact Finset.le_max' _ _ hj'
-  · simp at h
+  split at h <;> cases h
+  exact Finset.le_max' _ _ hj'
 
 theorem lastEviction_none {i : ℕ} (h : S.lastEviction i = none) : S.evictions i = ∅ := by
-  unfold lastEviction at h
-  split at h
-  · simp at h
-  · rename_i hne
-    exact Finset.not_nonempty_iff_eq_empty.mp hne
+  simpa [lastEviction] using h
 
 theorem lastEviction_lt {i j : ℕ} (hi : i < S.count) (h : S.lastEviction i = some j) : j < i :=
   lt_of_mem_evictions S hi (lastEviction_mem S h)
@@ -88,15 +77,13 @@ theorem pageAt_not_mem_queue_of_window {i m : ℕ} (hi : i < S.count) (hm : m �
     S.pageAt i ∉ S.queue m := by
   intro hmem
   obtain ⟨l, hlow, hhigh, hl⟩ := exists_of_mem_queue S (hm.trans hi.le) hmem
-  by_cases hli : l < S.cacheSize + i
-  · have hlmem : l ∈ S.evictions i := (mem_evictions S).mpr ⟨hli, hl⟩
-    cases hle : S.lastEviction i with
-    | none => simp [lastEviction_none S hle] at hlmem
-    | some j =>
-        have := le_lastEviction S hle hlmem
-        have := hlast j hle
-        omega
-  · omega
+  have hlmem : l ∈ S.evictions i := (mem_evictions S).mpr ⟨by omega, hl⟩
+  cases hle : S.lastEviction i with
+  | none => simp [lastEviction_none S hle] at hlmem
+  | some j =>
+      have := le_lastEviction S hle hlmem
+      have := hlast j hle
+      omega
 
 /-- **Windows, first property, arrivals.**  A request served at payment `i`
 arrives strictly after the last eviction of its page. -/

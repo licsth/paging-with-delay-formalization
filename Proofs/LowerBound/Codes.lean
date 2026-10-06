@@ -8,7 +8,7 @@ carries the page whose criticality position is `i`.  This file gives that page
 code a name, `fetchedCode`, and proves the combinatorial heart of the lower
 bound: **any `k + 1` consecutive fetches are on distinct pages**
 (`fetchedCode_ne`), together with the one extra separation the transposed pair
-of a run needs (`fetchedCode_ne_gap`).
+of a run needs (`fetchedCode_a_ne`).
 
 Both are statements about `codeAt` and `swapBC` alone; the timing of the
 instance plays no part in them.
@@ -91,25 +91,26 @@ theorem fetchedCode_ne {k : ℕ} (hk : 0 < k) {i i' : ℕ} (hi : 1 ≤ i) (hlt :
   obtain ⟨r, j, rfl, hj1, hj2⟩ := exists_run_pos k i hi
   obtain ⟨r', j', rfl, hj1', hj2'⟩ := exists_run_pos k i' (by omega)
   have hLk : runLength k = 2 * k + 2 := rfl
-  have e1 : runLength k * (r' + 1) = runLength k * r' + runLength k := by ring
-  have e2 : runLength k * (r + 2) = runLength k * r + 2 * runLength k := by ring
-  have e3 : runLength k * (r + 1) = runLength k * r + runLength k := by ring
-  have hcase : r' = r ∨ r' = r + 1 := by
-    rcases Nat.lt_or_ge r' r with h | h
-    · exfalso
-      have : runLength k * (r' + 1) ≤ runLength k * r := Nat.mul_le_mul_left _ h
-      omega
-    · rcases Nat.lt_or_ge r' (r + 2) with h2 | h2
-      · omega
-      · exfalso
-        have : runLength k * (r + 2) ≤ runLength k * r' := Nat.mul_le_mul_left _ h2
-        omega
+  have h1 : r < r' + 1 := Nat.lt_of_mul_lt_mul_left (a := runLength k) (by rw [Nat.mul_succ]; omega)
+  have h2 : r' < r + 2 := Nat.lt_of_mul_lt_mul_left (a := runLength k) (by
+    rw [show runLength k * (r + 2) = runLength k * r + 2 * runLength k by ring]; omega)
   rw [fetchedCode_eq k r j hj1 hj2, fetchedCode_eq k r' j' hj1' hj2']
-  rcases hcase with rfl | rfl
-  · intro hcontra
-    have hj : codeAt k j = codeAt k j' := swapBC_injective r' hcontra
-    exact codeAt_ne_of_close hk hj1 (by omega) (by omega) (by omega) hj
-  · exact codeAt_swap_ne hk hj1' (by omega) (by omega)
+  obtain rfl | rfl : r' = r ∨ r' = r + 1 := by omega
+  · exact fun h => codeAt_ne_of_close hk hj1 (by omega) (by omega) (by omega) (swapBC_injective r' h)
+  · have : runLength k * (r + 1) = runLength k * r + runLength k := Nat.mul_succ _ _
+    exact codeAt_swap_ne hk hj1' (by omega) (by omega)
+
+/-- The extra separation needed by the transposed pair: `a` is fetched `k+1`
+positions before the repeat request on `c`, and they are different pages. -/
+theorem fetchedCode_a_ne (k r : ℕ) (hk : 0 < k) :
+    fetchedCode k (runLength k * r + 2) ≠ fetchedCode k (runLength k * r + (k + 3)) := by
+  have hL : runLength k = 2 * k + 2 := rfl
+  rw [fetchedCode_eq k r 2 (by omega) (by omega),
+    fetchedCode_eq k r (k + 3) (by omega) (by omega),
+    show codeAt k 2 = 0 by unfold codeAt; split_ifs <;> omega,
+    show codeAt k (k + 3) = 2 by unfold codeAt; split_ifs <;> omega]
+  unfold swapBC
+  split_ifs <;> omega
 
 /-! ## The eviction order -/
 

@@ -11,11 +11,8 @@ structure CacheInvariant (input : Instance Page) (state : State Page) : Prop whe
   pending_miss : ∀ occurrence ∈ state.pending, occurrence.request.page ∉ state.queue
 
 theorem initial_cacheInvariant (input : Instance Page) :
-    CacheInvariant input (initialState input) := by
-  constructor
-  · exact input.initialCache_nodup
-  · exact input.initialCache_full.le
-  · simp [initialState]
+    CacheInvariant input (initialState input) :=
+  ⟨input.initialCache_nodup, input.initialCache_full.le, by simp [initialState]⟩
 
 omit [DecidableEq Page] in private theorem insertPage_nodup
     (capacity : ℕ) (queue : List Page) (page : Page)
@@ -24,11 +21,7 @@ omit [DecidableEq Page] in private theorem insertPage_nodup
   unfold insertPage
   split
   · exact List.Nodup.append hnodup (by simp) (by simpa using hpage)
-  · apply List.Nodup.append hnodup.tail (by simp)
-    intro candidate hcand hnew
-    simp only [List.mem_singleton] at hnew
-    subst candidate
-    exact hpage (List.mem_of_mem_tail hcand)
+  · exact List.Nodup.append hnodup.tail (by simp) (by simpa using mt List.mem_of_mem_tail hpage)
 
 omit [DecidableEq Page] in private theorem insertPage_length_le
     (capacity : ℕ) (queue : List Page) (page : Page)
@@ -66,27 +59,8 @@ theorem step_cacheInvariant (input : Instance Page)
         · exact hinv.pending_miss pending hpending
         · assumption
   | payment time page =>
-    have hselected : nextPayment? trigger state = some (time, page) := by
-      unfold nextAction? at haction
-      cases hu : state.unseen with
-      | nil =>
-        cases hp : nextPayment? trigger state with
-        | none => simp [hu, hp] at haction
-        | some pair =>
-          rcases pair with ⟨paymentTime, paymentPage⟩
-          simp only [hu, hp] at haction
-          simpa using haction
-      | cons occurrence unseen =>
-        cases hp : nextPayment? trigger state with
-        | none => simp [hu, hp] at haction
-        | some pair =>
-          rcases pair with ⟨paymentTime, paymentPage⟩
-          simp only [hu, hp] at haction
-          split at haction
-          · simp at haction
-          · simpa using haction
     obtain ⟨served, hserved, hserved_page⟩ :=
-      pending_of_mem_pendingPages (nextPayment_mem_pendingPages hselected)
+      nextPayment_pending (nextAction_payment_selected haction)
     have hpage : page ∉ state.queue := by
       rw [← hserved_page]
       exact hinv.pending_miss served hserved
@@ -99,6 +73,12 @@ theorem step_cacheInvariant (input : Instance Page)
       obtain hold | hnew := mem_insertPage _ _ _ _ hcache
       · exact hinv.pending_miss pending hpending_old hold
       · exact (of_decide_eq_true hpending_ne) hnew
+
+theorem Reachable.cacheInvariant {input : Instance Page} {state : State Page}
+    (h : Reachable trigger input state) : CacheInvariant input state := by
+  induction h with
+  | initial => exact initial_cacheInvariant input
+  | step _ ha ih => exact step_cacheInvariant input _ _ ih ha
 
 end
 end PagingWithDelay.FIFO

@@ -47,25 +47,19 @@ def eventCountLT (schedule : Schedule Page) (t : Time) : ℕ :=
 
 theorem eventCount_le_length (schedule : Schedule Page) (t : Time) :
     eventCount schedule t ≤ schedule.events.length :=
-  Analysis.countP_le_length _
+  List.countP_le_length
 
 theorem eventCount_mono (schedule : Schedule Page) {s t : Time} (hst : s ≤ t) :
     eventCount schedule s ≤ eventCount schedule t :=
-  List.countP_mono_left fun event _ h => by
-    simp only [decide_eq_true_eq] at h ⊢
-    exact h.trans hst
+  List.countP_mono_left fun _ _ h => by simp only [decide_eq_true_eq] at h ⊢; exact h.trans hst
 
 theorem eventCountLT_le_eventCount (schedule : Schedule Page) {s t : Time} (hst : s ≤ t) :
     eventCountLT schedule s ≤ eventCount schedule t :=
-  List.countP_mono_left fun event _ h => by
-    simp only [decide_eq_true_eq] at h ⊢
-    exact (le_of_lt h).trans hst
+  List.countP_mono_left fun _ _ h => by simp only [decide_eq_true_eq] at h ⊢; exact h.le.trans hst
 
 theorem eventCount_le_eventCountLT (schedule : Schedule Page) {s t : Time} (hst : s < t) :
     eventCount schedule s ≤ eventCountLT schedule t :=
-  List.countP_mono_left fun event _ h => by
-    simp only [decide_eq_true_eq] at h ⊢
-    exact lt_of_le_of_lt h hst
+  List.countP_mono_left fun _ _ h => by simp only [decide_eq_true_eq] at h ⊢; exact h.trans_lt hst
 
 section Chronological
 
@@ -76,44 +70,34 @@ include hchronological
 
 private theorem pairwise_le (t : Time) :
     schedule.events.Pairwise fun x y =>
-      (decide (y.time ≤ t)) = true → (decide (x.time ≤ t)) = true := by
-  refine hchronological.imp ?_
-  intro x y hxy h
-  simp only [decide_eq_true_eq] at h ⊢
-  exact hxy.trans h
+      (decide (y.time ≤ t)) = true → (decide (x.time ≤ t)) = true :=
+  hchronological.imp fun hxy h => by simp only [decide_eq_true_eq] at h ⊢; exact hxy.trans h
 
 private theorem pairwise_lt (t : Time) :
     schedule.events.Pairwise fun x y =>
-      (decide (y.time < t)) = true → (decide (x.time < t)) = true := by
-  refine hchronological.imp ?_
-  intro x y hxy h
-  simp only [decide_eq_true_eq] at h ⊢
-  exact lt_of_le_of_lt hxy h
+      (decide (y.time < t)) = true → (decide (x.time < t)) = true :=
+  hchronological.imp fun hxy h => by simp only [decide_eq_true_eq] at h ⊢; exact hxy.trans_lt h
+
+private theorem time_le_iff_lt_eventCount {t : Time} {n : ℕ} (hn : n < schedule.events.length) :
+    schedule.events[n].time ≤ t ↔ n < eventCount schedule t := by
+  simpa using Analysis.lt_countP_iff (pairwise_le hchronological t) n hn
 
 /-- An event inside the initial segment counted by `eventCount` is stamped in
 time. -/
 theorem time_le_of_lt_eventCount {t : Time} {n : ℕ} (hn : n < schedule.events.length)
-    (hlt : n < eventCount schedule t) : schedule.events[n].time ≤ t := by
-  have := (Analysis.lt_countP_iff
-    (p := fun event : FetchEvent Page => decide (event.time ≤ t))
-    (Analysis.pairwise_le hchronological t) n hn).mpr hlt
-  simpa using this
+    (hlt : n < eventCount schedule t) : schedule.events[n].time ≤ t :=
+  (time_le_iff_lt_eventCount hchronological hn).mpr hlt
 
 /-- Conversely an event stamped in time lies inside that initial segment. -/
 theorem lt_eventCount_of_time_le {t : Time} {n : ℕ} (hn : n < schedule.events.length)
-    (hle : schedule.events[n].time ≤ t) : n < eventCount schedule t := by
-  refine (Analysis.lt_countP_iff
-    (p := fun event : FetchEvent Page => decide (event.time ≤ t))
-    (Analysis.pairwise_le hchronological t) n hn).mp ?_
-  simpa using hle
+    (hle : schedule.events[n].time ≤ t) : n < eventCount schedule t :=
+  (time_le_iff_lt_eventCount hchronological hn).mp hle
 
 /-- The cache strictly before `t` is the cache after the events preceding `t`. -/
 theorem cacheBefore_eq_cacheAfterCount (t : Time) :
     schedule.cacheBefore t = cacheAfterCount schedule (eventCountLT schedule t) := by
   unfold Schedule.cacheBefore cacheAfterCount eventCountLT
-  rw [Analysis.foldl_ite_eq_foldl_filter (fun event : FetchEvent Page => event.time < t)
-    FetchEvent.cacheAfter]
-  rw [Analysis.filter_eq_take_countP (Analysis.pairwise_lt hchronological t)]
+  simp [← Analysis.filter_eq_take_countP (Analysis.pairwise_lt hchronological t), List.foldl_filter]
 
 end Chronological
 
@@ -128,18 +112,7 @@ theorem validTransitions_getElem {previous : Finset Page} :
   | [], _, _, hn => absurd hn (by simp)
   | event :: rest, h, 0, _ => ⟨h.1, h.2.1⟩
   | event :: rest, h, n + 1, hn => by
-      have hn' : n < rest.length := by simpa using hn
-      have := validTransitions_getElem h.2.2 n hn'
-      simpa using this
-
-theorem cacheAfterCount_sdiff (schedule : Schedule Page)
-    (htransitions : Schedule.ValidTransitionsFrom schedule.initialCache schedule.events)
-    {n : ℕ}
-    (hn : n < schedule.events.length) :
-    cacheAfterCount schedule (n + 1) \ cacheAfterCount schedule n =
-      {schedule.events[n].fetched} := by
-  rw [cacheAfterCount_succ schedule hn]
-  exact (validTransitions_getElem htransitions n hn).2
+      simpa using validTransitions_getElem h.2.2 n (by simpa using hn)
 
 theorem fetched_mem_cacheAfterCount (schedule : Schedule Page)
     (htransitions : Schedule.ValidTransitionsFrom schedule.initialCache schedule.events)
@@ -148,33 +121,6 @@ theorem fetched_mem_cacheAfterCount (schedule : Schedule Page)
     schedule.events[n].fetched ∈ cacheAfterCount schedule (n + 1) := by
   rw [cacheAfterCount_succ schedule hn]
   exact (validTransitions_getElem htransitions n hn).1
-
-theorem cacheAfterCount_card_le (schedule : Schedule Page) (input : Instance Page)
-    (hinitial : schedule.initialCache.card ≤ input.cacheSize)
-    (hcapacity : ∀ event ∈ schedule.events, event.cacheAfter.card ≤ input.cacheSize)
-    (n : ℕ) : (cacheAfterCount schedule n).card ≤ input.cacheSize := by
-  cases n with
-  | zero => simpa using hinitial
-  | succ n =>
-      by_cases hn : n < schedule.events.length
-      · rw [cacheAfterCount_succ schedule hn]
-        exact hcapacity _ (List.getElem_mem hn)
-      · have hlen : schedule.events.length ≤ n := Nat.le_of_not_lt hn
-        have : schedule.events.take (n + 1) = schedule.events :=
-          List.take_of_length_le (by omega)
-        cases hempty : schedule.events with
-        | nil => simpa [cacheAfterCount, hempty] using hinitial
-        | cons head tail =>
-            have hlast : cacheAfterCount schedule (n + 1) =
-                cacheAfterCount schedule schedule.events.length := by
-              unfold cacheAfterCount
-              rw [this, List.take_of_length_le (le_refl _)]
-            rw [hlast]
-            have hpos : 0 < schedule.events.length := by rw [hempty]; simp
-            obtain ⟨m, hm⟩ : ∃ m, schedule.events.length = m + 1 :=
-              ⟨schedule.events.length - 1, by omega⟩
-            rw [hm, cacheAfterCount_succ schedule (by omega)]
-            exact hcapacity _ (List.getElem_mem _)
 
 end
 

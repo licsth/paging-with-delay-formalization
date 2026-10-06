@@ -42,39 +42,24 @@ theorem mem_vCodes_iff (k c : ℕ) : c ∈ vCodes k ↔ 3 ≤ c ∧ c < 3 + (k -
 theorem vCodes_lt (k : ℕ) (hk : 0 < k) {c : ℕ} (h : c ∈ vCodes k) : c < k + 2 := by
   rw [mem_vCodes_iff] at h; omega
 
-/-- The pages named by a list of codes. -/
-def codeSet (k : ℕ) (pages : Fin (k + 2) ↪ Page) (codes : List ℕ) : Finset Page :=
-  (codes.map (page k pages)).toFinset
-
-def vSet (k : ℕ) (pages : Fin (k + 2) ↪ Page) : Finset Page := codeSet k pages (vCodes k)
+/-- The pages the comparator never gives up. -/
+def vSet (k : ℕ) (pages : Fin (k + 2) ↪ Page) : Finset Page :=
+  ((vCodes k).map (page k pages)).toFinset
 
 /-- The comparator's cache while it holds the page with code `c`. -/
 def heldCache (k : ℕ) (pages : Fin (k + 2) ↪ Page) (c : ℕ) : Finset Page :=
   insert (page k pages c) (vSet k pages)
 
-theorem mem_codeSet_iff {k : ℕ} (pages : Fin (k + 2) ↪ Page) {codes : List ℕ} {c : ℕ}
-    (hc : c < k + 2) (hcodes : ∀ d ∈ codes, d < k + 2) :
-    page k pages c ∈ codeSet k pages codes ↔ c ∈ codes := by
-  simp only [codeSet, List.mem_toFinset, List.mem_map]
-  constructor
-  · rintro ⟨d, hd, hpd⟩
-    rwa [page_injOn pages (hcodes d hd) hc hpd] at hd
-  · exact fun h => ⟨c, h, rfl⟩
-
 theorem mem_vSet_iff {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) {c : ℕ}
-    (hc : c < k + 2) : page k pages c ∈ vSet k pages ↔ c ∈ vCodes k :=
-  mem_codeSet_iff pages hc (fun _ hd => vCodes_lt k hk hd)
-
-theorem codeSet_card {k : ℕ} (pages : Fin (k + 2) ↪ Page) (codes : List ℕ)
-    (hnodup : codes.Nodup) (hlt : ∀ c ∈ codes, c < k + 2) :
-    (codeSet k pages codes).card = codes.length := by
-  have hmap : ((codes.map (page k pages))).Nodup :=
-    hnodup.map_on fun a ha b hb h => page_injOn pages (hlt a ha) (hlt b hb) h
-  simpa [codeSet] using List.toFinset_card_of_nodup hmap
+    (hc : c < k + 2) : page k pages c ∈ vSet k pages ↔ c ∈ vCodes k := by
+  simp only [vSet, List.mem_toFinset, List.mem_map]
+  refine ⟨fun ⟨d, hd, hpd⟩ => ?_, fun h => ⟨c, h, rfl⟩⟩
+  rwa [page_injOn pages (vCodes_lt k hk hd) hc hpd] at hd
 
 theorem vSet_card {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) :
     (vSet k pages).card = k - 1 := by
-  rw [vSet, codeSet_card pages (vCodes k) (by simp [vCodes, List.nodup_range']) (fun _ hc => vCodes_lt k hk hc)]
+  rw [vSet, List.toFinset_card_of_nodup ((List.nodup_range' ..).map_on fun a ha b hb h =>
+    page_injOn pages (vCodes_lt k hk ha) (vCodes_lt k hk hb) h)]
   simp [vCodes]
 
 theorem heldCache_card {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) {c : ℕ}
@@ -104,13 +89,6 @@ theorem swapBC_two_ne_zero (r : ℕ) : swapBC r 2 ≠ 0 := by
 theorem swapBC_one_eq (r : ℕ) : swapBC r 1 = swapBC (r + 1) 2 := by
   unfold swapBC; split_ifs <;> omega
 
-theorem page_zero_notMem_heldCache {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) (c : ℕ)
-    (hc : c < k + 2) (hc0 : c ≠ 0) : page k pages 0 ∉ heldCache k pages c := by
-  rw [heldCache, Finset.mem_insert, mem_vSet_iff hk pages (by omega), mem_vCodes_iff]
-  rintro (h | h)
-  · exact hc0 (page_injOn pages (by omega) hc h).symm
-  · omega
-
 theorem page_notMem_heldCache {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) {c d : ℕ}
     (hc : c < k + 2) (hd : d < k + 2) (hne : c ≠ d) (hnot : c ∉ vCodes k) :
     page k pages c ∉ heldCache k pages d := by
@@ -119,6 +97,10 @@ theorem page_notMem_heldCache {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Pa
   · exact hne (page_injOn pages hc hd h)
   · exact hnot h
 
+theorem page_zero_notMem_heldCache {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) (c : ℕ)
+    (hc : c < k + 2) (hc0 : c ≠ 0) : page k pages 0 ∉ heldCache k pages c :=
+  page_notMem_heldCache hk pages (by omega) hc hc0.symm (by simp [mem_vCodes_iff])
+
 /-! ## The initial cache -/
 
 /-- The common initial cache is `{b, v₁ … v_{k-1}}`: the comparator starts
@@ -126,7 +108,7 @@ holding `b` besides the pages it never gives up. -/
 theorem initialCache_toFinset {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) :
     (initialCache k pages).toFinset = heldCache k pages 1 := by
   ext p
-  simp only [initialCache, heldCache, vSet, codeSet, List.mem_toFinset, List.mem_map,
+  simp only [initialCache, heldCache, vSet, List.mem_toFinset, List.mem_map,
     List.mem_range, Finset.mem_insert, mem_vCodes_iff]
   constructor
   · rintro ⟨n, hn, rfl⟩
@@ -173,41 +155,19 @@ def comparator (k runs : ℕ) (pages : Fin (k + 2) ↪ Page) : Schedule Page :=
 
 /-! ## Feasibility -/
 
-omit [DecidableEq Page] in
-theorem pairwise_of_forall {α : Type*} (R : α → α → Prop) (h : ∀ a b, R a b) :
-    ∀ l : List α, l.Pairwise R
-  | [] => List.Pairwise.nil
-  | _ :: rest => List.Pairwise.cons (fun _ _ => h _ _) (pairwise_of_forall R h rest)
-
 theorem insert_sdiff_of_subset {A B : Finset Page} {x : Page} (hAB : A ⊆ B) (hx : x ∉ B) :
     insert x A \ B = {x} := by
-  ext y
-  simp only [Finset.mem_sdiff, Finset.mem_insert, Finset.mem_singleton]
-  constructor
-  · rintro ⟨hy | hy, hnB⟩
-    · exact hy
-    · exact absurd (hAB hy) hnB
-  · rintro rfl
-    exact ⟨Or.inl rfl, hx⟩
-
-theorem codeSet_concat (k : ℕ) (pages : Fin (k + 2) ↪ Page) (codes : List ℕ) (c : ℕ) :
-    codeSet k pages (codes ++ [c]) = insert (page k pages c) (codeSet k pages codes) := by
-  ext y
-  simp [codeSet]
+  rw [Finset.insert_sdiff_of_notMem _ hx, Finset.sdiff_eq_empty_iff_subset.mpr hAB]; rfl
 
 /-- The cache the comparator is left in by a block of events. -/
 def lastCache : Finset Page → List (FetchEvent Page) → Finset Page
   | prev, [] => prev
   | _, event :: rest => lastCache event.cacheAfter rest
 
-theorem lastCache_append : ∀ (A : List (FetchEvent Page)) (prev : Finset Page)
-    (B : List (FetchEvent Page)), lastCache prev (A ++ B) = lastCache (lastCache prev A) B
+theorem lastCache_concat : ∀ (A : List (FetchEvent Page)) (prev : Finset Page)
+    (event : FetchEvent Page), lastCache prev (A ++ [event]) = event.cacheAfter
   | [], _, _ => rfl
-  | event :: rest, _, B => lastCache_append rest event.cacheAfter B
-
-theorem lastCache_concat (A : List (FetchEvent Page)) (prev : Finset Page)
-    (event : FetchEvent Page) : lastCache prev (A ++ [event]) = event.cacheAfter := by
-  rw [lastCache_append]; rfl
+  | e :: rest, _, event => lastCache_concat rest e.cacheAfter event
 
 theorem validTransitionsFrom_append : ∀ (A : List (FetchEvent Page)) (prev : Finset Page)
     (B : List (FetchEvent Page)), Schedule.ValidTransitionsFrom prev A →
@@ -251,12 +211,9 @@ theorem comparator_validTransitions {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) 
       (page_notMem_heldCache hk pages (swapBC_two_lt k 0 hk) (by omega)
         (by unfold swapBC; simp) (swapBC_two_notMem_vCodes k 0))
   · rw [lastCache_phaseBlock pages runs]
-    refine ⟨Finset.mem_singleton_self _, ?_, trivial⟩
-    show ({page k pages 0} : Finset Page) \ heldCache k pages (swapBC runs 2) = _
-    rw [show ({page k pages 0} : Finset Page) = insert (page k pages 0) ∅ from rfl]
-    exact insert_sdiff_of_subset (Finset.empty_subset _)
-      (page_zero_notMem_heldCache hk pages _ (swapBC_two_lt k runs hk)
-        (by unfold swapBC; split_ifs <;> omega))
+    exact ⟨Finset.mem_singleton_self _, insert_sdiff_of_subset (Finset.empty_subset _)
+      (page_zero_notMem_heldCache hk pages _ (swapBC_two_lt k runs hk) (swapBC_two_ne_zero runs)),
+      trivial⟩
 
 theorem comparator_capacity {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) (runs : ℕ) :
     ∀ event ∈ compEvents k runs pages, event.cacheAfter.card ≤ k := by
@@ -316,26 +273,15 @@ theorem phaseTime_le_final {k : ℕ} (hk : 0 < k) {r runs : ℕ} (h : r ≤ runs
 
 theorem comparator_chronological {k : ℕ} (hk : 0 < k) (pages : Fin (k + 2) ↪ Page) (runs : ℕ) :
     (compEvents k runs pages).Pairwise (fun a b => a.time ≤ b.time) := by
-  have hphase : ∀ e ∈ (List.range' 0 (runs + 1)).map (phaseEvent k pages),
-      ∃ r, r ≤ runs ∧ e.time = phaseTime k r := by
-    intro e he
-    simp only [List.mem_map, List.mem_range'_1] at he
-    obtain ⟨r, ⟨_, hr⟩, rfl⟩ := he
-    exact ⟨r, by omega, rfl⟩
-  rw [compEvents]
-  refine List.pairwise_append.mpr ⟨?_, ?_, ?_⟩
-  · rw [List.pairwise_map]
-    refine (List.pairwise_lt_range' 1).imp ?_
-    intro a b hab
+  refine List.pairwise_append.mpr ⟨?_, List.pairwise_singleton _ _, ?_⟩
+  · refine List.pairwise_map.mpr ((List.pairwise_lt_range' 1).imp fun {a b} hab => ?_)
     show phaseTime k a ≤ phaseTime k b
     rw [phaseTime_eq k a hk, phaseTime_eq k b hk]
     exact quarter_le (phaseQuarters_mono k hab.le)
-  · exact List.pairwise_singleton _ _
   · intro a ha b hb
-    rw [List.mem_singleton.mp hb]
-    obtain ⟨r, hr, hrt⟩ := hphase a ha
-    rw [hrt]
-    exact phaseTime_le_final hk hr
+    simp only [List.mem_map, List.mem_range'_1, List.mem_singleton] at ha hb
+    obtain ⟨r, _, rfl⟩ := ha
+    exact hb ▸ phaseTime_le_final hk (by omega)
 
 /-! ## The comparator's cache at a given time -/
 
@@ -366,29 +312,18 @@ theorem comparator_cacheBefore {k : ℕ} (pages : Fin (k + 2) ↪ Page)
     (hge : ∀ r', r < r' → r' ≤ runs → t ≤ phaseTime k r')
     (hfin : t ≤ finalTime k runs) :
     (comparator k runs pages).cacheBefore t = heldCache k pages (swapBC r 2) := by
-  have hsplit_range : List.range' 0 (runs + 1) =
-      List.range' 0 r ++ (r :: List.range' (r + 1) (runs - r)) := by
-    have h := List.range'_append_1 (s := 0) (m := r) (n := runs + 1 - r)
-    rw [Nat.zero_add] at h
-    rw [show (r :: List.range' (r + 1) (runs - r)) = List.range' r (runs + 1 - r) by
-      rw [show runs + 1 - r = (runs - r) + 1 by omega]; rfl, h,
-      show r + (runs + 1 - r) = runs + 1 by omega]
   have hsplit : (comparator k runs pages).events =
       (List.range' 0 r).map (phaseEvent k pages) ++
         phaseEvent k pages r ::
           ((List.range' (r + 1) (runs - r)).map (phaseEvent k pages) ++
             [finalEvent k runs pages]) := by
-    show compEvents k runs pages = _
-    rw [compEvents, hsplit_range, List.map_append, List.map_cons]
-    simp [List.append_assoc]
-  refine cacheBefore_of_split hsplit hlt ?_
-  intro x hx
-  rcases List.mem_append.mp hx with hx | hx
-  · simp only [List.mem_map, List.mem_range'_1] at hx
-    obtain ⟨r', ⟨hr1, hr2⟩, rfl⟩ := hx
-    exact hge r' (by omega) (by omega)
-  · rw [List.mem_singleton.mp hx]
-    exact hfin
+    obtain ⟨n, rfl⟩ := Nat.exists_eq_add_of_le hr
+    simp [comparator, compEvents, show r + n + 1 = r + (n + 1) by omega, ← List.range'_append_1,
+      List.range'_succ]
+  refine cacheBefore_of_split hsplit hlt fun x hx => ?_
+  simp only [List.mem_append, List.mem_map, List.mem_range'_1, List.mem_singleton] at hx
+  rcases hx with ⟨r', _, rfl⟩ | rfl
+  exacts [hge r' (by omega) (by omega), hfin]
 
 end
 end PagingWithDelay.LowerBound

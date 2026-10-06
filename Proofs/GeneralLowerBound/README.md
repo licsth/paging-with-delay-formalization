@@ -16,7 +16,6 @@ Supporting modules in `Proofs/Analysis/`:
 
 In this directory:
 
-- `Adversary.lean`: extending the input against any feasible online algorithm to force arbitrarily many fetches on a fixed `k+1`-page universe, using long gaps.
 - `Static.lean`: the `k+1` static comparator schedules, feasible from the common initial cache, with summed cost at most terminal delay plus `(k+1)^2`.
 - `Dynamic.lean`: `k` dynamic schedules with distinct holes, feasible, serving every request at arrival, with aggregate cost at most `k^2 + requests.length`.
 - `Comparators.lean`: static and dynamic schedules combined into a `ComparisonFamily` indexed by `Fin (2*k+1)`, with the aggregate estimate.

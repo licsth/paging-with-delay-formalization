@@ -31,13 +31,9 @@ variable {Page : Type*} [DecidableEq Page]
 /-- An instance with a trigger: a threshold for the delay accounting, the
 deadline trigger for the deadline accounting. -/
 structure Setup (Page : Type*) [DecidableEq Page] where
-  /-- The cache size `k`. -/
-  cacheSize : ℕ
-  positive : 0 < cacheSize
   /-- What triggers FIFO's fetches. -/
   trigger : FIFO.Trigger
   input : Instance Page
-  size : input.cacheSize = cacheSize
 
 namespace Setup
 
@@ -45,8 +41,13 @@ noncomputable section
 
 variable (S : Setup Page)
 
-theorem initialCache_length : S.input.initialCache.length = S.cacheSize := by
-  rw [S.input.initialCache_full, S.size]
+/-- The cache size `k`. -/
+abbrev cacheSize : ℕ := S.input.cacheSize
+
+theorem positive : 0 < S.cacheSize := S.input.positiveCapacity
+
+theorem initialCache_length : S.input.initialCache.length = S.cacheSize :=
+  S.input.initialCache_full
 
 /-- The delay level `δ` at which a payment is triggered: the threshold, or `0`
 for deadlines. -/
@@ -60,8 +61,6 @@ def payments : List (FIFO.Payment Page) :=
 /-- `M`, the number of payments. -/
 def count : ℕ := S.payments.length
 
-theorem count_eq_paymentCount : S.count = FIFO.paymentCount S.trigger S.input := rfl
-
 /-! ### The eviction order -/
 
 /-- The initial cache followed by the fetched pages; entry `j` is the page
@@ -73,12 +72,8 @@ theorem seqList_length : S.seqList.length = S.cacheSize + S.count := by
 
 /-- A junk page used only as the default of the total functions below; it
 exists as soon as the cache is nonempty. -/
-def somePage : Page := S.input.initialCache.head (by
-  intro h
-  have := S.initialCache_length
-  rw [h] at this
-  simp at this
-  exact absurd this.symm (Nat.pos_iff_ne_zero.mp S.positive))
+def somePage : Page :=
+  S.input.initialCache.head (List.ne_nil_of_length_pos (S.initialCache_length ▸ S.positive))
 
 /-- `seqList` read as a total function. -/
 def seq (j : ℕ) : Page := (S.seqList[j]?).getD S.somePage
@@ -164,12 +159,8 @@ theorem queue_length {i : ℕ} (hi : i ≤ S.count) : (S.queue i).length = S.cac
   simp only [List.length_drop, List.length_take, seqList_length]
   omega
 
-theorem queue_ne_nil {i : ℕ} (hi : i ≤ S.count) : S.queue i ≠ [] := by
-  intro h
-  have := queue_length S hi
-  rw [h] at this
-  simp at this
-  exact absurd this.symm (Nat.pos_iff_ne_zero.mp S.positive)
+theorem queue_ne_nil {i : ℕ} (hi : i ≤ S.count) : S.queue i ≠ [] :=
+  List.ne_nil_of_length_pos (queue_length S hi ▸ S.positive)
 
 theorem queue_getElem {i j : ℕ} (hi : i ≤ S.count) (hj : j < (S.queue i).length) :
     (S.queue i)[j] = S.seq (i + j) := by
@@ -195,10 +186,8 @@ theorem seq_mem_queue {i j : ℕ} (hi : i ≤ S.count) (hlow : i ≤ j) (hhigh :
 /-- Freshness: a payment fetches a page that is not in the cache. -/
 theorem pageAt_not_mem_queue {i : ℕ} (hi : i < S.count) : S.pageAt i ∉ S.queue i := by
   rw [pageAt_eq S hi]
-  have h := (FIFO.final_freshPayments (trigger := S.trigger) S.input).fresh_at i
+  exact (FIFO.final_freshPayments (trigger := S.trigger) S.input).fresh_at i
     (by simpa [count] using hi)
-  rw [S.size] at h
-  exact h
 
 /-- Two entries of the eviction order holding the same page are more than `k`
 apart: the later one was fetched into a cache from which the page was absent,
@@ -265,7 +254,7 @@ theorem payment_delayCost {i : ℕ} (hi : i < S.count) :
 theorem served_authentic {i : ℕ} (hi : i < S.count) {occurrence : Occurrence Page}
     (ho : occurrence ∈ (S.payments[i]).served) :
     occurrence ∈ enumerate S.input.requests :=
-  (FIFO.History.final_authentic (trigger := S.trigger) S.input).2.2 _
+  (FIFO.OccurrencePartition.final_authentic (trigger := S.trigger) S.input).2.2 _
     (List.getElem_mem (by simpa [count] using hi)) occurrence ho
 
 theorem served_request_mem {i : ℕ} (hi : i < S.count) {occurrence : Occurrence Page}

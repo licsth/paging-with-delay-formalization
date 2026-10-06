@@ -72,9 +72,7 @@ theorem not_competitive {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page)
     rw [hsize]
     exact violation (by positivity) hbeat halg (by rw [add_assoc] at hopt; exact hopt)
   · -- small threshold: round robin on `k + 1` pages
-    have hsmallR : (2 * k + 1) * (δ : ℝ) < 2 * k + 2 := by
-      have := lt_of_not_ge hlarge
-      exact_mod_cast this
+    have hsmallR : (2 * k + 1) * (δ : ℝ) < 2 * k + 2 := by exact_mod_cast lt_of_not_ge hlarge
     have hδR : (0 : ℝ) < δ := by exact_mod_cast hδpos
     have hslope : ratio k * δ < (k + 1) * (1 + δ) := by
       rw [← NNReal.coe_lt_coe]; push_cast; nlinarith

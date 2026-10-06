@@ -19,9 +19,6 @@ namespace Request
 
 variable {Page : Type*}
 
-theorem arrival_le_deadline (request : Request Page) : request.arrival ≤ request.deadline :=
-  le_self_add
-
 private theorem positiveSet_nonempty (request : Request Page) :
     {wait | 0 < request.delay wait}.Nonempty := by
   obtain ⟨wait, hwait⟩ := request.delay_unbounded 1
@@ -133,12 +130,9 @@ theorem deadlineTime_value (state : State Page) (page : Page)
   refine List.sum_eq_zero fun cost hcost => ?_
   obtain ⟨occurrence, ho, rfl⟩ := List.mem_map.mp hcost
   obtain ⟨hmem, hpage⟩ := List.mem_filter.mp ho
-  apply occurrence.request.delay_eq_zero_of_le_deadline
-  by_contra hlt
-  push_neg at hlt
-  have hnowle : state.now ≤ occurrence.request.deadline :=
-    occurrence.request.le_deadline_of_delay_eq_zero (hzero occurrence ho)
-  exact absurd (deadlineTime_le hnowle hmem (of_decide_eq_true hpage) le_rfl) (not_le.mpr hlt)
+  exact occurrence.request.delay_eq_zero_of_le_deadline <| deadlineTime_le
+    (occurrence.request.le_deadline_of_delay_eq_zero (hzero occurrence ho)) hmem
+    (of_decide_eq_true hpage) le_rfl
 
 /-- Strictly after its deadline time a pending page has positive pending cost. -/
 theorem pendingCost_pos_of_deadlineTime_lt (state : State Page) (page : Page)
@@ -147,10 +141,8 @@ theorem pendingCost_pos_of_deadlineTime_lt (state : State Page) (page : Page)
     0 < pendingCost state page t := by
   obtain ⟨occurrence, hmem, hpage, hdeadline⟩ :=
     exists_deadline_le_deadlineTime state page hpending
-  have hpos := occurrence.request.delay_pos_of_deadline_lt (hdeadline.trans_lt ht)
-  unfold pendingCost
-  refine hpos.trans_le (List.single_le_sum (fun _ _ => zero_le _) _ ?_)
-  exact List.mem_map.mpr ⟨occurrence, List.mem_filter.mpr ⟨hmem, by simpa using hpage⟩, rfl⟩
+  exact (occurrence.request.delay_pos_of_deadline_lt (hdeadline.trans_lt ht)).trans_le
+    (delay_le_pendingCost hmem hpage t)
 
 /-! ## Both triggers -/
 
@@ -180,8 +172,20 @@ theorem selectedPayment_value {trigger : Trigger} {state : State Page} {time : T
     (hnow : pendingCost state page state.now ≤ trigger.level) :
     pendingCost state page time = trigger.level := by
   rw [← nextPayment_time_eq hselected]
-  exact trigger.dueTime_value state page
-    (pending_of_mem_pendingPages (nextPayment_mem_pendingPages hselected)) hnow
+  exact trigger.dueTime_value state page (nextPayment_pending hselected) hnow
+
+/-- A pending page is never due before `now`. -/
+theorem Trigger.dueTime_ge_now (trigger : Trigger) (state : State Page) (page : Page)
+    (hpending : ∃ occurrence ∈ state.pending, occurrence.request.page = page) :
+    state.now ≤ trigger.dueTime state page := by
+  cases trigger with
+  | threshold δ => exact thresholdTime_ge_now state page hpending
+  | deadline => exact deadlineTime_ge_now state page hpending
+
+/-- A selected payment is not before `now`. -/
+theorem nextPayment_now_le {trigger : Trigger} {state : State Page} {time : Time} {page : Page}
+    (hselected : nextPayment? trigger state = some (time, page)) : state.now ≤ time :=
+  nextPayment_time_eq hselected ▸ trigger.dueTime_ge_now state page (nextPayment_pending hselected)
 
 end
 

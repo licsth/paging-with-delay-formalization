@@ -50,12 +50,8 @@ namespace Instance
 for less than the hypothesis of `Algorithm.Online`. -/
 theorem AgreeUpTo.of_upTo_eq {first second : Instance Page} {t : Time}
     (heq : first.upTo t = second.upTo t) : first.AgreeUpTo second t where
-  cacheSize := by
-    have hcache := congrArg Instance.cacheSize heq
-    exact hcache
-  initialCache := by
-    have hinitial := congrArg Instance.initialCache heq
-    exact hinitial
+  cacheSize := (congrArg Instance.cacheSize heq :)
+  initialCache := (congrArg Instance.initialCache heq :)
   requests := by
     rw [heq]
     exact List.forall₂_same.mpr fun request _ => Request.AgreeUpTo.refl t request
@@ -67,19 +63,13 @@ theorem AgreeUpTo.symm {first second : Instance Page} {t : Time}
     (agree : first.AgreeUpTo second t) : second.AgreeUpTo first t where
   cacheSize := agree.cacheSize.symm
   initialCache := agree.initialCache.symm
-  requests := by
-    apply List.Forall₂.flip
-    exact agree.requests.imp fun _ _ hrequest => hrequest.symm
+  requests := (agree.requests.imp fun _ _ hrequest => hrequest.symm).flip
 
 /-- Truncations that are literally equal agree under deadlines too. -/
 theorem DeadlineAgreeUpTo.of_upTo_eq {first second : Instance Page} {t : Time}
     (heq : first.upTo t = second.upTo t) : first.DeadlineAgreeUpTo second t where
-  cacheSize := by
-    have hcache := congrArg Instance.cacheSize heq
-    exact hcache
-  initialCache := by
-    have hinitial := congrArg Instance.initialCache heq
-    exact hinitial
+  cacheSize := (congrArg Instance.cacheSize heq :)
+  initialCache := (congrArg Instance.initialCache heq :)
   requests := by
     rw [heq]
     exact List.forall₂_same.mpr fun request _ => ⟨rfl, rfl, fun _ => rfl⟩

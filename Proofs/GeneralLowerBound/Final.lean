@@ -26,9 +26,9 @@ noncomputable section
 theorem exists_run {algorithm : Algorithm Page} (online : algorithm.Online)
     {k : ℕ} (hk : 0 < k) {pages : Finset Page} (hcard : pages.card = k + 1)
     {c ε : Cost} (hc : ε + 1 ≤ ε * c) (n : ℕ) :
-    ∃ run : AdversaryRun algorithm k pages c ε, n ≤ run.input.requests.length := by
+    ∃ run : AdversaryRun algorithm k pages ε, n ≤ run.input.requests.length := by
   induction n with
-  | zero => exact ⟨AdversaryRun.initial algorithm hk pages hcard c ε, Nat.zero_le _⟩
+  | zero => exact ⟨AdversaryRun.initial algorithm hk pages hcard ε, Nat.zero_le _⟩
   | succ n ih =>
       obtain ⟨run, hrun⟩ := ih
       obtain ⟨next, hnext⟩ := AdversaryRun.exists_advance online hcard hc run
@@ -77,64 +77,28 @@ theorem competitive_ratio_lower_bound {algorithm : Algorithm Page} (online : alg
   obtain ⟨n, hn⟩ := exists_nat_gt bound
   obtain ⟨input, terminal, hsize, hinitial, hrequests, hstrict, hlen, hfetch, hdelay⟩ :=
     exists_adaptive_input online hk hcard hε n
-  obtain ⟨family, hinput, hcost⟩ :=
-    exists_comparisonFamily_of_delay_bound input pages (by rw [hsize]; exact hcard)
-      hstrict terminal hrequests (algorithm input) ε 1 hfetch hdelay
-  have hindex : 2 * k + 1 = 2 * input.cacheSize + 1 := by rw [hsize]
-  have hfeasible : ∀ j, (family.comparator j).Feasible input := by
-    intro j
-    have h := family.feasible j
-    rw [hinput] at h
-    exact h
-  refine ⟨{ input := input
-            comparator := fun i => family.comparator (finCongr hindex i)
-            feasible := fun i => hfeasible (finCongr hindex i) },
-    ⟨hsize, hinitial, fun r hr => (hrequests r hr).1⟩, ?_, ?_⟩
-  · -- the algorithm's cost exceeds any prescribed bound
-    refine hn.trans_le ?_
-    calc (n : Cost) ≤ (input.requests.length : Cost) := by exact_mod_cast hlen
-      _ ≤ ((algorithm input).fetchCount : Cost) := by exact_mod_cast hfetch
-      _ ≤ (algorithm input).totalCost input := le_self_add
-  · -- the aggregate comparator cost
-    show (∑ i, (family.comparator (finCongr hindex i)).totalCost input) ≤
-      (1 + ε) * (algorithm input).totalCost input +
-        ((k : Cost) * k + ((k : Cost) + 1) * ((k : Cost) + 1) + 1)
-    rw [(finCongr hindex).sum_comp (fun j => (family.comparator j).totalCost input)]
-    refine hcost.trans (le_of_eq ?_)
-    rw [hsize, hcard]
-    push_cast
-    ring
+  obtain ⟨family, rfl, hcost⟩ := exists_comparisonFamily_of_delay_bound input hsize pages hcard
+    hstrict terminal hrequests (algorithm input) ε 1 hfetch hdelay
+  refine ⟨family, ⟨hsize, hinitial, fun r hr => (hrequests r hr).1⟩, ?_, hcost⟩
+  -- the algorithm's cost exceeds any prescribed bound
+  calc bound < n := hn
+    _ ≤ family.input.requests.length := by exact_mod_cast hlen
+    _ ≤ (algorithm family.input).fetchCount := by exact_mod_cast hfetch
+    _ ≤ (algorithm family.input).totalCost family.input := le_self_add
 
-/-- The lower bound as the public theorem states it: the universe restriction
-is a bound on the page universe of the input the construction produces, and the
-`k+1` pages it requests come from the given embedding. -/
-theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
-    (online : algorithm.Online)
-    {k : ℕ} (hk : 0 < k) (pages : Fin (k + 1) ↪ Page)
-    (ratio additive : Cost) (hratio : ratio < (2 * k + 1 : ℕ)) :
-    ∃ (input : Instance Page) (comparator : Schedule Page),
-      input.cacheSize = k ∧
-      input.pageUniverse.card ≤ k + 1 ∧
-      comparator.Feasible input ∧
-        ratio * comparator.totalCost input + additive <
-          (algorithm input).totalCost input := by
-  obtain ⟨input, comparator, hsize, hinitial, hrequests, hfeasible, hcost⟩ :=
-    competitive_ratio_lower_bound online hk (Finset.univ.map pages) (by simp)
-      ratio additive hratio
-  exact ⟨input, comparator, hsize,
-    (Instance.card_pageUniverse_le hinitial hrequests).trans_eq (by simp), hfeasible, hcost⟩
-
-/-- **The general lower bound** in the form `PagingWithDelay.lean` states it. -/
+/-- **The general lower bound** in the form `PagingWithDelay.lean` states it: the
+`k+1` pages come from the given embedding, so they bound the page universe. -/
 theorem not_competitive {k : ℕ} (hk : 0 < k) (pages : Fin (k + 1) ↪ Page)
     {algorithm : Algorithm Page} (online : algorithm.Online)
     {ratio : ℕ → Cost} (hratio : ratio k < 2 * k + 1) :
     ¬ algorithm.Competitive ratio fun input => input.pageUniverse.card ≤ input.cacheSize + 1 :=
   Algorithm.not_competitive_of_schedules fun additive => by
-    obtain ⟨input, comparator, hsize, huniverse, hfeasible, hcost⟩ :=
-      competitive_ratio_lower_bound_pageUniverse online hk pages (ratio k) (additive k)
-        (by exact_mod_cast hratio)
+    obtain ⟨input, comparator, hsize, hinitial, hrequests, hfeasible, hcost⟩ :=
+      competitive_ratio_lower_bound online hk (Finset.univ.map pages) (by simp) (ratio k)
+        (additive k) (by exact_mod_cast hratio)
     subst hsize
-    exact ⟨input, comparator, huniverse, hfeasible, hcost⟩
+    exact ⟨input, comparator, (Instance.card_pageUniverse_le hinitial hrequests).trans_eq
+      (by simp), hfeasible, hcost⟩
 
 end
 end PagingWithDelay.GeneralLowerBound

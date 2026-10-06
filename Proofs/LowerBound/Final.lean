@@ -51,10 +51,8 @@ theorem algorithmCost_eq {δ : Cost} (hδ : 0 < δ) {k : ℕ} (runs : ℕ)
 /-- Enough runs to beat any ratio below `2k+2` and any additive constant. -/
 private theorem exists_runs {d bound : Cost} (hd : 0 < d) :
     ∃ runs : ℕ, bound < d * runs := by
-  obtain ⟨n, hn⟩ := Archimedean.arch bound hd
-  refine ⟨n + 1, lt_of_le_of_lt hn ?_⟩
-  rw [nsmul_eq_mul, mul_comm]
-  exact mul_lt_mul_of_pos_left (by exact_mod_cast Nat.lt_succ_self n) hd
+  obtain ⟨n, hn⟩ := exists_nat_gt (bound / d)
+  exact ⟨n, by rwa [div_lt_iff₀ hd, mul_comm] at hn⟩
 
 /-- **Tightness.**  For every threshold `δ`, every cache size `k ≥ 1` and every
 page type with at least `k+2` pages, no ratio below `2k+2` holds for FIFO with

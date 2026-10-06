@@ -24,23 +24,7 @@ namespace Analysis
 theorem length_filter_le_of_imp {α : Type*} (l : List α) (p q : α → Bool)
     (himp : ∀ a ∈ l, p a = true → q a = true) :
     (l.filter p).length ≤ (l.filter q).length := by
-  induction l with
-  | nil => simp
-  | cons b rest ih =>
-      have hrest := ih (fun a ha => himp a (List.mem_cons_of_mem _ ha))
-      by_cases hb : p b = true
-      · have hqb := himp b (by simp) hb
-        simp only [List.filter_cons, hb, hqb, if_pos, List.length_cons]
-        omega
-      · simp only [Bool.not_eq_true] at hb
-        rw [List.filter_cons_of_neg (by simp [hb])]
-        by_cases hqb : q b = true
-        · rw [List.filter_cons_of_pos hqb]
-          simp only [List.length_cons]
-          omega
-        · simp only [Bool.not_eq_true] at hqb
-          rw [List.filter_cons_of_neg (by simp [hqb])]
-          exact hrest
+  simpa [← List.countP_eq_length_filter] using List.countP_mono_left himp
 
 /-- A widening predicate that newly admits some member of the list filters
 strictly more of it. -/
@@ -53,25 +37,14 @@ theorem length_filter_lt_of_imp {α : Type*} (l : List α) (p q : α → Bool)
   | cons b rest ih =>
       have himp' : ∀ x ∈ rest, p x = true → q x = true :=
         fun x hx => himp x (List.mem_cons_of_mem _ hx)
+      have hle := length_filter_le_of_imp rest p q himp'
+      have hb := himp b (by simp)
       rcases List.mem_cons.mp ha with rfl | ha'
-      · rw [List.filter_cons_of_neg (by simp [hp]), List.filter_cons_of_pos hq]
-        have := length_filter_le_of_imp rest p q himp'
-        simp only [List.length_cons]
+      · simp [hp, hq]
         omega
-      · have hrest := ih himp' ha'
-        by_cases hb : p b = true
-        · have hqb := himp b (by simp) hb
-          rw [List.filter_cons_of_pos hb, List.filter_cons_of_pos hqb]
-          simpa using hrest
-        · simp only [Bool.not_eq_true] at hb
-          rw [List.filter_cons_of_neg (by simp [hb])]
-          by_cases hqb : q b = true
-          · rw [List.filter_cons_of_pos hqb]
-            simp only [List.length_cons]
-            omega
-          · simp only [Bool.not_eq_true] at hqb
-            rw [List.filter_cons_of_neg (by simp [hqb])]
-            exact hrest
+      · have := ih himp' ha'
+        simp only [List.filter_cons]
+        split_ifs <;> simp_all
 
 end Analysis
 
@@ -123,11 +96,8 @@ theorem mem_serviceCandidates_congr {first second : Schedule Page}
         decide (request.arrival ≤ e.time ∧ request.page = e.fetched)).map
         FetchEvent.time).toFinset := by
     simp only [List.mem_toFinset, List.mem_map, List.mem_filter]
-    constructor
-    · rintro ⟨e, ⟨he, hdec⟩, rfl⟩
-      exact ⟨e, ⟨(hevents e htime).mp he, hdec⟩, rfl⟩
-    · rintro ⟨e, ⟨he, hdec⟩, rfl⟩
-      exact ⟨e, ⟨(hevents e htime).mpr he, hdec⟩, rfl⟩
+    exact exists_congr fun e => and_congr_left fun hte =>
+      and_congr_left fun _ => hevents e (hte ▸ htime)
   unfold serviceCandidates
   simp only [hcache]
   split
@@ -150,18 +120,8 @@ theorem Online.appendRequest_mem_events {algorithm : Algorithm Page}
     (e : FetchEvent Page) (he : e.time < request.arrival) :
     e ∈ (algorithm (input.appendRequest request hlast)).events ↔
       e ∈ (algorithm input).events := by
-  have hprefix := online.appendRequest_prefix input request hlast he
-  constructor
-  · intro hmem
-    have : e ∈ ((algorithm (input.appendRequest request hlast)).upTo e.time).events :=
-      List.mem_filter.mpr ⟨hmem, by simp⟩
-    rw [hprefix] at this
-    exact (List.mem_filter.mp this).1
-  · intro hmem
-    have : e ∈ ((algorithm input).upTo e.time).events :=
-      List.mem_filter.mpr ⟨hmem, by simp⟩
-    rw [← hprefix] at this
-    exact (List.mem_filter.mp this).1
+  simpa [Schedule.upTo] using
+    congrArg (e ∈ ·.events) (online.appendRequest_prefix input request hlast he)
 
 /-- A request already served before the new arrival keeps its service time. -/
 theorem Online.appendRequest_serviceTime {algorithm : Algorithm Page}
@@ -171,18 +131,13 @@ theorem Online.appendRequest_serviceTime {algorithm : Algorithm Page}
     {time : Time} (htime : time < request.arrival)
     (hservice : (algorithm input).serviceTime earlier = some time) :
     (algorithm (input.appendRequest request hlast)).serviceTime earlier = some time := by
-  set old := algorithm input with hold
-  set new := algorithm (input.appendRequest request hlast) with hnew
-  have hcache : new.cacheBefore earlier.arrival = old.cacheBefore earlier.arrival := by
-    apply online.cacheBefore_eq _ _ (by rfl)
-    intro s hs
-    exact input.appendRequest_upTo request hlast (hs.trans harrival)
-  have hevents : ∀ e : FetchEvent Page, e.time < request.arrival →
-      (e ∈ new.events ↔ e ∈ old.events) :=
-    fun e he => online.appendRequest_mem_events input request hlast e he
-  have hcongr : ∀ {t : Time}, t < request.arrival →
-      (t ∈ new.serviceCandidates earlier ↔ t ∈ old.serviceCandidates earlier) :=
-    fun {t} ht => Schedule.mem_serviceCandidates_congr earlier hcache hevents ht
+  have hcache : (algorithm (input.appendRequest request hlast)).cacheBefore earlier.arrival =
+      (algorithm input).cacheBefore earlier.arrival :=
+    online.cacheBefore_eq _ _ (by rfl) _ fun _ hs =>
+      input.appendRequest_upTo request hlast (hs.trans harrival)
+  have hcongr {t : Time} (ht : t < request.arrival) :=
+    Schedule.mem_serviceCandidates_congr earlier hcache
+      (online.appendRequest_mem_events input request hlast) ht
   obtain ⟨hmem, hle⟩ := (Schedule.serviceTime_eq_some_iff _ _ _).mp hservice
   refine (Schedule.serviceTime_eq_some_iff _ _ _).mpr ⟨(hcongr htime).mpr hmem, ?_⟩
   intro candidate hcandidate

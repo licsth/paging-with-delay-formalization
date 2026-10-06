@@ -1,4 +1,5 @@
 import Proofs.Analysis.CacheFill
+import Proofs.LowerBound.CompCost
 
 /-!
 # The static offline strategies
@@ -21,94 +22,80 @@ def staticComparator (initial pages : Finset Page) (hole : Page) (terminal : Tim
     Schedule Page :=
   ⟨initial, Analysis.resetEvents initial (pages.erase hole) ++ [⟨terminal, hole, {hole}⟩]⟩
 
+/-- Folding a trace whose events all precede `t` applies every event. -/
+theorem foldl_cacheBefore_eq (events : List (FetchEvent Page)) (initial : Finset Page)
+    {t : Time} (h : ∀ e ∈ events, e.time < t) :
+    events.foldl (fun cache e => if e.time < t then e.cacheAfter else cache) initial =
+      events.foldl (fun _ e => e.cacheAfter) initial :=
+  List.foldl_ext _ _ _ fun _ e he => if_pos (h e he)
+
 theorem staticComparator_cacheBefore (initial pages : Finset Page) (hole : Page)
     (hcard : initial.card ≤ (pages.erase hole).card)
     (terminal t : Time) (ht : 0 < t) (hle : t ≤ terminal) :
     (staticComparator initial pages hole terminal).cacheBefore t = pages.erase hole := by
-  have hfill : ∀ (events : List (FetchEvent Page)) (initial : Finset Page),
-      (∀ e ∈ events, e.time = 0) →
-      events.foldl (fun cache e => if e.time < t then e.cacheAfter else cache) initial =
-        events.foldl (fun _ e => e.cacheAfter) initial := by
-    intro events initial hevents
-    induction events generalizing initial with
-    | nil => rfl
-    | cons e rest ih =>
-        simp only [List.foldl_cons, hevents e (by simp), if_pos ht]
-        exact ih _ (fun e he => hevents e (by simp [he]))
   simp only [staticComparator, Schedule.cacheBefore, List.foldl_append,
     List.foldl_cons, List.foldl_nil, if_neg (not_lt.mpr hle)]
-  rw [hfill _ _ (Analysis.resetEvents_time _ _), Analysis.resetEvents_fold _ _ hcard]
+  rw [foldl_cacheBefore_eq _ _ fun e he => (Analysis.resetEvents_time _ _ e he).trans_lt ht,
+    Analysis.resetEvents_fold _ _ hcard]
 
-/-- The initial cache of a instance has at most `cacheSize` pages. -/
+/-- The initial cache of an instance has at most `cacheSize` pages. -/
 theorem initialCache_card_le (input : Instance Page) :
     input.initialCache.toFinset.card ≤ input.cacheSize :=
   (List.toFinset_card_le _).trans input.initialCache_full.le
+
+theorem initialCache_card_le_erase (input : Instance Page) {pages : Finset Page}
+    (hcard : pages.card = input.cacheSize + 1) {hole : Page} (hhole : hole ∈ pages) :
+    input.initialCache.toFinset.card ≤ (pages.erase hole).card := by
+  rw [Finset.card_erase_of_mem hhole, hcard, Nat.add_sub_cancel]
+  exact initialCache_card_le input
+
+/-- The static strategy serves requests on its hole at the terminal time and
+all others at arrival. -/
+theorem staticComparator_mem_serviceCandidates (initial pages : Finset Page) (hole : Page)
+    (hcard : initial.card ≤ (pages.erase hole).card) (terminal : Time) (request : Request Page)
+    (hpage : request.page ∈ pages) (harrival : 0 < request.arrival)
+    (hterminal : request.arrival ≤ terminal) :
+    (if request.page = hole then terminal else request.arrival) ∈
+      (staticComparator initial pages hole terminal).serviceCandidates request := by
+  split_ifs with hp
+  · exact LowerBound.mem_serviceCandidates_of_fetch _ _ (event := ⟨terminal, hole, {hole}⟩)
+      (by simp [staticComparator]) hterminal hp
+  · apply LowerBound.arrival_mem_serviceCandidates_of_hit
+    rw [staticComparator_cacheBefore _ _ _ hcard _ _ harrival hterminal]
+    exact Finset.mem_erase.mpr ⟨hp, hpage⟩
 
 theorem staticComparator_feasible (input : Instance Page)
     (pages : Finset Page) (hole : Page) (hhole : hole ∈ pages)
     (hcard : pages.card = input.cacheSize + 1) (terminal : Time)
     (hrequests : ∀ r ∈ input.requests, r.page ∈ pages ∧ 0 < r.arrival ∧ r.arrival ≤ terminal) :
     (staticComparator input.initialCache.toFinset pages hole terminal).Feasible input := by
-  have hheld : (pages.erase hole).card = input.cacheSize := by
-    rw [Finset.card_erase_of_mem hhole, hcard]
-    omega
-  have hinit : input.initialCache.toFinset.card ≤ (pages.erase hole).card :=
-    hheld ▸ initialCache_card_le input
-  constructor
-  · rfl
-  · apply List.pairwise_append.mpr
-    refine ⟨?_, by simp, ?_⟩
-    · apply List.pairwise_of_forall_mem_list
-      intro a ha b hb
+  have hinit := initialCache_card_le_erase input hcard hhole
+  refine ⟨rfl, List.pairwise_append.mpr ⟨?_, by simp, ?_⟩, ?_, ?_, fun r hr => ⟨_,
+    staticComparator_mem_serviceCandidates _ _ _ hinit _ r (hrequests r hr).1 (hrequests r hr).2.1
+      (hrequests r hr).2.2⟩⟩
+  · exact List.pairwise_of_forall_mem_list fun a ha b hb => by
       rw [Analysis.resetEvents_time _ _ a ha, Analysis.resetEvents_time _ _ b hb]
-    · intro a ha b hb
-      simp only [List.mem_singleton] at hb
-      subst b
-      rw [Analysis.resetEvents_time _ _ a ha]
-      exact zero_le _
-  · apply Analysis.validTransitions_append
-    · exact Analysis.resetEvents_valid _ _
-    · show Schedule.ValidTransitionsFrom (List.foldl _ input.initialCache.toFinset _) _
-      rw [Analysis.resetEvents_fold _ _ hinit]
-      simp [Schedule.ValidTransitionsFrom]
+  · intro a ha b hb
+    rw [List.mem_singleton.mp hb, Analysis.resetEvents_time _ _ a ha]
+    exact zero_le _
+  · apply Analysis.validTransitions_append _ _ _ (Analysis.resetEvents_valid _ _)
+    dsimp only [staticComparator]
+    rw [Analysis.resetEvents_fold _ _ hinit]
+    simp [Schedule.ValidTransitionsFrom]
   · intro event he
     rcases List.mem_append.mp he with he | he
-    · have h := Finset.card_le_card (Analysis.resetEvents_cache_subset _
-        (pages.erase hole) event he)
-      simpa [hheld] using h
-    · simp only [List.mem_singleton] at he
-      subst event
-      simpa using input.positiveCapacity
-  · intro r hr
-    have h := hrequests r hr
-    by_cases hp : r.page = hole
-    · refine ⟨terminal, ?_⟩
-      have hmem : terminal ∈
-          (((staticComparator input.initialCache.toFinset pages hole terminal).events.filter
-            fun e => decide (r.arrival ≤ e.time ∧ r.page = e.fetched)).map
-              FetchEvent.time).toFinset := by
-        apply List.mem_toFinset.mpr
-        apply List.mem_map.mpr
-        refine ⟨⟨terminal, hole, {hole}⟩, ?_, rfl⟩
-        simp [staticComparator, h.2.2, hp]
-      unfold Schedule.serviceCandidates
-      split
-      · exact Finset.mem_insert_of_mem hmem
-      · exact hmem
-    · have hhit : r.page ∈
-          (staticComparator input.initialCache.toFinset pages hole terminal).cacheBefore
-            r.arrival := by
-        rw [staticComparator_cacheBefore _ _ _ hinit _ _ h.2.1 h.2.2]
-        exact Finset.mem_erase.mpr ⟨hp, h.1⟩
-      exact ⟨r.arrival, by simp [Schedule.serviceCandidates, hhit]⟩
+    · have h := Finset.card_le_card (Analysis.resetEvents_cache_subset _ _ event he)
+      rw [Finset.card_erase_of_mem hhole, hcard] at h
+      simpa using h
+    · simpa [List.mem_singleton.mp he] using input.positiveCapacity
 
 theorem staticComparator_fetchCount_le (initial pages : Finset Page) (hole : Page)
     (hhole : hole ∈ pages) (terminal : Time) :
     (staticComparator initial pages hole terminal).fetchCount ≤ pages.card := by
-  simp only [Schedule.fetchCount, staticComparator, List.length_append, List.length_singleton]
   have := Analysis.resetEvents_length_le initial (pages.erase hole)
   rw [Finset.card_erase_of_mem hhole] at this
   have := Finset.card_pos.mpr ⟨hole, hhole⟩
+  simp only [Schedule.fetchCount, staticComparator, List.length_append, List.length_singleton]
   omega
 
 private theorem requestCost_le_candidate (schedule : Schedule Page) (request : Request Page)
@@ -128,30 +115,9 @@ theorem staticComparator_requestCost_le (initial pages : Finset Page) (hole : Pa
     (hterminal : request.arrival ≤ terminal) :
     (staticComparator initial pages hole terminal).requestCost request ≤
       if request.page = hole then request.delay (terminal - request.arrival) else 0 := by
-  by_cases hp : request.page = hole
-  · rw [if_pos hp]
-    apply requestCost_le_candidate
-    have hmem : terminal ∈
-        (((staticComparator initial pages hole terminal).events.filter fun e =>
-          decide (request.arrival ≤ e.time ∧ request.page = e.fetched)).map
-            FetchEvent.time).toFinset := by
-      apply List.mem_toFinset.mpr
-      apply List.mem_map.mpr
-      refine ⟨⟨terminal, hole, {hole}⟩, ?_, rfl⟩
-      simp [staticComparator, hterminal, hp]
-    unfold Schedule.serviceCandidates
-    split
-    · exact Finset.mem_insert_of_mem hmem
-    · exact hmem
-  · rw [if_neg hp]
-    have hhit : request.page ∈
-        (staticComparator initial pages hole terminal).cacheBefore request.arrival := by
-      rw [staticComparator_cacheBefore _ _ _ hcard _ _ harrival hterminal]
-      exact Finset.mem_erase.mpr ⟨hp, hpage⟩
-    have hmem : request.arrival ∈
-        (staticComparator initial pages hole terminal).serviceCandidates request := by
-      simp [Schedule.serviceCandidates, hhit]
-    simpa [request.delay_zero] using requestCost_le_candidate _ request _ hmem
+  refine (requestCost_le_candidate _ _ _ (staticComparator_mem_serviceCandidates _ _ _ hcard _ _
+    hpage harrival hterminal)).trans ?_
+  split_ifs <;> simp [request.delay_zero]
 
 /-- Summing the static strategies counts each request's terminal delay only
 once. Installing the caches contributes at most `pages.card²` fetches in
@@ -164,42 +130,21 @@ theorem sum_staticComparator_cost_le (input : Instance Page)
         (staticComparator input.initialCache.toFinset pages hole terminal).totalCost input) ≤
       (pages.card : Cost) * pages.card +
         (input.requests.map (fun r => r.delay (terminal - r.arrival))).sum := by
-  have hinit : ∀ hole ∈ pages,
-      input.initialCache.toFinset.card ≤ (pages.erase hole).card := by
-    intro hole hhole
-    rw [Finset.card_erase_of_mem hhole, hcard, Nat.add_sub_cancel]
-    exact initialCache_card_le input
-  have hdelay (requests : List (Request Page))
-      (hr : ∀ r ∈ requests, r.page ∈ pages ∧ 0 < r.arrival ∧ r.arrival ≤ terminal) :
-      (∑ hole ∈ pages,
-        (requests.map
-          (staticComparator input.initialCache.toFinset pages hole terminal).requestCost).sum) ≤
-        (requests.map (fun r => r.delay (terminal - r.arrival))).sum := by
-    induction requests with
-    | nil => simp
-    | cons r rest ih =>
-        simp only [List.map_cons, List.sum_cons, Finset.sum_add_distrib]
-        apply add_le_add
-        · have h := hr r (by simp)
-          calc
-            _ ≤ ∑ hole ∈ pages,
-                if r.page = hole then r.delay (terminal - r.arrival) else 0 := by
-              apply Finset.sum_le_sum
-              intro hole hhole
-              exact staticComparator_requestCost_le _ _ _ (hinit hole hhole) _ _ h.1 h.2.1 h.2.2
-            _ = r.delay (terminal - r.arrival) := by simp [h.1]
-        · exact ih (fun r hr' => hr r (by simp [hr']))
-  simp only [Schedule.totalCost, Finset.sum_add_distrib]
-  have hfetch : (∑ hole ∈ pages,
-      ((staticComparator input.initialCache.toFinset pages hole terminal).fetchCount : Cost)) ≤
-      (pages.card : Cost) * pages.card := by
-    calc
-      _ ≤ ∑ _hole ∈ pages, (pages.card : Cost) := by
-        apply Finset.sum_le_sum
-        intro hole hhole
-        exact_mod_cast staticComparator_fetchCount_le _ _ _ hhole _
+  have hswap (requests : List (Request Page)) :
+      (∑ hole ∈ pages, (requests.map
+        (staticComparator input.initialCache.toFinset pages hole terminal).requestCost).sum) =
+      (requests.map fun r => ∑ hole ∈ pages,
+        (staticComparator input.initialCache.toFinset pages hole terminal).requestCost r).sum := by
+    induction requests <;> simp [Finset.sum_add_distrib, *]
+  simp only [Schedule.totalCost, Schedule.totalDelay, Finset.sum_add_distrib, hswap]
+  refine add_le_add ?_ (List.sum_le_sum fun r hr => ?_)
+  · calc _ ≤ ∑ _hole ∈ pages, (pages.card : Cost) := Finset.sum_le_sum fun hole hhole => by
+          exact_mod_cast staticComparator_fetchCount_le _ _ _ hhole _
       _ = _ := by simp [nsmul_eq_mul]
-  exact add_le_add hfetch (hdelay input.requests hrequests)
+  · obtain ⟨hpage, harrival, hterminal⟩ := hrequests r hr
+    refine (Finset.sum_le_sum fun hole hhole => staticComparator_requestCost_le _ _ _
+      (initialCache_card_le_erase input hcard hhole) _ r hpage harrival hterminal).trans_eq ?_
+    simp [hpage]
 
 end
 end PagingWithDelay.GeneralLowerBound

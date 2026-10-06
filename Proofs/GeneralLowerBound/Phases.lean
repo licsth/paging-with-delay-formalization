@@ -31,20 +31,9 @@ variable {Page : Type*} [DecidableEq Page]
 
 noncomputable section
 
-/-! ### Two facts about truncated subtraction of times -/
-
-private theorem add_tsub_comm {a b : Time} (h : a ≤ b) (d : Time) :
-    b + d - a = b - a + d := by
-  rw [tsub_add_eq_add_tsub h]
-
-private theorem tsub_split {a b : Time} (gap : Time) (h : a + gap ≤ b) :
-    b - a = b - (a + gap) + gap := by
-  have hgap : gap ≤ b - a := le_tsub_of_add_le_left h
-  rw [tsub_add_eq_tsub_tsub, tsub_add_cancel_of_le hgap]
-
 /-- The invariant maintained after finitely many phases of the construction. -/
 structure AdversaryRun (algorithm : Algorithm Page) (k : ℕ) (pages : Finset Page)
-    (c ε : Cost) where
+    (ε : Cost) where
   /-- The requests revealed so far. -/
   input : Instance Page
   size : input.cacheSize = k
@@ -78,8 +67,8 @@ structure AdversaryRun (algorithm : Algorithm Page) (k : ℕ) (pages : Finset Pa
 /-- Before the first request, the invariant is trivial.  The initial cache is
 any `k` of the `k + 1` pages. -/
 def AdversaryRun.initial (algorithm : Algorithm Page) {k : ℕ} (hk : 0 < k)
-    (pages : Finset Page) (hcard : pages.card = k + 1) (c ε : Cost) :
-    AdversaryRun algorithm k pages c ε where
+    (pages : Finset Page) (hcard : pages.card = k + 1) (ε : Cost) :
+    AdversaryRun algorithm k pages ε where
   input := ⟨k, pages.toList.take k, [], List.Pairwise.nil, hk,
     (Finset.nodup_toList pages).sublist (List.take_sublist _ _), by simp [hcard]⟩
   size := rfl
@@ -107,8 +96,8 @@ not hold just before the new arrival, so it is a miss and forces a fetch; the
 phase ends when that request is served. -/
 theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algorithm.Online)
     {k : ℕ} {pages : Finset Page} (hcard : pages.card = k + 1)
-    {c ε : Cost} (hc : ε + 1 ≤ ε * c) (run : AdversaryRun algorithm k pages c ε) :
-    ∃ next : AdversaryRun algorithm k pages c ε,
+    {c ε : Cost} (hc : ε + 1 ≤ ε * c) (run : AdversaryRun algorithm k pages ε) :
+    ∃ next : AdversaryRun algorithm k pages ε,
       next.input.requests.length = run.input.requests.length + 1 := by
   classical
   set old := algorithm run.input with hold
@@ -116,31 +105,22 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
   set rate : Cost := ε * run.nextSlope with hrate
   set gap : Time := run.budget / 2 / (rate + 1) with hgapdef
   have hratepos : (0 : Cost) < rate + 1 := by positivity
-  have hgappos : 0 < gap := by
-    rw [hgapdef]
-    exact div_pos (half_pos run.budgetPos) hratepos
+  have hgappos : 0 < gap := div_pos (half_pos run.budgetPos) hratepos
   have hgapbound : rate * gap ≤ run.budget / 2 := by
     rw [hgapdef, ← mul_div_assoc, div_le_iff₀ hratepos, mul_comm]
     gcongr
     exact le_self_add
   set arrival : Time := run.now + gap with harrivaldef
   have hnowlt : run.now < arrival := lt_add_of_pos_right _ hgappos
-  have hcpos : (0 : Cost) < c := by
-    rcases (zero_le c).lt_or_eq with h | h
-    · exact h
-    · rw [← h, mul_zero] at hc
-      simp at hc
+  have hcpos : (0 : Cost) < c := pos_of_mul_pos_right ((add_pos_of_nonneg_of_pos (zero_le ε)
+    zero_lt_one).trans_le hc) (zero_le ε)
   -- a page the algorithm does not hold just before the new arrival
   have hcap := old.cacheBefore_card_le run.input (algorithm.feasible _) arrival
-  have hnsub : ¬pages ⊆ old.cacheBefore arrival := by
-    intro h
-    have hle := (Finset.card_le_card h).trans hcap
-    rw [hcard, run.size] at hle
-    omega
-  obtain ⟨page, hpage, hmiss⟩ := Finset.not_subset.mp hnsub
-  set request := Analysis.linearRequest page arrival run.nextSlope run.nextSlopePos with hreqdef
+  obtain ⟨page, hpage, hmiss⟩ :=
+    Finset.exists_mem_notMem_of_card_lt_card (s := old.cacheBefore arrival) (t := pages)
+      (by rw [hcard, ← run.size]; exact Nat.lt_succ_of_le hcap)
+  set request := Analysis.linearRequest page arrival run.nextSlope run.nextSlopePos
   have hreqarrival : request.arrival = arrival := rfl
-  have hreqpage : request.page = page := rfl
   have hreqdelay : ∀ x : Time, request.delay x = run.nextSlope * x := fun _ => rfl
   have hlast : ∀ r ∈ run.input.requests, r.arrival ≤ request.arrival :=
     fun r hr => (run.arrivalLe r hr).trans hnowlt.le
@@ -155,7 +135,7 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
   have hmem : request ∈ (run.input.appendRequest request hlast).requests := by
     simp [Instance.appendRequest]
   have hne := (algorithm.feasible _).eventuallyServed request hmem
-  set s : Time := (new.serviceCandidates request).min' hne with hsdef
+  set s : Time := (new.serviceCandidates request).min' hne
   have hsmem : s ∈ new.serviceCandidates request := Finset.min'_mem _ _
   have hservice : new.serviceTime request = some s :=
     (Schedule.serviceTime_eq_some_iff _ _ _).mpr
@@ -172,8 +152,8 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
   set u : Time := s - arrival with hudef
   set w : Time := s - run.now with hwdef
   have hwu : w = u + gap := by
-    rw [hwdef, hudef, harrivaldef]
-    exact tsub_split gap (harrivaldef ▸ harrle)
+    rw [hwdef, hudef, harrivaldef, tsub_add_eq_tsub_tsub, tsub_add_cancel_of_le
+      (le_tsub_of_add_le_left harrle)]
   have hnoww : run.now + w = s := add_tsub_cancel_of_le hnowle
   -- service of the earlier requests is unchanged
   have hservedOld : ∀ r ∈ run.input.requests, ∃ t ≤ run.now, new.serviceTime r = some t := by
@@ -205,18 +185,22 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
   have hsumNow : (run.input.requests.map fun r => r.delay (s - r.arrival)).sum =
       (run.input.requests.map fun r => r.delay (run.now - r.arrival)).sum +
         run.slopeTotal * w := by
-    have := hsumOld 0
-    simpa using this
+    simpa using hsumOld 0
   refine ⟨{
     input := run.input.appendRequest request hlast
     size := run.size
     memInitial := run.memInitial
-    memPages := ?_
-    positive := ?_
-    strict := ?_
+    memPages := List.forall_mem_append.mpr ⟨run.memPages, List.forall_mem_singleton.mpr hpage⟩
+    positive := List.forall_mem_append.mpr
+      ⟨run.positive, List.forall_mem_singleton.mpr (hgappos.trans_le le_add_self)⟩
+    strict := List.pairwise_append.mpr ⟨run.strict, List.pairwise_singleton _ _,
+      fun a ha b hb => List.mem_singleton.mp hb ▸ hearlier a ha⟩
     now := s
-    arrivalLe := ?_
-    served := ?_
+    arrivalLe := List.forall_mem_append.mpr
+      ⟨fun r hr => (run.arrivalLe r hr).trans hnowle, List.forall_mem_singleton.mpr harrle⟩
+    served := List.forall_mem_append.mpr
+      ⟨fun r hr => (hservedOld r hr).imp fun _ ⟨htle, ht⟩ => ⟨htle.trans hnowle, ht⟩,
+        List.forall_mem_singleton.mpr ⟨s, le_rfl, hservice⟩⟩
     fetches := ?_
     slopeTotal := run.slopeTotal + run.nextSlope
     nextSlope := c * run.nextSlope
@@ -228,29 +212,6 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
     budgetPos := half_pos run.budgetPos
     budgetTotal := ?_
     delayBound := ?_ }, by simp [Instance.appendRequest]⟩
-  · intro r hr
-    rcases List.mem_append.mp hr with hr | hr
-    · exact run.memPages r hr
-    · rw [List.mem_singleton.mp hr, hreqpage]; exact hpage
-  · intro r hr
-    rcases List.mem_append.mp hr with hr | hr
-    · exact run.positive r hr
-    · rw [List.mem_singleton.mp hr, hreqarrival, harrivaldef]
-      exact lt_of_lt_of_le hgappos le_add_self
-  · refine List.pairwise_append.mpr ⟨run.strict, List.pairwise_singleton _ _, ?_⟩
-    intro a ha b hb
-    rw [List.mem_singleton.mp hb]
-    exact hearlier a ha
-  · intro r hr
-    rcases List.mem_append.mp hr with hr | hr
-    · exact (run.arrivalLe r hr).trans hnowle
-    · rw [List.mem_singleton.mp hr, hreqarrival]; exact harrle
-  · intro r hr
-    rcases List.mem_append.mp hr with hr | hr
-    · obtain ⟨t, htle, ht⟩ := hservedOld r hr
-      exact ⟨t, htle.trans hnowle, ht⟩
-    · rw [List.mem_singleton.mp hr]
-      exact ⟨s, le_rfl, hservice⟩
   · have hprefix : (new.upTo run.now).events = (old.upTo run.now).events := by
       rw [hnew, hold, online.appendRequest_prefix run.input request hlast
         (hreqarrival ▸ hnowlt)]
@@ -271,7 +232,7 @@ theorem AdversaryRun.exists_advance {algorithm : Algorithm Page} (online : algor
   · intro d
     simp only [Instance.appendRequest, List.map_append, List.sum_append, List.map_cons,
       List.map_nil, List.sum_cons, List.sum_nil, add_zero, hreqdelay, hreqarrival]
-    rw [hsumOld d, hsumNow, add_tsub_comm harrle d, ← hudef]
+    rw [hsumOld d, hsumNow, ← tsub_add_eq_add_tsub harrle, ← hudef]
     ring
   · calc run.slopeTotal + run.nextSlope
         ≤ ε * run.nextSlope + run.nextSlope := by gcongr; exact run.slopeTotalLe

@@ -79,34 +79,21 @@ theorem exists_fetched_of_lazyStep_evicts (lazy : Finset Page) (event : FetchEve
     {p : Page} (hp : p ∈ lazy) (hp' : p ∉ lazyStep k V lazy event) :
     event.fetched ∈ V ∧ event.fetched ∉ lazy ∧ event.fetched ∈ lazyStep k V lazy event := by
   unfold lazyStep at hp' ⊢
-  split_ifs at hp' ⊢ with h1 h2 h3
+  split_ifs at hp' ⊢ with h1
   · exact absurd hp hp'
-  · push_neg at h1
-    exact ⟨h1.1, h1.2, Finset.mem_insert_self _ _⟩
-  · push_neg at h1
-    exact ⟨h1.1, h1.2, Finset.mem_insert_self _ _⟩
-  · push_neg at h1
-    exact ⟨h1.1, h1.2, Finset.mem_insert_self _ _⟩
+  all_goals push_neg at h1; exact ⟨h1.1, h1.2, Finset.mem_insert_self _ _⟩
 
 theorem card_sdiff_lazyStep_le (lazy : Finset Page) (event : FetchEvent Page) :
     (lazy \ lazyStep k V lazy event).card ≤ 1 := by
   unfold lazyStep
   split_ifs with h1 h2 h3
   · simp
-  · rw [Finset.card_eq_zero.mpr]
-    · exact Nat.zero_le _
-    · rw [Finset.sdiff_eq_empty_iff_subset]
-      exact Finset.subset_insert _ _
-  · refine (Finset.card_le_card ?_).trans (Finset.card_singleton h3.choose).le
-    intro q hq
-    simp only [Finset.mem_sdiff, Finset.mem_insert, Finset.mem_erase, not_or, not_and,
-      Finset.mem_singleton] at hq ⊢
-    by_contra hne
-    exact hq.2.2 hne hq.1
-  · rw [Finset.card_eq_zero.mpr]
-    · exact Nat.zero_le _
-    · rw [Finset.sdiff_eq_empty_iff_subset]
-      exact Finset.subset_insert _ _
+  · simp [Finset.sdiff_eq_empty_iff_subset.mpr (Finset.subset_insert _ _)]
+  · refine (Finset.card_le_card fun q hq => ?_).trans (Finset.card_singleton h3.choose).le
+    simp only [Finset.mem_sdiff, Finset.mem_insert, Finset.mem_erase, not_or, not_and_or,
+      not_not] at hq
+    exact Finset.mem_singleton.mpr (hq.2.2.resolve_right fun h => h hq.1)
+  · simp [Finset.sdiff_eq_empty_iff_subset.mpr (Finset.subset_insert _ _)]
 
 /-- The invariant step: if the lazy cache contains the previous actual cache
 within the universe and both respect the capacity, the same holds after the
@@ -116,61 +103,38 @@ theorem lazyStep_spec {lazy previous : Finset Page} (hsub : previous ∩ V ⊆ l
     (hvalid : event.cacheAfter \ previous = {event.fetched})
     (hcap : event.cacheAfter.card ≤ k) :
     event.cacheAfter ∩ V ⊆ lazyStep k V lazy event ∧ (lazyStep k V lazy event).card ≤ k := by
-  have hafter : ∀ q ∈ event.cacheAfter, q = event.fetched ∨ q ∈ previous := by
-    intro q hq
-    by_cases hp : q ∈ previous
-    · exact Or.inr hp
-    · have : q ∈ event.cacheAfter \ previous := Finset.mem_sdiff.mpr ⟨hq, hp⟩
-      rw [hvalid, Finset.mem_singleton] at this
-      exact Or.inl this
-  have hfetched : event.fetched ∈ event.cacheAfter := by
-    have : event.fetched ∈ event.cacheAfter \ previous := by rw [hvalid]; simp
-    exact (Finset.mem_sdiff.mp this).1
+  have hfetched : event.fetched ∈ event.cacheAfter :=
+    (Finset.mem_sdiff.mp (hvalid ▸ Finset.mem_singleton_self _)).1
+  -- the new cache within the universe is the fetched page and pages of `lazy`
+  have hold : ∀ q ∈ event.cacheAfter ∩ V, q ≠ event.fetched → q ∈ lazy := by
+    intro q hq hne
+    rw [Finset.mem_inter] at hq
+    refine hsub (Finset.mem_inter.mpr ⟨by_contra fun hp => hne ?_, hq.2⟩)
+    simpa [hvalid] using Finset.mem_sdiff.mpr ⟨hq.1, hp⟩
   unfold lazyStep
   split_ifs with h1 h2 h3
-  · refine ⟨?_, hlazy⟩
-    intro q hq
-    rw [Finset.mem_inter] at hq
-    rcases hafter q hq.1 with rfl | hp
-    · rcases h1 with h1 | h1
-      · exact absurd hq.2 h1
-      · exact h1
-    · exact hsub (Finset.mem_inter.mpr ⟨hp, hq.2⟩)
+  · refine ⟨fun q hq => ?_, hlazy⟩
+    by_cases hq' : q = event.fetched
+    · exact hq' ▸ h1.resolve_left (not_not.mpr (Finset.mem_inter.mp (hq' ▸ hq)).2)
+    · exact hold q hq hq'
   · push_neg at h1
-    refine ⟨?_, ?_⟩
-    · intro q hq
-      rw [Finset.mem_inter] at hq
-      rcases hafter q hq.1 with rfl | hp
-      · exact Finset.mem_insert_self _ _
-      · exact Finset.mem_insert_of_mem (hsub (Finset.mem_inter.mpr ⟨hp, hq.2⟩))
-    · rw [Finset.card_insert_of_notMem h1.2]
-      exact h2
+    refine ⟨fun q hq => Finset.mem_insert.mpr ((em _).imp id (hold q hq)), ?_⟩
+    rw [Finset.card_insert_of_notMem h1.2]
+    exact h2
   · push_neg at h1
-    refine ⟨?_, ?_⟩
-    · intro q hq
-      rw [Finset.mem_inter] at hq
-      rcases hafter q hq.1 with rfl | hp
-      · exact Finset.mem_insert_self _ _
-      · apply Finset.mem_insert_of_mem
-        rw [Finset.mem_erase]
-        refine ⟨?_, hsub (Finset.mem_inter.mpr ⟨hp, hq.2⟩)⟩
-        intro heq
-        have := h3.choose_spec
-        rw [← heq] at this
-        exact (Finset.mem_sdiff.mp this).2 hq.1
-    · rw [Finset.card_insert_of_notMem (fun h => h1.2 (Finset.mem_of_mem_erase h)),
-        Finset.card_erase_of_mem (Finset.mem_sdiff.mp h3.choose_spec).1]
-      have := Finset.card_pos.mpr ⟨_, (Finset.mem_sdiff.mp h3.choose_spec).1⟩
-      omega
+    have hx := Finset.mem_sdiff.mp h3.choose_spec
+    refine ⟨fun q hq => Finset.mem_insert.mpr ((em _).imp id fun hne =>
+      Finset.mem_erase.mpr ⟨fun h => hx.2 (h ▸ (Finset.mem_inter.mp hq).1), hold q hq hne⟩), ?_⟩
+    rw [Finset.card_insert_of_notMem (fun h => h1.2 (Finset.mem_of_mem_erase h)),
+      Finset.card_erase_of_mem hx.1]
+    have := Finset.card_pos.mpr ⟨_, hx.1⟩
+    omega
   · -- unreachable: the lazy cache is full and inside the new cache, which lacks room
     exfalso
     push_neg at h1
-    have hsub' : lazy ⊆ event.cacheAfter.erase event.fetched := by
-      intro q hq
-      rw [Finset.mem_erase]
-      refine ⟨fun heq => h1.2 (by rw [← heq]; exact hq), ?_⟩
-      by_contra hnot
-      exact h3 ⟨q, Finset.mem_sdiff.mpr ⟨hq, hnot⟩⟩
+    have hsub' : lazy ⊆ event.cacheAfter.erase event.fetched := fun q hq =>
+      Finset.mem_erase.mpr ⟨fun heq => h1.2 (heq ▸ hq),
+        by_contra fun hnot => h3 ⟨q, Finset.mem_sdiff.mpr ⟨hq, hnot⟩⟩⟩
     have hpos := Finset.card_pos.mpr ⟨_, hfetched⟩
     have := Finset.card_le_card hsub'
     rw [Finset.card_erase_of_mem hfetched] at this

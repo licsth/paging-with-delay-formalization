@@ -98,9 +98,8 @@ theorem Algorithm.not_competitive_of_schedules {algorithm : Algorithm Page}
     ¬ algorithm.Competitive ratio inputs := by
   rintro ⟨additive, hbound⟩
   obtain ⟨input, comparator, hinput, hfeasible, hcost⟩ := h additive
-  have hle := hbound (algorithm.patch input comparator hfeasible) input hinput
-  rw [Algorithm.patch_self] at hle
-  exact absurd hle (not_le.mpr hcost)
+  exact not_le.mpr hcost
+    (by simpa using hbound (algorithm.patch input comparator hfeasible) input hinput)
 
 /-- If every choice of additive constants is beaten by some feasible comparator schedule
 meeting every deadline, the deadline algorithm is not competitive. -/
@@ -114,9 +113,8 @@ theorem DeadlineAlgorithm.not_competitive_of_schedules {algorithm : DeadlineAlgo
     ¬ algorithm.Competitive ratio inputs := by
   rintro ⟨additive, hbound⟩
   obtain ⟨input, comparator, hinput, hfeasible, hmeets, hcost⟩ := h additive
-  have hle := hbound (algorithm.patch input comparator hfeasible hmeets) input hinput
-  rw [DeadlineAlgorithm.patch_self] at hle
-  exact absurd hle (not_le.mpr hcost)
+  exact not_le.mpr hcost
+    (by simpa using hbound (algorithm.patch input comparator hfeasible hmeets) input hinput)
 
 /-! ## Back to schedules -/
 

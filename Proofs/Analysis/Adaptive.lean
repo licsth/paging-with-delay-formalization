@@ -29,13 +29,8 @@ theorem cacheBefore_card_le (schedule : Schedule Page) (input : Instance Page) (
     induction events generalizing initial with
     | nil => exact hi
     | cons e rest ih =>
-        apply ih
-        · dsimp only
-          split
-          · exact he e (by simp)
-          · exact hi
-        · intro e he'
-          exact he e (List.mem_cons_of_mem _ he')
+        exact ih _ (by dsimp only; split; exacts [he e (by simp), hi])
+          fun e' h => he e' (List.mem_cons_of_mem _ h)
   refine hfold schedule.events schedule.initialCache ?_ feasible.capacity
   rw [feasible.initialCache]
   exact (List.toFinset_card_le _).trans input.initialCache_full.le
@@ -49,15 +44,11 @@ private theorem exists_cutoff (events : List (FetchEvent Page))
       obtain ⟨s, hs, hrest⟩ := ih
       by_cases he : event.time < t
       · refine ⟨max s event.time, max_lt hs he, ?_⟩
-        intro other hother htime
-        rcases List.mem_cons.mp hother with rfl | hother
-        · exact le_max_right _ _
-        · exact (hrest other hother htime).trans (le_max_left _ _)
+        rintro other (_ | ⟨_, hother⟩) htime
+        exacts [le_max_right _ _, (hrest other hother htime).trans (le_max_left _ _)]
       · refine ⟨s, hs, ?_⟩
-        intro other hother htime
-        rcases List.mem_cons.mp hother with rfl | hother
-        · exact (he htime).elim
-        · exact hrest other hother htime
+        rintro other (_ | ⟨_, hother⟩) htime
+        exacts [absurd htime he, hrest other hother htime]
 
 /-- Equal closed traces at every earlier cutoff imply equal open traces.
 Finiteness of the schedules lets us choose a single earlier cutoff containing
@@ -107,11 +98,9 @@ theorem Online.cacheBefore_eq {algorithm : Algorithm Page} (online : Online algo
     (hinitial : first.initialCache = second.initialCache)
     (t : Time) (h : ∀ s < t, first.upTo s = second.upTo s) :
     (algorithm first).cacheBefore t = (algorithm second).cacheBefore t := by
-  apply Schedule.cacheBefore_eq_of_prefix_eq
-  · rw [(algorithm.feasible first).initialCache,
-      (algorithm.feasible second).initialCache, hinitial]
-  intro s hs
-  exact online.prefixDetermined first second s (h s hs)
+  apply Schedule.cacheBefore_eq_of_prefix_eq _ _ _ _
+    fun s hs => online.prefixDetermined _ _ s (h s hs)
+  rw [(algorithm.feasible first).initialCache, (algorithm.feasible second).initialCache, hinitial]
 
 end Algorithm
 
@@ -152,10 +141,8 @@ theorem Online.appendRequest_cacheBefore {algorithm : Algorithm Page}
     (online : Online algorithm) (input : Instance Page) (request : Request Page)
     (hlast : ∀ r ∈ input.requests, r.arrival ≤ request.arrival) :
     (algorithm (input.appendRequest request hlast)).cacheBefore request.arrival =
-      (algorithm input).cacheBefore request.arrival := by
-  apply online.cacheBefore_eq _ _ (by rfl)
-  intro s hs
-  exact input.appendRequest_upTo request hlast hs
+      (algorithm input).cacheBefore request.arrival :=
+  online.cacheBefore_eq _ _ (by rfl) _ fun _ hs => input.appendRequest_upTo request hlast hs
 
 end Algorithm
 

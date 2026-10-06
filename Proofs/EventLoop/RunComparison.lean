@@ -4,11 +4,10 @@ import Proofs.EventLoop.ServiceBridge
 /-!
 # Comparing two runs of the FIFO event loop
 
-The proof that FIFO is online (`Proofs/FIFO/Online.lean`) and the proof
-that it is nonclairvoyant (`Proofs/FIFO/Nonclairvoyant.lean`) both
-compare the run of the event loop on one instance with its run on another that
-tells the algorithm the same story up to a time `t`.  This file collects what
-the two proofs share, and what neither of them is really about.
+The proof that FIFO is nonclairvoyant (`Proofs/FIFO/Nonclairvoyant.lean`)
+compares the run of the event loop on one instance with its run on another that
+tells the algorithm the same story up to a time `t`.  This file collects the
+bookkeeping that proof needs but is not really about.
 
 * **Fuel.**  `FIFO.run` recurses on `2 * requests.length`, which changes with
   the request list.  `run_eq_of_le` shows that fuel beyond the point where
@@ -58,19 +57,11 @@ theorem run_succ_eq_of_finished (input : Instance Page) :
 theorem run_eq_of_le (input : Instance Page) (state : State Page) {fuel larger : ℕ}
     (hfuel : potential state ≤ fuel) (hle : fuel ≤ larger) :
     run trigger input larger state = run trigger input fuel state := by
-  induction larger with
-  | zero =>
-      have : fuel = 0 := Nat.le_zero.mp hle
-      rw [this]
-  | succ larger ih =>
-      rcases Nat.lt_or_ge larger fuel with hlt | hge
-      · have : fuel = larger + 1 := by omega
-        rw [this]
-      · have hsmaller : run trigger input larger state = run trigger input fuel state := ih hge
-        have hfinished : nextAction? trigger (run trigger input larger state) = none := by
-          rw [hsmaller]
-          exact run_finished_of_potential_le input state fuel hfuel
-        rw [run_succ_eq_of_finished input larger state hfinished, hsmaller]
+  induction larger, hle using Nat.le_induction with
+  | base => rfl
+  | succ larger _ ih =>
+      rw [run_succ_eq_of_finished input larger state
+        (ih ▸ run_finished_of_potential_le input state fuel hfuel), ih]
 
 /-! ## The event loop reads only the cache capacity of its instance -/
 
@@ -99,27 +90,6 @@ theorem run_congr {first second : Instance Page}
           rw [step_congr hcache]
           exact ih _
 
-theorem arrival_mem_unseen {state : State Page} {occurrence : Occurrence Page}
-    (haction : nextAction? trigger state = some (.arrival occurrence)) :
-    occurrence ∈ state.unseen := by
-  unfold nextAction? at haction
-  cases hunseen : state.unseen with
-  | nil => cases hpayment : nextPayment? trigger state <;> simp [hunseen, hpayment] at haction
-  | cons head tail =>
-      cases hpayment : nextPayment? trigger state with
-      | none =>
-          simp only [hunseen, hpayment] at haction
-          injection haction with heq
-          cases heq
-          simp
-      | some pair =>
-          simp only [hunseen, hpayment] at haction
-          split at haction
-          · injection haction with heq
-            cases heq
-            simp
-          · simp at haction
-
 /-! ## After time `t` has passed, no further event is early -/
 
 /-- Once the event loop's clock is past `t`, no payment it still makes can land
@@ -144,13 +114,8 @@ theorem late_payments (input : Instance Page) (t : Time) :
               rw [ih _ hstep (hnow.trans_le hlater)]
               rfl
           | payment time page =>
-              have hselected := nextAction_payment_selected haction
-              have hpending := pending_of_mem_pendingPages
-                (nextPayment_mem_pendingPages hselected)
-              have hge : state.now ≤ time := by
-                rw [← nextPayment_time_eq hselected]
-                exact trigger.dueTime_ge_now state page hpending
-              have hlate : t < time := hnow.trans_le hge
+              have hlate : t < time :=
+                hnow.trans_le (nextPayment_now_le (nextAction_payment_selected haction))
               rw [ih _ hstep hlate]
               simp [earlyPayments, step, not_le_of_gt hlate]
 
@@ -234,16 +199,7 @@ theorem enumerateFrom_take (start count : ℕ) (requests : List (Request Page)) 
   induction requests generalizing start count with
   | nil => simp [enumerateFrom]
   | cons request rest ih =>
-      cases count with
-      | zero => simp [enumerateFrom]
-      | succ count => simp [enumerateFrom, ih]
-
-omit [DecidableEq Page] in
-theorem mem_enumerateFrom_request {start : ℕ} {requests : List (Request Page)}
-    {occurrence : Occurrence Page} (hmem : occurrence ∈ enumerateFrom start requests) :
-    occurrence.request ∈ requests := by
-  rw [← enumerateFrom_map_request start requests]
-  exact List.mem_map_of_mem hmem
+      cases count <;> simp [enumerateFrom, ih]
 
 omit [DecidableEq Page] in
 theorem enumerateFrom_drop_eq (start count : ℕ) (requests : List (Request Page)) :
@@ -254,10 +210,7 @@ theorem enumerateFrom_drop_eq (start count : ℕ) (requests : List (Request Page
   | cons request rest ih =>
       cases count with
       | zero => simp [enumerateFrom]
-      | succ count =>
-          simp only [enumerateFrom, List.drop_succ_cons, ih]
-          congr 1
-          omega
+      | succ count => simp [enumerateFrom, ih, Nat.add_right_comm start 1 count, Nat.add_assoc]
 
 /-! ## Erasing the payment log commutes with truncation -/
 
@@ -274,16 +227,6 @@ theorem schedule_events (input : Instance Page) :
       (run trigger input (2 * input.requests.length) (initialState input)).payments.map
         Payment.fetchEvent :=
   rfl
-
-theorem potential_initialState (input : Instance Page) :
-    potential (initialState input) = 2 * input.requests.length := by
-  have hlength : ∀ (start : ℕ) (requests : List (Request Page)),
-      (enumerateFrom start requests).length = requests.length := by
-    intro start requests
-    induction requests generalizing start with
-    | nil => rfl
-    | cons request rest ih => simp [enumerateFrom, ih]
-  simp [potential, initialState, enumerate, hlength]
 
 end
 end PagingWithDelay.FIFO

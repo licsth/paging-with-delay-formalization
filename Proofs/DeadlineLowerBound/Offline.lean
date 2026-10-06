@@ -30,8 +30,8 @@ noncomputable section
 variable {Page : Type*} [DecidableEq Page]
 
 /-- A request reduced to what the offline certificate reads: a page and a
-closed window.  `Charging.lean` relates this to a `Request` of `Model.lean`
-carrying a deadline-shaped delay curve. -/
+closed window.  `Bridge.lean` relates this to a `Request` of `Model.lean`
+whose delay curve vanishes inside the window. -/
 structure Window (Page : Type*) where
   page : Page
   arrival : Time
@@ -78,18 +78,6 @@ theorem card_applyMove {cache : Finset Page} {mv : Move Page} (hevict : mv.evict
   rw [applyMove, Finset.card_insert_of_notMem hnot, Finset.card_erase_of_mem hevict]
   have : 1 ≤ cache.card := Finset.card_pos.mpr ⟨mv.evicted, hevict⟩
   omega
-
-theorem card_cacheAfter {start : Finset Page} :
-    ∀ {moves : List (Move Page)}, ValidMoves start moves →
-      (cacheAfter start moves).card = start.card := by
-  intro moves
-  induction moves generalizing start with
-  | nil => intro _; rfl
-  | cons mv rest ih =>
-      rintro ⟨hevict, hfetch, hrest⟩
-      have := ih hrest
-      simp only [cacheAfter, List.foldl_cons] at this ⊢
-      rw [this, card_applyMove hevict hfetch]
 
 /-- The cache immediately before time `t`: the moves stamped strictly earlier. -/
 def cacheBefore (start : Finset Page) (moves : List (Move Page)) (t : Time) : Finset Page :=
@@ -180,29 +168,18 @@ theorem Reaches.append_move {start : Finset Page} {served : List (Window Page)} 
     (hextra : ∀ w ∈ extra, mv.fetched = w.page ∧ w.arrival ≤ mv.time ∧ mv.time ≤ w.deadline) :
     Reaches start (extra ++ served) mv.time (cost + 1) (applyMove cfg mv) := by
   obtain ⟨moves, hvalid, hchrono, htimes, hlen, hserves, hcfg⟩ := h
-  refine ⟨moves ++ [mv], ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · exact validMoves_append hvalid (by rw [hcfg]; exact ⟨hevict, hfetch, trivial⟩)
-  · rw [List.pairwise_append]
-    refine ⟨hchrono, List.pairwise_singleton _ _, ?_⟩
-    intro earlier hearlier later hlater
-    rw [List.mem_singleton] at hlater
-    exact hlater ▸ lt_of_le_of_lt (htimes earlier hearlier) htime
-  · intro candidate hcandidate
-    rcases List.mem_append.mp hcandidate with hmem | hmem
-    · exact (htimes candidate hmem).trans htime.le
-    · rw [List.mem_singleton] at hmem
-      exact hmem ▸ le_rfl
-  · simpa using Nat.succ_le_succ hlen
+  refine ⟨moves ++ [mv], validMoves_append hvalid (hcfg ▸ ⟨hevict, hfetch, trivial⟩),
+    List.pairwise_append.mpr ⟨hchrono, List.pairwise_singleton _ _, ?_⟩, ?_,
+    by simpa using hlen, ?_, by rw [cacheAfter_append, hcfg]; rfl⟩
+  · simpa using fun earlier hearlier => (htimes earlier hearlier).trans_lt htime
+  · simp only [List.mem_append, List.mem_singleton]
+    rintro candidate (hcandidate | rfl)
+    exacts [(htimes candidate hcandidate).trans htime.le, le_rfl]
   · intro w hw
     rcases List.mem_append.mp hw with hnew | hold
     · obtain ⟨hpage, hafter, hbefore⟩ := hextra w hnew
-      exact Or.inr ⟨mv, List.mem_append_right _ (by simp), hpage, hafter, hbefore⟩
-    · exact serves_append (hserves w hold) (by
-        intro candidate hcandidate
-        rw [List.mem_singleton] at hcandidate
-        exact hcandidate ▸ harrivals w hold)
-  · rw [cacheAfter_append, hcfg]
-    rfl
+      exact Or.inr ⟨mv, by simp, hpage, hafter, hbefore⟩
+    · exact serves_append (hserves w hold) (by simpa using harrivals w hold)
 
 /-- One more move that serves nothing new. -/
 theorem Reaches.step {start : Finset Page} {served : List (Window Page)} {now cost cfg}
@@ -220,7 +197,7 @@ theorem Reaches.step_serving {start : Finset Page} {served : List (Window Page)}
     (hpage : mv.fetched = w.page) (hafter : w.arrival ≤ mv.time) (hbefore : mv.time ≤ w.deadline) :
     Reaches start (w :: served) mv.time (cost + 1) (applyMove cfg mv) := by
   simpa using h.append_move mv htime hevict hfetch harrivals [w]
-    (by intro v hv; rw [List.mem_singleton] at hv; exact hv ▸ ⟨hpage, hafter, hbefore⟩)
+    (by simpa using ⟨hpage, hafter, hbefore⟩)
 
 end
 end PagingWithDelay.DeadlineLowerBound

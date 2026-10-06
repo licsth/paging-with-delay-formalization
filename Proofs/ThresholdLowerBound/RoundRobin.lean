@@ -36,10 +36,9 @@ def rampCurve (δ ε : Cost) (wait : Time) : Cost :=
   min (δ * wait) (δ + ε * (wait - 1))
 
 theorem rampCurve_gt {δ ε : Cost} (hδ : 0 < δ) (hε : 0 < ε) {wait : Time} (hwait : 1 < wait) :
-    δ < rampCurve δ ε wait := by
-  refine lt_min ?_ (lt_add_of_pos_right _ (mul_pos hε (tsub_pos_of_lt hwait)))
-  calc δ = δ * 1 := (mul_one δ).symm
-    _ < δ * wait := mul_lt_mul_of_pos_left hwait hδ
+    δ < rampCurve δ ε wait :=
+  lt_min (lt_mul_of_one_lt_right hδ hwait)
+    (lt_add_of_pos_right _ (mul_pos hε (tsub_pos_of_lt hwait)))
 
 theorem rampCurve_le (δ ε : Cost) (wait : Time) : rampCurve δ ε wait ≤ δ + ε * wait :=
   (min_le_right _ _).trans (by gcongr; exact tsub_le_self)
@@ -120,41 +119,6 @@ theorem exists_rampInput (algorithm : ThresholdAlgorithm Page) (online : algorit
           _ < 2 * (n : Time) + 2 := by gcongr; exact one_lt_two
           _ = request.arrival := by simp [hrequest, rampRequest, harrival]; ring
 
-/-! ## Counting -/
-
-omit [DecidableEq Page] in
-/-- Requests on a fixed page, counted. -/
-private theorem sum_ite_eq_count (requests : List (Request Page)) (hole : Page) (x : Cost)
-    [DecidablePred fun r : Request Page => r.page = hole] :
-    (requests.map fun r => if r.page = hole then x else 0).sum =
-      (requests.filter fun r => r.page = hole).length * x := by
-  induction requests with
-  | nil => simp
-  | cons r rest ih =>
-      by_cases h : r.page = hole
-      · simp [h, ih]; ring
-      · simp [h, ih]
-
-/-- Summing the per-page counts over a set containing every requested page
-gives the number of requests. -/
-private theorem sum_count_eq_length (requests : List (Request Page)) (V : Finset Page)
-    (hV : ∀ r ∈ requests, r.page ∈ V) :
-    ∑ p ∈ V, (requests.filter fun r => r.page = p).length = requests.length := by
-  induction requests with
-  | nil => simp
-  | cons r rest ih =>
-      have hrest := ih fun r' hr' => hV r' (List.mem_cons_of_mem _ hr')
-      simp only [List.filter_cons, List.length_cons]
-      rw [← hrest]
-      have hsplit : ∀ p ∈ V,
-          ((if decide (r.page = p) = true then r :: rest.filter (fun r => r.page = p)
-            else rest.filter (fun r => r.page = p))).length =
-            (if r.page = p then 1 else 0) + (rest.filter fun r => r.page = p).length := by
-        intro p _
-        by_cases h : r.page = p <;> simp [h, add_comm]
-      rw [Finset.sum_congr rfl hsplit, Finset.sum_add_distrib,
-        Finset.sum_ite_eq V r.page (fun _ => 1), if_pos (hV r (by simp)), add_comm]
-
 /-! ## The bound -/
 
 /-- **Small thresholds.**  On `k + 1` pages the adversary forces `(1 + δ)` per
@@ -187,15 +151,14 @@ theorem exists_input_roundRobin (algorithm : ThresholdAlgorithm Page) (online : 
       exact rampCurve_gt hδ hε hwait) hsep
   rw [hsize, hlen] at halg
   -- a least-requested hole
-  set count : Page → ℕ := fun p => (input.requests.filter fun r => r.page = p).length
-    with hcount
+  set count : Page → ℕ := fun p => (input.requests.map Request.page).count p with hcount
   obtain ⟨hole, hholeV, hmin⟩ := V.exists_min_image count ⟨pages 0, by simp [hV]⟩
   have hholeCount : (k + 1) * count hole ≤ N := by
-    have hsum := sum_count_eq_length input.requests V fun r hr => (hreq r hr).1
-    have hnsmul := V.card_nsmul_le_sum count (count hole) hmin
-    rw [hcard, smul_eq_mul] at hnsmul
-    rw [← hlen, ← hsum]
-    exact hnsmul
+    have hsum : ∑ p ∈ V, count p = N := by
+      simpa [hcount, hlen] using Multiset.sum_count_eq_card
+        (m := ((input.requests.map Request.page : List Page) : Multiset Page))
+        (by simpa using fun r hr => (hreq r hr).1)
+    simpa [hcard, hsum] using V.card_nsmul_le_sum count (count hole) hmin
   -- the static comparator with that hole
   have hrequests : ∀ r ∈ input.requests, r.page ∈ V ∧ 0 < r.arrival ∧ r.arrival ≤ T := by
     intro r hr
@@ -205,25 +168,25 @@ theorem exists_input_roundRobin (algorithm : ThresholdAlgorithm Page) (online : 
   have hfeasible : comparator.Feasible input :=
     GeneralLowerBound.staticComparator_feasible input V hole hholeV (by rw [hcard, hsize]) T
       hrequests
-  have hinitCard : input.initialCache.toFinset.card ≤ (V.erase hole).card := by
-    rw [Finset.card_erase_of_mem hholeV, hcard, Nat.add_sub_cancel, ← hsize]
-    exact GeneralLowerBound.initialCache_card_le input
   have hfetch : (comparator.fetchCount : Cost) ≤ k + 1 := by
-    have := GeneralLowerBound.staticComparator_fetchCount_le input.initialCache.toFinset V hole
-      hholeV T
-    rw [hcard] at this
-    exact_mod_cast this
+    exact_mod_cast hcard ▸ GeneralLowerBound.staticComparator_fetchCount_le _ V hole hholeV T
   have hdelay : comparator.totalDelay input ≤ count hole * (δ + ε * T) := by
-    unfold Schedule.totalDelay
-    rw [hcount, ← sum_ite_eq_count]
-    apply List.sum_le_sum
-    intro r hr
-    obtain ⟨h1, h2, h3⟩ := hrequests r hr
-    refine (GeneralLowerBound.staticComparator_requestCost_le _ _ _ hinitCard _ r h1 h2 h3).trans ?_
-    split
-    · rw [(hreq r hr).2.2.2]
-      exact (rampCurve_le δ ε _).trans (by gcongr; exact tsub_le_self)
-    · exact le_rfl
+    calc comparator.totalDelay input
+        ≤ ((input.requests.map Request.page).map fun p =>
+            if p = hole then δ + ε * T else 0).sum := by
+          rw [List.map_map]
+          refine List.sum_le_sum fun r hr => ?_
+          obtain ⟨h1, h2, h3⟩ := hrequests r hr
+          refine (GeneralLowerBound.staticComparator_requestCost_le _ _ _
+            (GeneralLowerBound.initialCache_card_le_erase input (hsize ▸ hcard) hholeV) _ r h1 h2
+            h3).trans ?_
+          dsimp only [Function.comp]
+          split
+          · rw [(hreq r hr).2.2.2]
+            exact (rampCurve_le δ ε _).trans (by gcongr; exact tsub_le_self)
+          · exact le_rfl
+      _ = count hole * (δ + ε * T) := by
+          rw [List.sum_map_eq_nsmul_single hole _ fun p hp _ => if_neg hp, if_pos rfl, nsmul_eq_mul]
   have hεT : (N : Cost) * (ε * T) ≤ 1 := by
     have : ε * T = 1 / ((N : Cost) + 1) := by
       rw [hεdef]
@@ -241,12 +204,8 @@ theorem exists_input_roundRobin (algorithm : ThresholdAlgorithm Page) (online : 
     _ = (k + 1) * (k + 1) + ((k + 1) * count hole) * (δ + ε * T) := by ring
     _ ≤ (k + 1) * (k + 1) + N * (δ + ε * T) := by gcongr
     _ = N * δ + ((k + 1) * (k + 1) + N * (ε * T)) := by ring
-    _ ≤ N * δ + ((k + 1) * (k + 1) + 1) := by gcongr
-    _ ≤ N * δ + (k + 1) * (k + 2) := by
-        gcongr
-        have : (1 : Cost) ≤ k + 1 := le_add_self
-        calc ((k : Cost) + 1) * (k + 1) + 1 ≤ (k + 1) * (k + 1) + (k + 1) := by gcongr
-          _ = (k + 1) * (k + 2) := by ring
+    _ ≤ N * δ + ((k + 1) * (k + 1) + (k + 1)) := by gcongr; exact hεT.trans le_add_self
+    _ = N * δ + (k + 1) * (k + 2) := by ring
 
 end
 end PagingWithDelay.ThresholdLowerBound

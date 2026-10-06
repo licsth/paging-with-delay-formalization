@@ -108,23 +108,13 @@ theorem rankPotential_le_add_length_of_card_sdiff_le_one (queue : List α)
     exact (rankPotential_le_of_sdiff_subset_singleton queue hevicted.le).trans
       (Nat.add_le_add_left (rank_le_length _ _) _)
 
-theorem rankPotential_le_of_sdiff_eq_empty (queue : List α)
-    {cache cache' : Finset α} (h : cache \ cache' = ∅) :
-    rankPotential queue cache ≤ rankPotential queue cache' :=
-  rankPotential_mono queue (Finset.sdiff_eq_empty_iff_subset.mp h)
-
 /-- Removing a page outside the FIFO queue from the offline cache changes
 nothing. -/
 theorem rankPotential_erase_of_not_mem (queue : List α) (cache : Finset α) {page : α}
     (hpage : page ∉ queue) :
     rankPotential queue (cache.erase page) = rankPotential queue cache := by
   unfold rankPotential sharedPages
-  congr 1
-  ext q
-  simp only [Finset.mem_inter, List.mem_toFinset, Finset.mem_erase]
-  constructor
-  · rintro ⟨hq, _, hc⟩; exact ⟨hq, hc⟩
-  · rintro ⟨hq, hc⟩; exact ⟨hq, fun heq => hpage (heq ▸ hq), hc⟩
+  rw [← Finset.erase_inter_comm, Finset.erase_eq_of_notMem (by simpa using hpage)]
 
 /-- Adding a page of the FIFO queue to the offline cache adds its rank. -/
 theorem rankPotential_insert_of_mem (queue : List α) {cache : Finset α} {page : α}
@@ -136,16 +126,6 @@ theorem rankPotential_insert_of_mem (queue : List α) {cache : Finset α} {page 
 
 /-! ### The maximal potential -/
 
-omit [DecidableEq α] in
-private theorem rank_cons_of_mem {head : α} {tail : List α} [DecidableEq α] {q : α}
-    (hq : q ∈ tail) (hne : q ≠ head) : rank (head :: tail) q = rank tail q + 1 := by
-  simp [rank, hq, List.idxOf_cons_ne _ (Ne.symm hne)]
-
-omit [DecidableEq α] in
-private theorem rank_cons_self (head : α) (tail : List α) [DecidableEq α] :
-    rank (head :: tail) head = 1 := by
-  simp [rank]
-
 /-- Over the whole queue the ranks sum to `1 + ⋯ + k`. -/
 theorem sum_rank_toFinset {queue : List α} (hnodup : queue.Nodup) :
     ∑ q ∈ queue.toFinset, rank queue q = triangular queue.length := by
@@ -153,10 +133,9 @@ theorem sum_rank_toFinset {queue : List α} (hnodup : queue.Nodup) :
   | nil => simp [triangular]
   | cons head tail ih =>
       rw [List.nodup_cons] at hnodup
-      have hcongr : ∀ q ∈ tail.toFinset, rank (head :: tail) q = rank tail q + 1 := by
-        intro q hq
-        have hqt : q ∈ tail := List.mem_toFinset.mp hq
-        exact rank_cons_of_mem hqt (fun heq => hnodup.1 (by rw [← heq]; exact hqt))
+      have hcongr : ∀ q ∈ tail.toFinset, rank (head :: tail) q = rank tail q + 1 :=
+        fun q hq => rank_cons_of_mem (List.mem_toFinset.mp hq)
+          (by rintro rfl; exact hnodup.1 (List.mem_toFinset.mp hq))
       rw [List.toFinset_cons, Finset.sum_insert (fun h => hnodup.1 (List.mem_toFinset.mp h)),
         rank_cons_self, Finset.sum_congr rfl hcongr,
         Finset.sum_add_distrib, ih hnodup.2, Finset.sum_const,
@@ -194,6 +173,19 @@ theorem sharedPages_card_lt (queue : List α) {cache : Finset α} {page : α}
   intro h
   exact hnot (List.mem_toFinset.mp (Finset.mem_inter.mp (h hmem)).1)
 
+/-- Splitting off a page `x` outside `tail` from a queue holding the pages of
+`tail` and `x`. -/
+private theorem sum_sharedPages_insert {queue tail : List α} {x : α}
+    (hqueue : queue.toFinset = insert x tail.toFinset) (hx : x ∉ tail) (cache : Finset α)
+    (f : α → ℕ) :
+    ∑ q ∈ sharedPages queue cache, f q =
+      ∑ q ∈ sharedPages tail cache, f q + if x ∈ cache then f x else 0 := by
+  unfold sharedPages
+  rw [hqueue]
+  split_ifs with h
+  · rw [Finset.insert_inter_of_mem h, Finset.sum_insert (by simp [hx]), add_comm]
+  · rw [Finset.insert_inter_of_notMem h, add_zero]
+
 /-- **Potential changes at a FIFO payment.**  Evicting the front of the queue
 and fetching `page` at the back turns `Φ` into `Φ - m + k·[page ∈ cache]`,
 where `m` is the number of shared pages before the payment and `k` the queue
@@ -207,64 +199,24 @@ theorem rankPotential_fifo_step {queue : List α} (hnodup : queue.Nodup) (hne : 
   | cons head tail =>
       rw [List.nodup_cons] at hnodup
       have hpt : page ∉ tail := fun h => hpage (List.mem_cons_of_mem _ h)
-      have hph : page ≠ head := fun h => hpage (h ▸ List.mem_cons_self ..)
-      simp only [List.tail_cons]
-      -- the new queue's shared pages: those of `tail`, plus `page` if the offline cache holds it
-      have hnew : sharedPages (tail ++ [page]) cache =
-          if page ∈ cache then insert page (sharedPages tail cache) else sharedPages tail cache := by
-        unfold sharedPages
-        rw [List.toFinset_append, List.toFinset_cons, List.toFinset_nil, insert_empty_eq,
-          Finset.union_comm, ← Finset.insert_eq]
-        split_ifs with h
-        · rw [Finset.insert_inter_of_mem h]
-        · rw [Finset.insert_inter_of_notMem h]
-      have hold : sharedPages (head :: tail) cache =
-          if head ∈ cache then insert head (sharedPages tail cache) else sharedPages tail cache := by
-        unfold sharedPages
-        rw [List.toFinset_cons]
-        split_ifs with h
-        · rw [Finset.insert_inter_of_mem h]
-        · rw [Finset.insert_inter_of_notMem h]
-      have hhead_not : head ∉ sharedPages tail cache :=
-        fun h => hnodup.1 (List.mem_toFinset.mp (Finset.mem_inter.mp h).1)
-      have hpage_not : page ∉ sharedPages tail cache :=
-        fun h => hpt (List.mem_toFinset.mp (Finset.mem_inter.mp h).1)
-      -- ranks in the new queue: unchanged for `tail`, `|queue|` for `page`
-      have hrank_new : ∀ q ∈ sharedPages tail cache, rank (tail ++ [page]) q = rank tail q := by
-        intro q hq
-        have hqt : q ∈ tail := List.mem_toFinset.mp (Finset.mem_inter.mp hq).1
-        simp [rank, hqt, List.idxOf_append_of_mem hqt]
-      have hrank_old : ∀ q ∈ sharedPages tail cache, rank (head :: tail) q = rank tail q + 1 := by
-        intro q hq
-        have hqt : q ∈ tail := List.mem_toFinset.mp (Finset.mem_inter.mp hq).1
-        exact rank_cons_of_mem hqt (fun heq => hnodup.1 (by rw [← heq]; exact hqt))
-      have hrank_page : rank (tail ++ [page]) page = tail.length + 1 :=
-        rank_append_self hpt
-      have heta : (sharedPages tail cache).sum (rank tail) =
-          ∑ x ∈ sharedPages tail cache, rank tail x := rfl
+      have hmem : ∀ q ∈ sharedPages tail cache, q ∈ tail :=
+        fun q hq => List.mem_toFinset.mp (Finset.mem_inter.mp hq).1
+      -- ranks of the pages of `tail`: unchanged in the new queue, one more in the old one
+      have hrank_new : ∀ q ∈ sharedPages tail cache, rank (tail ++ [page]) q = rank tail q :=
+        fun q hq => rank_append_of_mem (hmem q hq)
+      have hrank_old : ∀ q ∈ sharedPages tail cache, rank (head :: tail) q = rank tail q + 1 :=
+        fun q hq => rank_cons_of_mem (hmem q hq) (by rintro rfl; exact hnodup.1 (hmem q hq))
+      have hnew : (tail ++ [page]).toFinset = insert page tail.toFinset := by
+        rw [List.toFinset_append, Finset.union_comm]; rfl
       unfold rankPotential
-      rw [hnew, hold]
-      simp only [List.length_cons]
-      split_ifs with hp hh hh
-      · rw [Finset.sum_insert hpage_not, Finset.sum_insert hhead_not, hrank_page,
-          rank_cons_self, Finset.sum_congr rfl hrank_new, Finset.sum_congr rfl hrank_old,
-          Finset.sum_add_distrib, Finset.sum_const, Finset.card_insert_of_notMem hhead_not]
-        simp only [nsmul_eq_mul, Nat.cast_id, mul_one]
-        omega
-      · rw [Finset.sum_insert hpage_not, hrank_page, Finset.sum_congr rfl hrank_new,
-          Finset.sum_congr rfl hrank_old, Finset.sum_add_distrib, Finset.sum_const]
-        simp only [nsmul_eq_mul, Nat.cast_id, mul_one]
-        omega
-      · rw [Finset.sum_insert hhead_not, rank_cons_self, Finset.sum_congr rfl hrank_new,
-          Finset.sum_congr rfl hrank_old, Finset.sum_add_distrib, Finset.sum_const,
-          Finset.card_insert_of_notMem hhead_not]
-        simp only [nsmul_eq_mul, Nat.cast_id, mul_one]
-        omega
-      · rw [Finset.sum_congr rfl hrank_new, Finset.sum_congr rfl hrank_old,
-          Finset.sum_add_distrib, Finset.sum_const]
-        simp only [nsmul_eq_mul, Nat.cast_id, mul_one]
-        omega
-
+      rw [List.tail_cons, List.length_cons, sum_sharedPages_insert hnew hpt,
+        sum_sharedPages_insert List.toFinset_cons hnodup.1, Finset.card_eq_sum_ones,
+        sum_sharedPages_insert List.toFinset_cons hnodup.1,
+        Finset.sum_congr rfl hrank_new, Finset.sum_congr rfl hrank_old, Finset.sum_add_distrib,
+        rank_append_self hpt, rank_cons_self]
+      have heta : (sharedPages tail cache).sum (rank tail) =
+          ∑ q ∈ sharedPages tail cache, rank tail q := rfl
+      split_ifs <;> omega
 
 /-! ### The write-up's potential over the complement
 
@@ -332,14 +284,9 @@ theorem missingPotential_fifo_step {queue : List α} (hnodup : queue.Nodup) (hne
       missingPotential queue cache + (sharedPages queue cache).card := by
   have hnodup' : (queue.tail ++ [page]).Nodup :=
     List.nodup_append.mpr ⟨hnodup.sublist (List.tail_sublist _), List.nodup_singleton _,
-      fun a ha b hb hab => hpage (by
-        rw [List.mem_singleton] at hb
-        subst hb hab
-        exact List.mem_of_mem_tail ha)⟩
+      by rintro a ha _ hb rfl; exact hpage (List.mem_singleton.mp hb ▸ List.mem_of_mem_tail ha)⟩
   have hlen : (queue.tail ++ [page]).length = queue.length := by
-    cases queue with
-    | nil => exact absurd rfl hne
-    | cons _ _ => simp
+    cases queue <;> simp_all
   have hstep := rankPotential_fifo_step hnodup hne hpage cache
   have h1 := missingPotential_add_rankPotential hnodup cache
   have h2 := missingPotential_add_rankPotential hnodup' cache

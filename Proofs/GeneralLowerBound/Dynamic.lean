@@ -21,21 +21,6 @@ variable {Page : Type*} [DecidableEq Page]
 
 noncomputable section
 
-private theorem cacheBefore_eq_fold (schedule : Schedule Page) (t : Time)
-    (h : ∀ e ∈ schedule.events, e.time < t) :
-    schedule.cacheBefore t =
-      schedule.events.foldl (fun _ e => e.cacheAfter) schedule.initialCache := by
-  have aux (events : List (FetchEvent Page)) (initial : Finset Page)
-      (he : ∀ e ∈ events, e.time < t) :
-      events.foldl (fun cache e => if e.time < t then e.cacheAfter else cache) initial =
-        events.foldl (fun _ e => e.cacheAfter) initial := by
-    induction events generalizing initial with
-    | nil => rfl
-    | cons e rest ih =>
-        simp only [List.foldl_cons, if_pos (he e (by simp))]
-        exact ih _ (fun e hm => he e (by simp [hm]))
-  exact aux _ _ h
-
 private theorem candidate_append (schedule : Schedule Page) (event : FetchEvent Page)
     (request : Request Page) (ht : request.arrival ≤ event.time)
     {t : Time} (h : t ∈ schedule.serviceCandidates request) :
@@ -47,11 +32,7 @@ private theorem candidate_append (schedule : Schedule Page) (event : FetchEvent 
     simp [Schedule.cacheBefore, List.foldl_append, not_lt.mpr ht]
   simp only [Schedule.serviceCandidates, hc, List.filter_append, List.map_append,
     List.toFinset_append] at h ⊢
-  by_cases hh : request.page ∈ schedule.cacheBefore request.arrival
-  · simp only [if_pos hh, Finset.mem_insert, Finset.mem_union] at h ⊢
-    tauto
-  · simp only [if_neg hh, Finset.mem_union] at h ⊢
-    exact Or.inl h
+  split_ifs at h ⊢ <;> simp only [Finset.mem_insert, Finset.mem_union] at h ⊢ <;> tauto
 
 /-- The invariant of the dynamic family after a request prefix. `anchor` is
 the last requested page (or an arbitrary initial page for the empty prefix).
@@ -95,9 +76,7 @@ def DynamicRun.initial (initial pages : Finset Page) (k : ℕ) (hcard : pages.ca
   have hn (i : Fin k) : hole i ≠ anchor := (Finset.mem_erase.mp (index i).property).1
   let schedule : Fin k → Schedule Page := fun i =>
     ⟨initial, Analysis.resetEvents initial (pages.erase (hole i))⟩
-  have hcard' (i : Fin k) : initial.card ≤ (pages.erase (hole i)).card := by
-    rw [erased_card hcard (hm i)]; exact hinitial
-  refine
+  exact
     { schedule := schedule
       initialCache := fun _ => rfl
       hole := hole
@@ -109,32 +88,20 @@ def DynamicRun.initial (initial pages : Finset Page) (k : ℕ) (hcard : pages.ca
       now := 0
       now_origin := Or.inl rfl
       request_time := by simp
-      event_time := ?_
-      chronological := ?_
-      transitions := ?_
-      capacity := ?_
-      cache := ?_
+      event_time := fun i e he => (Analysis.resetEvents_time _ _ e he).le
+      chronological := fun i => List.pairwise_of_forall_mem_list fun a ha b hb => by
+        rw [Analysis.resetEvents_time _ _ a ha, Analysis.resetEvents_time _ _ b hb]
+      transitions := fun i => Analysis.resetEvents_valid _ _
+      capacity := fun i e he => by
+        simpa [erased_card hcard (hm i)] using
+          Finset.card_le_card (Analysis.resetEvents_cache_subset _ _ e he)
+      cache := fun i => Analysis.resetEvents_fold _ _
+        (hinitial.trans_eq (erased_card hcard (hm i)).symm)
       served := by simp
-      fetch_bound := ?_ }
-  · intro i e he
-    exact (Analysis.resetEvents_time _ _ e he).le
-  · intro i
-    apply List.pairwise_of_forall_mem_list
-    intro a ha b hb
-    rw [Analysis.resetEvents_time _ _ a ha, Analysis.resetEvents_time _ _ b hb]
-  · intro i
-    exact Analysis.resetEvents_valid _ _
-  · intro i e he
-    have h := Finset.card_le_card (Analysis.resetEvents_cache_subset _ _ e he)
-    simpa [erased_card hcard (hm i)] using h
-  · intro i
-    exact Analysis.resetEvents_fold _ _ (hcard' i)
-  · have hc (i : Fin k) : (schedule i).fetchCount ≤ k := by
-      have := Analysis.resetEvents_length_le initial (pages.erase (hole i))
-      rw [erased_card hcard (hm i)] at this
-      simpa [schedule, Schedule.fetchCount] using this
-    calc (∑ i, (schedule i).fetchCount) ≤ ∑ _i : Fin k, k := Finset.sum_le_sum fun i _ => hc i
-      _ = k * k + [].length := by simp
+      fetch_bound := by
+        refine (Finset.sum_le_card_nsmul _ _ k fun i _ => ?_).trans (by simp)
+        simpa [schedule, Schedule.fetchCount, erased_card hcard (hm i)] using
+          Analysis.resetEvents_length_le initial (pages.erase (hole i)) }
 
 /-- A move fetches the requested hole and leaves the previous anchor absent. -/
 def DynamicRun.advanceSchedule {initial pages : Finset Page} {k : ℕ}
@@ -160,16 +127,9 @@ theorem DynamicRun.advance_fetch_bound {initial pages : Finset Page} {k : ℕ}
       (run.schedule i).fetchCount + if run.hole i = request.page then 1 else 0 := by
     by_cases h : run.hole i = request.page <;>
       simp [advanceSchedule, h, Schedule.fetchCount]
-  simp only [hc, Finset.sum_add_distrib]
-  apply Nat.add_le_add_left
-  by_cases hex : ∃ i, run.hole i = request.page
-  · obtain ⟨j, hj⟩ := hex
-    have he (i : Fin k) : run.hole i = request.page ↔ i = j := by
-      rw [← hj]
-      exact run.hole_injective.eq_iff
-    simp [he]
-  · have he (i : Fin k) : run.hole i ≠ request.page := fun h => hex ⟨i, h⟩
-    simp [he]
+  simp only [hc, Finset.sum_add_distrib, Finset.sum_boole, Nat.cast_id]
+  gcongr
+  exact Finset.card_le_one.mpr fun i hi j hj => run.hole_injective (by simp_all)
 
 /-- Extend the family by one strictly later request. All previously served
 requests remain served at arrival, and the new request is served immediately. -/
@@ -178,13 +138,20 @@ def DynamicRun.advance {initial pages : Finset Page} {k : ℕ}
     (run : DynamicRun initial pages k requests) (request : Request Page)
     (hp : request.page ∈ pages) (ht : run.now < request.arrival) :
     DynamicRun initial pages k (requests ++ [request]) := by
+  -- the moving strategy appends one event, stamped `request.arrival`
+  have hevents (i : Fin k) (e : FetchEvent Page)
+      (he : e ∈ (run.advanceSchedule request i).events) :
+      e ∈ (run.schedule i).events ∨
+        e = ⟨request.arrival, request.page, pages.erase run.anchor⟩ := by
+    unfold advanceSchedule at he
+    split at he <;> simp_all
   refine
     { schedule := run.advanceSchedule request
-      initialCache := ?_
+      initialCache := fun i => by unfold advanceSchedule; split <;> exact run.initialCache i
       hole := run.advanceHole request
       anchor := request.page
       anchor_mem := hp
-      hole_mem := ?_
+      hole_mem := fun i => by unfold advanceHole; split <;> simp [run.anchor_mem, run.hole_mem]
       hole_injective := ?_
       hole_ne := ?_
       now := request.arrival
@@ -197,14 +164,6 @@ def DynamicRun.advance {initial pages : Finset Page} {k : ℕ}
       cache := ?_
       served := ?_
       fetch_bound := ?_ }
-  · intro i
-    unfold advanceSchedule
-    split <;> exact run.initialCache i
-  · intro i
-    unfold advanceHole
-    split
-    · exact run.anchor_mem
-    · exact run.hole_mem i
   · intro i j hij
     dsimp [advanceHole] at hij
     split_ifs at hij with hi hj hj
@@ -215,31 +174,19 @@ def DynamicRun.advance {initial pages : Finset Page} {k : ℕ}
   · intro i
     unfold advanceHole
     split
-    · intro he
-      apply run.hole_ne i
-      exact ‹run.hole i = request.page›.trans he.symm
+    · exact fun he => run.hole_ne i (‹run.hole i = request.page›.trans he.symm)
     · assumption
-  · intro r hr
-    rcases List.mem_append.mp hr with hr | hr
-    · exact (run.request_time r hr).trans ht.le
-    · have heq := List.mem_singleton.mp hr
-      subst r
-      exact le_rfl
+  · simp only [List.mem_append, List.mem_singleton]
+    rintro r (hr | rfl)
+    exacts [(run.request_time r hr).trans ht.le, le_rfl]
   · intro i e he
-    dsimp [advanceSchedule] at he
-    split at he
-    · rcases List.mem_append.mp he with he | he
-      · exact (run.event_time i e he).trans ht.le
-      · obtain rfl := List.mem_singleton.mp he
-        exact le_rfl
-    · exact (run.event_time i e he).trans ht.le
+    rcases hevents i e he with he | rfl
+    exacts [(run.event_time i e he).trans ht.le, le_rfl]
   · intro i
     dsimp [advanceSchedule]
     split
-    · apply List.pairwise_append.mpr
-      refine ⟨run.chronological i, by simp, ?_⟩
-      intro a ha b hb
-      obtain rfl := List.mem_singleton.mp hb
+    · refine List.pairwise_append.mpr ⟨run.chronological i, by simp, fun a ha b hb => ?_⟩
+      rw [List.mem_singleton.mp hb]
       exact (run.event_time i a ha).trans ht.le
     · exact run.chronological i
   · intro i
@@ -256,37 +203,27 @@ def DynamicRun.advance {initial pages : Finset Page} {k : ℕ}
       aesop
     · exact run.transitions i
   · intro i e he
-    dsimp [advanceSchedule] at he
-    split at he
-    · rcases List.mem_append.mp he with he | he
-      · exact run.capacity i e he
-      · obtain rfl := List.mem_singleton.mp he
-        exact (erased_card hcard run.anchor_mem).le
-    · exact run.capacity i e he
+    rcases hevents i e he with he | rfl
+    exacts [run.capacity i e he, (erased_card hcard run.anchor_mem).le]
   · intro i
     by_cases hi : run.hole i = request.page
     · simp [advanceSchedule, advanceHole, hi, List.foldl_append]
     · simpa [advanceSchedule, advanceHole, hi] using run.cache i
-  · intro i r hr
-    rcases List.mem_append.mp hr with hr | hr
-    · by_cases hi : run.hole i = request.page
-      · simp only [advanceSchedule, if_pos hi]
-        exact candidate_append _ _ r ((run.request_time r hr).trans ht.le) (run.served i r hr)
-      · simpa [advanceSchedule, hi] using run.served i r hr
-    · have heq := List.mem_singleton.mp hr
-      subst r
-      by_cases hi : run.hole i = request.page
-      · simp only [advanceSchedule, if_pos hi]
-        apply LowerBound.mem_serviceCandidates_of_fetch _ _
-          (event := ⟨request.arrival, request.page, pages.erase run.anchor⟩)
-        · exact List.mem_append_right _ (List.mem_singleton.mpr rfl)
-        · exact le_rfl
-        · rfl
-      · simp only [advanceSchedule, if_neg hi]
-        apply LowerBound.arrival_mem_serviceCandidates_of_hit
-        rw [cacheBefore_eq_fold _ _ (fun e he => (run.event_time i e he).trans_lt ht),
-          run.initialCache, run.cache]
-        exact Finset.mem_erase.mpr ⟨Ne.symm hi, hp⟩
+  · simp only [List.mem_append, List.mem_singleton]
+    rintro i r (hr | hr) <;> by_cases hi : run.hole i = request.page
+    · simp only [advanceSchedule, if_pos hi]
+      exact candidate_append _ _ r ((run.request_time r hr).trans ht.le) (run.served i r hr)
+    · simpa [advanceSchedule, hi] using run.served i r hr
+    · subst r
+      simp only [advanceSchedule, if_pos hi]
+      exact LowerBound.mem_serviceCandidates_of_fetch _ _
+        (event := ⟨request.arrival, request.page, pages.erase run.anchor⟩) (by simp) le_rfl rfl
+    · subst r
+      simp only [advanceSchedule, if_neg hi]
+      apply LowerBound.arrival_mem_serviceCandidates_of_hit
+      rw [Schedule.cacheBefore, foldl_cacheBefore_eq _ _ fun e he =>
+        (run.event_time i e he).trans_lt ht, run.initialCache, run.cache]
+      exact Finset.mem_erase.mpr ⟨Ne.symm hi, hp⟩
   · have h := run.advance_fetch_bound request
     have hb := run.fetch_bound
     simp only [List.length_append, List.length_singleton]
@@ -324,26 +261,19 @@ theorem exists_dynamic_comparators (input : Instance Page)
     (hrequests : ∀ r ∈ input.requests, r.page ∈ pages ∧ 0 < r.arrival) :
     ∃ comparator : Fin input.cacheSize → Schedule Page,
       (∀ i, (comparator i).Feasible input) ∧
-      (∀ i r, r ∈ input.requests → (comparator i).serviceTime r = some r.arrival) ∧
-      (∀ i, (comparator i).totalDelay input = 0) ∧
       (∑ i, (comparator i).totalCost input) ≤
         (input.cacheSize : Cost) * input.cacheSize + input.requests.length := by
   obtain ⟨run⟩ := exists_dynamicRun input.initialCache.toFinset pages input.cacheSize hcard
     (initialCache_card_le input) input.requests hstrict hrequests
-  have hzero (i : Fin input.cacheSize) : (run.schedule i).totalDelay input = 0 := by
-    apply List.sum_eq_zero
-    intro c hc
-    obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hc
-    exact LowerBound.requestCost_eq_zero_of_arrival_mem _ _ (run.served i r hr)
-  refine ⟨run.schedule, ?_, ?_, hzero, ?_⟩
-  · intro i
-    exact ⟨run.initialCache i, run.chronological i, (run.initialCache i).symm ▸ run.transitions i,
-      run.capacity i, fun r hr => ⟨r.arrival, run.served i r hr⟩⟩
-  · intro i r hr
-    apply Schedule.serviceTime_eq_some_of_le_candidates _ _ _ (run.served i r hr)
-    exact fun t ht => LowerBound.arrival_le_of_mem_serviceCandidates _ _ ht
-  · simp only [Schedule.totalCost, hzero, add_zero]
-    exact_mod_cast run.fetch_bound
+  have hzero (i : Fin input.cacheSize) : (run.schedule i).totalDelay input = 0 :=
+    List.sum_eq_zero fun c hc => by
+      obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hc
+      exact LowerBound.requestCost_eq_zero_of_arrival_mem _ _ (run.served i r hr)
+  refine ⟨run.schedule, fun i => ⟨run.initialCache i, run.chronological i,
+    (run.initialCache i).symm ▸ run.transitions i, run.capacity i,
+    fun r hr => ⟨r.arrival, run.served i r hr⟩⟩, ?_⟩
+  simp only [Schedule.totalCost, hzero, add_zero]
+  exact_mod_cast run.fetch_bound
 
 end
 end PagingWithDelay.GeneralLowerBound

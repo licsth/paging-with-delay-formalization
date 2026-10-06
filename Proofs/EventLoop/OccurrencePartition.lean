@@ -16,34 +16,15 @@ variable {Page : Type*} [DecidableEq Page] {trigger : Trigger}
 
 noncomputable section
 
-/-- If no payment can be selected, there are no pending occurrences. -/
-theorem pending_eq_nil_of_nextPayment_none {state : State Page}
-    (hpayment : nextPayment? trigger state = none) : state.pending = [] := by
-  apply List.eq_nil_iff_forall_not_mem.mpr
-  intro occurrence hoccurrence
-  obtain ⟨time, page, hexists⟩ := nextPayment_exists_of_pending
-    (page := occurrence.request.page) ⟨occurrence, hoccurrence, rfl⟩
-  rw [hpayment] at hexists
-  simp at hexists
-
 /-- A stopped event loop has neither unseen nor pending occurrences. -/
 theorem unseen_eq_nil_and_pending_eq_nil_of_nextAction_none {state : State Page}
     (hstop : nextAction? trigger state = none) : state.unseen = [] ∧ state.pending = [] := by
-  unfold nextAction? at hstop
-  cases hunseen : state.unseen with
-  | nil =>
-      constructor
-      · rfl
-      · cases hpayment : nextPayment? trigger state with
-        | none => exact pending_eq_nil_of_nextPayment_none hpayment
-        | some payment => simp [hunseen, hpayment] at hstop
-  | cons occurrence unseen =>
-      exfalso
-      cases hpayment : nextPayment? trigger state with
-      | none => simp [hunseen, hpayment] at hstop
-      | some payment =>
-          simp only [hunseen, hpayment] at hstop
-          split at hstop <;> simp at hstop
+  have h : state.unseen = [] ∧ nextPayment? trigger state = none := by
+    unfold nextAction? at hstop; split at hstop <;> (try split at hstop) <;> simp_all
+  refine ⟨h.1, List.eq_nil_iff_forall_not_mem.mpr fun occurrence hoccurrence => ?_⟩
+  obtain ⟨time, page, hexists⟩ := nextPayment_exists_of_pending (trigger := trigger)
+    ⟨occurrence, hoccurrence, rfl⟩
+  simp [h.2] at hexists
 
 /-- The chosen fuel suffices to remove every occurrence from the two live
 work lists. -/
@@ -62,27 +43,6 @@ def Authentic (input : Instance Page) (state : State Page) : Prop :=
   (∀ payment ∈ state.payments, ∀ occurrence ∈ payment.served,
     occurrence ∈ enumerate input.requests)
 
-private theorem arrival_mem_unseen {state : State Page} {occurrence : Occurrence Page}
-    (haction : nextAction? trigger state = some (.arrival occurrence)) :
-    occurrence ∈ state.unseen := by
-  unfold nextAction? at haction
-  cases hunseen : state.unseen with
-  | nil => cases hpayment : nextPayment? trigger state <;> simp [hunseen, hpayment] at haction
-  | cons head tail =>
-      cases hpayment : nextPayment? trigger state with
-      | none =>
-          simp only [hunseen, hpayment] at haction
-          injection haction with heq
-          cases heq
-          simp
-      | some payment =>
-          simp only [hunseen, hpayment] at haction
-          split at haction
-          · injection haction with heq
-            cases heq
-            simp
-          · simp at haction
-
 theorem initial_authentic (input : Instance Page) :
     Authentic input (initialState input) := by
   simp [Authentic, initialState]
@@ -93,50 +53,31 @@ theorem step_authentic (input : Instance Page) (state : State Page)
     Authentic input (step input state action) := by
   cases action with
   | arrival occurrence =>
-      have hoccurrence := hauthentic.1 occurrence (arrival_mem_unseen haction)
-      constructor
-      · intro candidate hcandidate
-        exact hauthentic.1 candidate (by
-          simp only [step] at hcandidate
-          exact List.mem_of_mem_tail hcandidate)
-      · constructor
-        · intro candidate hcandidate
-          simp only [step] at hcandidate
-          split at hcandidate
-          · exact hauthentic.2.1 candidate hcandidate
-          · rcases List.mem_append.mp hcandidate with hold | hnew
-            · exact hauthentic.2.1 candidate hold
-            · have heq : candidate = occurrence := by simpa using hnew
-              subst candidate
-              exact hoccurrence
-        · simpa [step] using hauthentic.2.2
+      refine ⟨fun o ho => hauthentic.1 o (List.mem_of_mem_tail ho), fun o ho => ?_,
+        hauthentic.2.2⟩
+      simp only [step] at ho
+      split at ho
+      · exact hauthentic.2.1 o ho
+      · rcases List.mem_append.mp ho with ho | ho
+        · exact hauthentic.2.1 o ho
+        · rw [List.mem_singleton.1 ho]
+          exact hauthentic.1 occurrence (arrival_mem_unseen haction)
   | payment time page =>
-      constructor
-      · simpa [step] using hauthentic.1
-      · constructor
-        · intro occurrence hoccurrence
-          exact hauthentic.2.1 occurrence (List.mem_filter.mp hoccurrence).1
-        · intro payment hpayment occurrence hoccurrence
-          simp only [step, List.mem_append, List.mem_singleton] at hpayment
-          rcases hpayment with hold | rfl
-          · exact hauthentic.2.2 payment hold occurrence hoccurrence
-          · exact hauthentic.2.1 occurrence (List.mem_filter.mp hoccurrence).1
-
-theorem run_authentic (input : Instance Page) : ∀ fuel state,
-    Authentic input state → Authentic input (run trigger input fuel state) := by
-  intro fuel
-  induction fuel with
-  | zero => exact fun _ h => h
-  | succ fuel ih =>
-      intro state h
-      rw [run]
-      cases haction : nextAction? trigger state with
-      | none => exact h
-      | some action => exact ih _ (step_authentic input state action haction h)
+      refine ⟨hauthentic.1, fun o ho => hauthentic.2.1 o (List.mem_filter.mp ho).1, ?_⟩
+      intro payment hpayment o ho
+      simp only [step, List.mem_append, List.mem_singleton] at hpayment
+      rcases hpayment with hold | rfl
+      · exact hauthentic.2.2 payment hold o ho
+      · exact hauthentic.2.1 o (List.mem_filter.mp ho).1
 
 theorem final_authentic (input : Instance Page) :
-    Authentic input (run trigger input (2 * input.requests.length) (initialState input)) :=
-  run_authentic input _ _ (initial_authentic input)
+    Authentic input (run trigger input (2 * input.requests.length) (initialState input)) := by
+  suffices ∀ {state}, Reachable trigger input state → Authentic input state from
+    this (reachable_final input)
+  intro state h
+  induction h with
+  | initial => exact initial_authentic input
+  | step _ ha ih => exact step_authentic input _ _ ha ih
 
 /-- Identifiers in the original request list. -/
 def inputIds (input : Instance Page) : Finset ℕ :=
@@ -160,53 +101,6 @@ theorem mem_droppedIds_iff (input : Instance Page) (state : State Page) (id : �
       id ∈ inputIds input ∧ id ∉ servedIds state ∧ id ∉ outstandingIds state := by
   simp [droppedIds]
 
-/-- Pure finite-set partition of all original occurrences.  Authenticity of
-the three runtime lists is supplied by `FIFO.History.Authentic`. -/
-theorem inputIds_eq_runtime_union_dropped (input : Instance Page) (state : State Page)
-    (hauthentic : ∀ id, id ∈ servedIds state ∪ outstandingIds state →
-      id ∈ inputIds input) :
-    inputIds input = servedIds state ∪ outstandingIds state ∪ droppedIds input state := by
-  apply Finset.ext
-  intro id
-  simp only [Finset.mem_union, mem_droppedIds_iff]
-  constructor
-  · intro hin
-    by_cases hs : id ∈ servedIds state
-    · exact Or.inl (Or.inl hs)
-    by_cases ho : id ∈ outstandingIds state
-    · exact Or.inl (Or.inr ho)
-    · exact Or.inr ⟨hin, hs, ho⟩
-  · intro hright
-    rcases hright with hrun | hd
-    · exact hauthentic id (by simpa using hrun)
-    · exact hd.1
-
-theorem runtimeIds_subset_inputIds (input : Instance Page) (state : State Page)
-    (hauthentic : Authentic input state) :
-    servedIds state ∪ outstandingIds state ⊆ inputIds input := by
-  intro id hid
-  rcases Finset.mem_union.mp hid with hserved | houtstanding
-  · have hexists : ∃ occurrence ∈ state.payments.flatMap Payment.served,
-        occurrence.id = id := by
-      simpa [servedIds] using hserved
-    obtain ⟨occurrence, hoccurrence, hid⟩ := hexists
-    obtain ⟨payment, hpayment, hoccurrence⟩ := List.mem_flatMap.mp hoccurrence
-    have horiginal := hauthentic.2.2 payment hpayment occurrence hoccurrence
-    exact List.mem_toFinset.mpr
-      (List.mem_map.mpr ⟨occurrence, horiginal, hid⟩)
-  · have hexists : ∃ occurrence ∈ state.pending ++ state.unseen,
-        occurrence.id = id := by
-      have hm : id ∈ ((state.pending ++ state.unseen).map Occurrence.id) := by
-        exact List.mem_toFinset.mp (by simpa [outstandingIds] using houtstanding)
-      simpa only [List.mem_map] using hm
-    obtain ⟨occurrence, hoccurrence, hid⟩ := hexists
-    have horiginal : occurrence ∈ enumerate input.requests := by
-      rcases List.mem_append.mp hoccurrence with hpending | hunseen
-      · exact hauthentic.2.1 occurrence hpending
-      · exact hauthentic.1 occurrence hunseen
-    exact List.mem_toFinset.mpr
-      (List.mem_map.mpr ⟨occurrence, horiginal, hid⟩)
-
 /-- At termination the runtime part of the partition is exactly the flattened
 payment log. -/
 theorem final_outstandingIds_eq_empty (input : Instance Page) :
@@ -217,11 +111,15 @@ theorem final_outstandingIds_eq_empty (input : Instance Page) :
 theorem final_inputIds_eq_served_union_dropped (input : Instance Page) :
     let final := run trigger input (2 * input.requests.length) (initialState input)
     inputIds input = servedIds final ∪ droppedIds input final := by
-  let final := run trigger input (2 * input.requests.length) (initialState input)
-  have hpartition := inputIds_eq_runtime_union_dropped input final
-    (runtimeIds_subset_inputIds input final (final_authentic input))
-  rw [final_outstandingIds_eq_empty input] at hpartition
-  simpa [final] using hpartition
+  intro final
+  have hsub : servedIds final ⊆ inputIds input := by
+    intro id hid
+    simp only [servedIds, List.mem_toFinset, List.mem_map, List.mem_flatMap] at hid
+    obtain ⟨occurrence, ⟨payment, hpayment, hoccurrence⟩, rfl⟩ := hid
+    exact List.mem_toFinset.2 (List.mem_map_of_mem
+      ((final_authentic input).2.2 payment hpayment occurrence hoccurrence))
+  rw [droppedIds, final_outstandingIds_eq_empty, Finset.union_empty,
+    Finset.union_sdiff_of_subset hsub]
 
 /-- Mapping a function over all payment batches and then summing is the same
 as summing the per-batch sums.  This is the regrouping step used in cost

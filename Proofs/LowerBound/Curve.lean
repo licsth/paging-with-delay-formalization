@@ -26,20 +26,10 @@ and then grows with slope `η`. -/
 def curve (δ η w B : Cost) (x : Time) : Cost := δ * min (x / w) 1 + η * (x - B)
 
 theorem curve_continuous (δ η w B : Cost) : Continuous (curve δ η w B) := by
-  have hdiv : Continuous fun x : Time => x / w := by
-    simpa [div_eq_mul_inv] using continuous_mul_right w⁻¹
-  have hsub : Continuous fun x : Time => x - B := by
-    have : (fun x : Time => x - B) = fun x : Time => Real.toNNReal ((x : ℝ) - B) := by
-      funext x; rw [NNReal.sub_def]
-    rw [this]
-    exact continuous_real_toNNReal.comp (NNReal.continuous_coe.sub continuous_const)
-  exact (continuous_const.mul (hdiv.min continuous_const)).add (continuous_const.mul hsub)
+  unfold curve; fun_prop
 
 theorem curve_mono (δ η w B : Cost) : Monotone (curve δ η w B) := by
-  intro x y hxy
-  have hmin : min (x / w) 1 ≤ min (y / w) 1 := min_le_min (by gcongr) le_rfl
-  have hsub : x - B ≤ y - B := tsub_le_tsub_right hxy B
-  exact add_le_add (by gcongr) (by gcongr)
+  intro x y hxy; unfold curve; gcongr
 
 @[simp] theorem curve_zero (δ η w B : Cost) : curve δ η w B 0 = 0 := by
   simp [curve]
@@ -60,11 +50,6 @@ theorem curve_eq_threshold (δ η w B : Cost) (hw : 0 < w) {x : Time}
   have hone : min (x / w) 1 = 1 := min_eq_right ((one_le_div hw).mpr hwx)
   rw [curve, hone, mul_one, tsub_eq_zero_of_le hxB, mul_zero, add_zero]
 
-/-- The threshold is reached exactly at `w`. -/
-theorem curve_at_width (δ η w B : Cost) (hw : 0 < w) (hwB : w ≤ B) :
-    curve δ η w B w = δ :=
-  curve_eq_threshold δ η w B hw le_rfl hwB
-
 /-- Before `w` the curve is still below the threshold, so a threshold-`δ` event
 loop does not pay early.  This needs `0 < δ`; at threshold `0` there is nothing
 to wait for and the loop pays on arrival, which is why the lower bound excludes
@@ -75,8 +60,7 @@ theorem curve_lt_threshold (δ η w B : Cost) (hδ : 0 < δ) (hwB : w ≤ B)
   have hlt : x / w < 1 := (div_lt_one hw).mpr hx
   have hsub : x - B = 0 := tsub_eq_zero_of_le (hx.le.trans hwB)
   rw [curve, hsub, mul_zero, add_zero, min_eq_left hlt.le]
-  calc δ * (x / w) < δ * 1 := mul_lt_mul_of_pos_left hlt hδ
-    _ = δ := mul_one δ
+  exact mul_lt_of_lt_one_right hδ hlt
 
 /-- The request `page` issued at `arrival`, whose delay reaches the threshold
 `δ` exactly `w` later. -/
@@ -89,17 +73,6 @@ def request {Page : Type*} (page : Page) (arrival : Time) (δ η w B : Cost)
   delay_mono := curve_mono δ η w B
   delay_zero := curve_zero δ η w B
   delay_unbounded := curve_unbounded δ η w B hη
-
-@[simp] theorem request_page {Page : Type*} (page : Page) (arrival : Time)
-    (δ η w B : Cost) (hη : 0 < η) : (request page arrival δ η w B hη).page = page := rfl
-
-@[simp] theorem request_arrival {Page : Type*} (page : Page) (arrival : Time)
-    (δ η w B : Cost) (hη : 0 < η) :
-    (request page arrival δ η w B hη).arrival = arrival := rfl
-
-@[simp] theorem request_delay {Page : Type*} (page : Page) (arrival : Time)
-    (δ η w B : Cost) (hη : 0 < η) :
-    (request page arrival δ η w B hη).delay = curve δ η w B := rfl
 
 end
 end PagingWithDelay.LowerBound

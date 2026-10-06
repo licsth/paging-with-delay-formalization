@@ -63,23 +63,4 @@ theorem recentPages_length (capacity : ℕ) (hpositive : 0 < capacity)
       simp only [ih, List.length_append, List.length_singleton]
       split <;> simp_all <;> omega
 
-/-- One selected FIFO action preserves the recent-payments description of the
-queue. -/
-theorem step_recentQueue (input : Instance Page)
-    (state : State Page) (action : Action Page)
-    (hrecent : RecentQueue input state)
-    (_hcache : CacheInvariant input state)
-    (_haction : nextAction? trigger state = some action) :
-    RecentQueue input (step input state action) := by
-  cases action with
-  | arrival occurrence =>
-      simpa [RecentQueue, step] using hrecent
-  | payment time page =>
-      unfold RecentQueue at hrecent ⊢
-      simp only [step]
-      exact recentPages_append input.cacheSize input.initialCache state.payments state.queue
-        { time := time, page := page,
-          served := state.pending.filter fun occurrence => occurrence.request.page = page,
-          queueAfter := insertPage input.cacheSize state.queue page } hrecent
-
 end PagingWithDelay.FIFO

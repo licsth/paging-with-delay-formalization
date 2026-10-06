@@ -58,15 +58,6 @@ theorem length_le_fetchCount (schedule : Schedule Page) (requests : List (Reques
   have hlength := (List.subperm_of_subset hnodup hsubset).length_le
   simpa [Schedule.fetchCount] using hlength
 
-/-! ## The charge of a single request -/
-
-/-- The two ways a request whose page is absent on arrival costs the schedule:
-a fetch inside its window, or delay. -/
-private def ChargedByFetch (schedule : Schedule Page) (window : Time)
-    (request : Request Page) : Prop :=
-  ∃ event ∈ schedule.events, event.fetched = request.page ∧
-    request.arrival ≤ event.time ∧ event.time ≤ request.arrival + window
-
 /-! ## The bound -/
 
 /-- **Every separated miss costs the algorithm one unit.**  If every request of
@@ -83,81 +74,48 @@ theorem length_le_totalCost {input : Instance Page} (schedule : Schedule Page)
       first.page ≠ second.page ∨ first.arrival + window first < second.arrival) :
     (input.requests.length : Cost) ≤ schedule.totalCost input := by
   classical
-  set charged : Request Page → Bool :=
-    fun request => decide (ChargedByFetch schedule (window request) request) with hcharged
-  set hit := input.requests.filter charged with hhit
-  set late := input.requests.filter (!charged ·) with hlate
-  -- the fetch-charged requests are at most the fetches
-  have hmem_hit : ∀ request ∈ hit, ChargedByFetch schedule (window request) request := by
-    intro request hrequest
-    exact of_decide_eq_true (List.mem_filter.mp hrequest).2
-  -- pick, for every request, the time of the fetch that serves it
-  have hchoice : ∀ request : Request Page, ∃ time : Time, request ∈ hit →
-      ∃ chargedEvent ∈ schedule.events, chargedEvent.time = time ∧
-        chargedEvent.fetched = request.page ∧ request.arrival ≤ chargedEvent.time ∧
-          chargedEvent.time ≤ request.arrival + window request := by
+  -- the requests served by a fetch inside their charging window
+  set charged : Request Page → Bool := fun request => decide (∃ event ∈ schedule.events,
+    event.fetched = request.page ∧ request.arrival ≤ event.time ∧
+      event.time ≤ request.arrival + window request) with hcharged
+  -- pick, for every such request, the time of that fetch
+  have hchoice : ∀ request : Request Page, ∃ time : Time, charged request →
+      ∃ event ∈ schedule.events, event.time = time ∧ event.fetched = request.page ∧
+        request.arrival ≤ time ∧ time ≤ request.arrival + window request := by
     intro request
-    by_cases hmem : request ∈ hit
-    · obtain ⟨chargedEvent, hmemEvent, hpage, hafter, hbefore⟩ := hmem_hit request hmem
-      exact ⟨chargedEvent.time, fun _ => ⟨chargedEvent, hmemEvent, rfl, hpage, hafter, hbefore⟩⟩
-    · exact ⟨0, fun hcontra => absurd hcontra hmem⟩
-  choose charge hchargeSpec using hchoice
-  have hfetch : hit.length ≤ schedule.fetchCount := by
-    refine length_le_fetchCount schedule hit charge
-      (fun request hrequest => by
-        obtain ⟨chargedEvent, hmemEvent, htime, hpage, _, _⟩ := hchargeSpec request hrequest
-        exact ⟨chargedEvent, hmemEvent, htime, hpage⟩) ?_
-    have hpairwise : hit.Pairwise fun first second =>
-        first.page ≠ second.page ∨ first.arrival + window first < second.arrival :=
-      hsep.sublist List.filter_sublist
-    refine hpairwise.imp_of_mem ?_
-    intro first second hfirst hsecond hcase hpair
-    rcases hcase with hpages | hwindows
-    · exact hpages (congrArg Prod.snd hpair)
-    · obtain ⟨_, _, htimeFirst, _, _, hbefore⟩ := hchargeSpec first hfirst
-      obtain ⟨_, _, htimeSecond, _, hafter, _⟩ := hchargeSpec second hsecond
-      have hfirst_le : charge first ≤ first.arrival + window first := htimeFirst ▸ hbefore
-      have hsecond_ge : second.arrival ≤ charge second := htimeSecond ▸ hafter
-      have htimes : charge first = charge second := congrArg Prod.fst hpair
-      exact absurd (htimes ▸ hfirst_le) (not_le_of_gt (hwindows.trans_le hsecond_ge))
+    by_cases h : charged request
+    · obtain ⟨event, hevent, hpage, hafter, hbefore⟩ := of_decide_eq_true h
+      exact ⟨event.time, fun _ => ⟨event, hevent, rfl, hpage, hafter, hbefore⟩⟩
+    · exact ⟨0, fun h' => absurd h' h⟩
+  choose charge hcharge using hchoice
+  -- they are at most the fetches
+  have hfetch : (input.requests.filter charged).length ≤ schedule.fetchCount := by
+    refine length_le_fetchCount schedule _ charge (fun request hrequest => ?_) ?_
+    · obtain ⟨event, hevent, htime, hpage, -⟩ :=
+        hcharge request (List.mem_filter.mp hrequest).2
+      exact ⟨event, hevent, htime, hpage⟩
+    · refine (hsep.sublist List.filter_sublist).imp_of_mem fun hfirst hsecond hcase hpair => ?_
+      obtain ⟨-, -, -, -, -, hbefore⟩ := hcharge _ (List.mem_filter.mp hfirst).2
+      obtain ⟨-, -, -, -, hafter, -⟩ := hcharge _ (List.mem_filter.mp hsecond).2
+      rcases hcase with hpages | hwindows
+      · exact hpages (congrArg Prod.snd hpair)
+      · exact (hbefore.trans_lt (hwindows.trans_le hafter)).ne (congrArg Prod.fst hpair)
   -- the remaining requests pay delay
-  have hone : ∀ request ∈ late, 1 ≤ schedule.requestCost request := by
-    intro request hrequest
-    have hmemInput : request ∈ input.requests := (List.mem_filter.mp hrequest).1
-    have hnot : ¬ ChargedByFetch schedule (window request) request := by
-      have hbool := (List.mem_filter.mp hrequest).2
-      simp only [hcharged, Bool.not_eq_true', decide_eq_false_iff_not] at hbool
-      exact hbool
-    rcases schedule.fetch_in_window_or_cost request
-      (feasible.eventuallyServed request hmemInput) (hmiss request hmemInput)
-      (window request) with hcharge | hcost
-    · exact absurd hcharge hnot
-    · exact (hpenalty request hmemInput).trans hcost
-  have hlength_le : ∀ requests : List (Request Page),
-      (∀ request ∈ requests, 1 ≤ schedule.requestCost request) →
-        (requests.length : Cost) ≤ (requests.map schedule.requestCost).sum := by
-    intro requests
-    induction requests with
-    | nil => intro _; simp
-    | cons request rest ih =>
-        intro hall
-        simp only [List.length_cons, List.map_cons, List.sum_cons]
-        push_cast
-        rw [add_comm (schedule.requestCost request)]
-        exact add_le_add (ih fun other hother => hall other (List.mem_cons_of_mem _ hother))
-          (hall request (List.mem_cons_self ..))
-  have hdelay : (late.length : Cost) ≤ schedule.totalDelay input :=
-    (hlength_le late hone).trans
+  have hdelay : ((input.requests.filter (!charged ·)).length : Cost) ≤
+      schedule.totalDelay input := by
+    have hone : ∀ cost ∈ (input.requests.filter (!charged ·)).map schedule.requestCost,
+        1 ≤ cost := by
+      simp only [List.mem_map, List.mem_filter]
+      rintro _ ⟨request, ⟨hrequest, hnot⟩, rfl⟩
+      rcases schedule.fetch_in_window_or_cost request (feasible.eventuallyServed request hrequest)
+        (hmiss request hrequest) (window request) with hfetch | hcost
+      · simp [hcharged, hfetch] at hnot
+      · exact (hpenalty request hrequest).trans hcost
+    simpa using (List.card_nsmul_le_sum _ 1 hone).trans
       ((List.filter_sublist.map schedule.requestCost).sum_le_sum fun _ _ => zero_le _)
   -- the two families exhaust the requests
-  have hsplit : input.requests.length = hit.length + late.length :=
-    List.length_eq_length_filter_add charged
-  rw [hsplit]
-  calc ((hit.length + late.length : ℕ) : Cost)
-      = (hit.length : Cost) + (late.length : Cost) := by push_cast; ring
-    _ ≤ (schedule.fetchCount : Cost) + schedule.totalDelay input :=
-        add_le_add (by exact_mod_cast hfetch) hdelay
-    _ = schedule.totalCost input := rfl
+  rw [List.length_eq_length_filter_add charged, Nat.cast_add, Schedule.totalCost]
+  exact add_le_add (by exact_mod_cast hfetch) hdelay
 
 /-! ## Releasing the next request
 
@@ -167,30 +125,21 @@ distinguished page.  Onlineness then says that appending a request there does
 not disturb what the algorithm did earlier, so earlier misses stay misses and
 the new request is a miss too. -/
 
-/-- At least two of the `k + 2` pages are missing from the cache at any time. -/
-theorem two_le_card_uncovered {input : Instance Page} (schedule : Schedule Page)
-    (feasible : schedule.Feasible input) {V : Finset Page} {k : ℕ}
-    (hsize : input.cacheSize = k) (hcard : k + 2 ≤ V.card) (t : Time) :
-    2 ≤ (V \ schedule.cacheBefore t).card := by
-  have hcap : (schedule.cacheBefore t).card ≤ k := by
-    rw [← hsize]
-    exact schedule.cacheBefore_card_le input feasible t
-  have hle := Finset.le_card_sdiff (schedule.cacheBefore t) V
-  omega
-
-/-- Hence a page to request: in `V`, uncovered, and different from the page the
+/-- At least two of the `k + 2` pages are missing from the cache at any time,
+hence a page to request: in `V`, uncovered, and different from the page the
 adversary must leave alone. -/
 theorem exists_uncovered_ne {input : Instance Page} (schedule : Schedule Page)
     (feasible : schedule.Feasible input) {V : Finset Page} {k : ℕ}
     (hsize : input.cacheSize = k) (hcard : k + 2 ≤ V.card) (t : Time) (avoid : Page) :
     ∃ page ∈ V, page ≠ avoid ∧ page ∉ schedule.cacheBefore t := by
+  have hcap := hsize ▸ schedule.cacheBefore_card_le input feasible t
+  have hle := Finset.le_card_sdiff (schedule.cacheBefore t) V
   obtain ⟨first, hfirst, second, hsecond, hne⟩ :=
-    Finset.one_lt_card.mp (two_le_card_uncovered schedule feasible hsize hcard t)
+    Finset.one_lt_card.mp (by omega : 1 < (V \ schedule.cacheBefore t).card)
+  rw [Finset.mem_sdiff] at hfirst hsecond
   by_cases havoid : first = avoid
-  · refine ⟨second, (Finset.mem_sdiff.mp hsecond).1, ?_, (Finset.mem_sdiff.mp hsecond).2⟩
-    rw [← havoid]
-    exact fun heq => hne heq.symm
-  · exact ⟨first, (Finset.mem_sdiff.mp hfirst).1, havoid, (Finset.mem_sdiff.mp hfirst).2⟩
+  · exact ⟨second, hsecond.1, havoid ▸ hne.symm, hsecond.2⟩
+  · exact ⟨first, hfirst.1, havoid, hfirst.2⟩
 
 /-- Appending a request leaves the cache before its arrival — and before any
 earlier instant — exactly as it was.  This is

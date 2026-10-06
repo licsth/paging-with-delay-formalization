@@ -5,22 +5,13 @@ import Mathlib.Topology.Instances.NNReal.Lemmas
 
 These lemmas concern only nonnegative costs, independently of paging or the
 representation of an input or a schedule. A bound on the sum of the costs of
-`n` offline strategies gives one strategy costing at most the average. The
-strict version includes an arbitrary additive constant in a competitive claim.
+`n` offline strategies refutes a competitive claim, with an arbitrary additive
+constant, for one of them.
 -/
 
 namespace PagingWithDelay.Analysis
 
 open scoped BigOperators NNReal
-
-/-- Some member of a nonempty finite family costs at most its average. -/
-theorem exists_cost_le_average {ι : Type*} (s : Finset ι) (hs : s.Nonempty)
-    (cost : ι → ℝ≥0) :
-    ∃ i ∈ s, cost i ≤ (∑ j ∈ s, cost j) / s.card := by
-  have hn : (s.card : ℝ≥0) ≠ 0 := by exact_mod_cast hs.card_pos.ne'
-  apply Finset.exists_le_of_sum_le hs
-  simp only [Finset.sum_const, nsmul_eq_mul]
-  rw [mul_div_cancel₀ _ hn]
 
 /-- A strict aggregate inequality refutes a competitive claim for at least
 one strategy. No division or positivity assumption on the claimed ratio is

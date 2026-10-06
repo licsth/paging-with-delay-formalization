@@ -29,101 +29,54 @@ theorem algorithmCostClaim (trigger : Trigger) (input : Instance Page) :
     AlgorithmCostClaim trigger input := by
   let final := run trigger input (2 * input.requests.length) (initialState input)
   let weight := Competitive.Schedule.requestIdWeight (schedule trigger input) input
+  have hweight {occurrence : Occurrence Page} (h : occurrence ∈ enumerate input.requests) :
+      weight occurrence.id = (schedule trigger input).requestCost occurrence.request :=
+    Competitive.Schedule.requestIdWeight_eq_requestCost_of_mem_enumerate _ input h
+  -- Every request position is either served by a payment or dropped as a hit.
   have hids : OccurrencePartition.inputIds input = Finset.range input.requests.length := by
     have aux : ∀ (next : ℕ) (requests : List (Request Page)),
-        (enumerateFrom next requests |>.map Occurrence.id) =
-          List.range' next requests.length := by
+        (enumerateFrom next requests).map Occurrence.id = List.range' next requests.length := by
       intro next requests
       induction requests generalizing next with
-      | nil => simp [enumerateFrom]
+      | nil => rfl
       | cons request rest ih => simp [enumerateFrom, ih, List.range'_succ]
-    apply Finset.ext
-    intro id
+    ext id
     simp [OccurrencePartition.inputIds, enumerate, aux]
-  have hpartition : Finset.range input.requests.length =
-      OccurrencePartition.servedIds final ∪
-        OccurrencePartition.droppedIds input final := by
-    rw [← hids]
-    exact OccurrencePartition.final_inputIds_eq_served_union_dropped input
   have hdisjoint : Disjoint (OccurrencePartition.servedIds final)
-      (OccurrencePartition.droppedIds input final) := by
-    rw [Finset.disjoint_left]
-    intro id hserved hdropped
-    exact ((OccurrencePartition.mem_droppedIds_iff input final id).mp hdropped).2.1 hserved
-  have hdroppedZero : ∀ id ∈ OccurrencePartition.droppedIds input final,
-      weight id = 0 := by
-    intro id hdropped
-    have hinput : id ∈ OccurrencePartition.inputIds input :=
-      ((OccurrencePartition.mem_droppedIds_iff input final id).mp hdropped).1
-    change id ∈ (enumerate input.requests |>.map Occurrence.id).toFinset at hinput
-    rw [List.mem_toFinset] at hinput
-    obtain ⟨occurrence, horiginal, hid⟩ := List.mem_map.mp hinput
-    subst id
-    rw [show weight occurrence.id =
-        (schedule trigger input).requestCost occurrence.request by
-      exact Competitive.Schedule.requestIdWeight_eq_requestCost_of_mem_enumerate
-        (schedule trigger input) input horiginal]
-    apply Schedule.requestCost_eq_zero_of_mem_cacheBefore
-    apply final_dropped_occurrence_is_hit input occurrence horiginal
-    intro hserved
-    apply ((OccurrencePartition.mem_droppedIds_iff input final occurrence.id).mp
-      hdropped).2.1
-    unfold OccurrencePartition.servedIds
-    rw [List.mem_toFinset]
-    exact List.mem_map.mpr ⟨occurrence, hserved, rfl⟩
-  have hservedNodup :
-      ((final.payments.flatMap Payment.served).map Occurrence.id).Nodup := by
-    exact History.final_servedIds_nodup input
-  have hservedSum : (∑ id ∈ OccurrencePartition.servedIds final, weight id) =
-      ((final.payments.flatMap Payment.served).map fun occurrence =>
-        (schedule trigger input).requestCost occurrence.request).sum := by
-    unfold OccurrencePartition.servedIds
-    rw [List.sum_toFinset weight hservedNodup]
-    apply congrArg List.sum
-    rw [List.map_map]
-    apply List.map_congr_left
-    intro occurrence hoccurrence
-    obtain ⟨payment, hpayment, hoccurrence⟩ := List.mem_flatMap.mp hoccurrence
-    have horiginal := OccurrencePartition.final_authentic input |>.2.2
-      payment hpayment occurrence hoccurrence
-    exact Competitive.Schedule.requestIdWeight_eq_requestCost_of_mem_enumerate
-      (schedule trigger input) input horiginal
-  have hpublicDelay : (schedule trigger input).totalDelay input =
-      (final.payments.map Payment.delayCost).sum := by
-    rw [← Competitive.Schedule.sum_requestIdWeight_range (schedule trigger input) input]
-    rw [hpartition, Finset.sum_union hdisjoint]
-    rw [hservedSum]
-    have hz : (∑ id ∈ OccurrencePartition.droppedIds input final, weight id) = 0 := by
-      exact Finset.sum_eq_zero fun id hid => hdroppedZero id hid
-    rw [hz, add_zero]
-    rw [OccurrencePartition.sum_flattened_payments]
-    apply congrArg List.sum
-    apply List.map_congr_left
+      (OccurrencePartition.droppedIds input final) :=
+    Finset.disjoint_left.mpr fun _ hserved hdropped =>
+      ((OccurrencePartition.mem_droppedIds_iff input final _).mp hdropped).2.1 hserved
+  -- A dropped request is a cache hit and pays no delay.
+  have hdropped : ∑ id ∈ OccurrencePartition.droppedIds input final, weight id = 0 := by
+    refine Finset.sum_eq_zero fun id hid => ?_
+    obtain ⟨hinput, hnotServed, -⟩ := (OccurrencePartition.mem_droppedIds_iff input final id).mp hid
+    obtain ⟨occurrence, horiginal, rfl⟩ := List.mem_map.mp (List.mem_toFinset.mp hinput)
+    rw [hweight horiginal]
+    exact Schedule.requestCost_eq_zero_of_mem_cacheBefore _ _
+      (final_dropped_occurrence_is_hit input occurrence horiginal fun hserved =>
+        hnotServed (List.mem_toFinset.mpr (List.mem_map_of_mem hserved)))
+  -- The requests served by a payment pay delay `δ` in total.
+  have hpayment : ∀ payment ∈ final.payments,
+      (payment.served.map (weight ∘ Occurrence.id)).sum = trigger.level := by
     intro payment hpayment
-    unfold Payment.delayCost
-    apply congrArg List.sum
-    apply List.map_congr_left
-    intro occurrence hoccurrence
-    exact final_served_requestCost_eq input payment hpayment occurrence hoccurrence
-  have hthreshold : (final.payments.map Payment.delayCost).sum =
-      trigger.level * (final.payments.length : Cost) := by
-    calc
-      (final.payments.map Payment.delayCost).sum =
-          (final.payments.map fun _ => trigger.level).sum := by
-            apply congrArg List.sum
-            apply List.map_congr_left
-            intro payment hpayment
-            exact final_thresholdPayments input payment hpayment
-      _ = trigger.level * (final.payments.length : Cost) := by
-            rw [List.map_const', List.sum_replicate, nsmul_eq_mul]
-            ring
-  unfold AlgorithmCostClaim algorithmCost paymentCount
-  rw [Schedule.totalCost, fetchCount_eq_paymentCount trigger input]
-  change (final.payments.length : Cost) + (schedule trigger input).totalDelay input =
-    (1 + trigger.level) * (final.payments.length : Cost)
-  rw [hpublicDelay, hthreshold]
+    rw [← final_thresholdPayments input payment hpayment, Payment.delayCost]
+    refine congrArg List.sum (List.map_congr_left fun occurrence hoccurrence => ?_)
+    rw [Function.comp_apply,
+      hweight ((OccurrencePartition.final_authentic input).2.2 payment hpayment occurrence hoccurrence),
+      final_served_requestCost_eq input payment hpayment occurrence hoccurrence]
+  have hserved : ∑ id ∈ OccurrencePartition.servedIds final, weight id =
+      trigger.level * final.payments.length := by
+    rw [OccurrencePartition.servedIds,
+      List.sum_toFinset weight (History.final_servedIds_nodup input), List.map_map, OccurrencePartition.sum_flattened_payments, List.map_congr_left hpayment,
+      List.map_const', List.sum_replicate, nsmul_eq_mul, mul_comm]
+  have hdelay : (schedule trigger input).totalDelay input =
+      trigger.level * final.payments.length := by
+    rw [← Competitive.Schedule.sum_requestIdWeight_range, ← hids,
+      OccurrencePartition.final_inputIds_eq_served_union_dropped, Finset.sum_union hdisjoint,
+      hserved, hdropped, add_zero]
+  rw [AlgorithmCostClaim, algorithmCost, Schedule.totalCost, fetchCount_eq_paymentCount, hdelay,
+    paymentCount]
   ring
-
 
 end
 end PagingWithDelay.FIFO
