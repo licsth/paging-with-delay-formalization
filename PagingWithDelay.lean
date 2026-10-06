@@ -8,6 +8,7 @@ import Proofs.LowerBound.Final
 import Proofs.GeneralLowerBound.Final
 import Proofs.DeadlineUpperBound.Final
 import Proofs.DeadlineLowerBound.Final
+import Proofs.ThresholdLowerBound.Final
 
 /-!
 # Paging with delay: model and main result
@@ -21,6 +22,7 @@ The definitions are in `Model.lean`. `Checks/StatementChecks.lean` unfolds each 
 5. For paging with deadlines, deadline-triggered FIFO is nonclairvoyant, online and strictly `(k+1)`-competitive (`Proofs/DeadlineUpperBound/`).
 6. For paging with deadlines on at most `k+1` pages, deadline-triggered FIFO is strictly `k`-competitive (`Proofs/DeadlineUpperBound/`).
 7. For paging with deadlines on `k+2` pages, no online algorithm is better than `(k+1/2)`-competitive (`Proofs/DeadlineLowerBound/`).
+8. On `k+2` pages, no online threshold algorithm is better than `(2k+3/2)`-competitive (`Proofs/ThresholdLowerBound/`).
 -/
 
 namespace PagingWithDelay
@@ -77,5 +79,13 @@ theorem paging_with_delay_deadline_lower_bound {Page : Type*} [DecidableEq Page]
     {ratio : ℕ → Cost} (hratio : 2 * ratio k < 2 * k + 1) :
     ¬ algorithm.Competitive ratio :=
   DeadlineLowerBound.not_competitive hk pages online hratio
+
+/-- **The `2k+3/2` lower bound for threshold algorithms.** No online threshold algorithm is `ratio`-competitive if `ratio k < 2k + 3/2` for some `k ≥ 1`, given at least `k + 2` pages. -/
+theorem threshold_lower_bound {Page : Type*} [DecidableEq Page]
+    {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page)
+    {algorithm : ThresholdAlgorithm Page} (online : algorithm.Online)
+    {ratio : ℕ → Cost} (hratio : 2 * ratio k < 4 * k + 3) :
+    ¬ algorithm.Competitive ratio :=
+  ThresholdLowerBound.not_competitive hk pages online hratio
 
 end PagingWithDelay

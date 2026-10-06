@@ -228,6 +228,18 @@ structure DeadlineAlgorithm.Nonclairvoyant (algorithm : DeadlineAlgorithm Page) 
   observationDetermined : ∀ (first second : Instance Page) (t : Time),
     first.DeadlineAgreeUpTo second t → (algorithm first).upTo t = (algorithm second).upTo t
 
+/-! ## Threshold algorithms -/
+
+/-- A deterministic algorithm with a positive threshold `δ` (depending on the cache size) that fetches a page only when the delay accumulated by its pending requests equals `δ`: the requests served by each fetch pay delay exactly `δ` in total. -/
+structure ThresholdAlgorithm (Page : Type*) [DecidableEq Page] extends Algorithm Page where
+  threshold : ℕ → Cost
+  threshold_pos : ∀ k, 0 < threshold k
+  /-- Every fetch serves requests whose delay costs sum to the threshold. -/
+  payment : ∀ (input : Instance Page), ∀ event ∈ (run input).events,
+    ((input.requests.filter fun request => request.page = event.fetched ∧
+        (run input).serviceTime request = some event.time).map
+      (run input).requestCost).sum = threshold input.cacheSize
+
 /-! ## Competitiveness
 
 An algorithm is compared, instance by instance, with every other algorithm, online or not, i.e. with `OPT`.

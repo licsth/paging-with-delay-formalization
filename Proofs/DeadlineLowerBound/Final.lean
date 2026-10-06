@@ -121,21 +121,25 @@ theorem competitive_ratio_lower_bound_pageUniverse {algorithm : Algorithm Page}
     (Instance.card_pageUniverse_le hinitial hpages).trans_eq (by simp), hfeasible, hdelay, hcost⟩
 
 
-/-- **The quantitative form of the write-up's theorem.**  For every `N ≥ 1`
-there is an input of `N` requests on at most `k + 2` pages on which the
-algorithm pays at least `N`, while a feasible comparator that serves every
-request at no delay cost pays at most `(2N + 2k)/(2k+1) + 1`, stated without
-dividing as `(2k+1)·OPT ≤ 2N + 2k + (2k+1)`. -/
-theorem exists_input_quantitative {algorithm : Algorithm Page}
+/-- The adversarial input together with what the charging argument needs:
+every request is a miss on arrival, has accrued a unit of delay by the end of
+its charging window, and any two requests ask for different pages or have
+disjoint windows.  The comparator serves every request at no delay cost and
+pays at most `(2N + 2k)/(2k+1) + 1`. -/
+theorem exists_input_charged {algorithm : Algorithm Page}
     (online : algorithm.Online)
     {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page) {N : ℕ} (hN : 1 ≤ N) :
-    ∃ (input : Instance Page) (comparator : Schedule Page),
+    ∃ (input : Instance Page) (comparator : Schedule Page) (window : Request Page → Time),
       input.cacheSize = k ∧
       input.pageUniverse.card ≤ k + 2 ∧
       input.requests.length = N ∧
       comparator.Feasible input ∧
       (∀ request ∈ input.requests, comparator.requestCost request = 0) ∧
-      (N : Cost) ≤ (algorithm input).totalCost input ∧
+      (∀ request ∈ input.requests,
+        request.page ∉ (algorithm input).cacheBefore request.arrival) ∧
+      (∀ request ∈ input.requests, 1 ≤ request.delay (window request)) ∧
+      input.requests.Pairwise (fun first second =>
+        first.page ≠ second.page ∨ first.arrival + window first < second.arrival) ∧
       (2 * k + 1 : Cost) * comparator.totalCost input ≤ 2 * N + 2 * k + (2 * k + 1) := by
   classical
   set V : Finset Page := Finset.univ.map pages with hV
@@ -145,11 +149,6 @@ theorem exists_input_quantitative {algorithm : Algorithm Page}
   have hlengthN : run.input.requests.length = N := by
     rw [run.lengthEq, hrunSteps]
     omega
-  -- the algorithm pays at least one unit for every request
-  have halg : ((run.input.requests.length : ℕ) : Cost) ≤
-      (algorithm run.input).totalCost run.input :=
-    length_le_totalCost _ (algorithm.feasible _) run.chargeWindow run.penalty
-      run.misses run.ordered
   -- the certificate supplies the comparator
   obtain ⟨z, hz⟩ := run.cert.cheap_nonempty
   have hzV : z ∈ V := (run.cert.cheap_mem_V hz).1
@@ -169,14 +168,36 @@ theorem exists_input_quantitative {algorithm : Algorithm Page}
   have hnat : (2 * k + 1) * (run.state.budget + 1) ≤ 2 * N + 2 * k + (2 * k + 1) := by
     rw [Nat.mul_succ]
     omega
-  refine ⟨run.input, comparator, run.size,
+  refine ⟨run.input, comparator, run.chargeWindow, run.size,
     (Instance.card_pageUniverse_le run.initialPages run.pages).trans_eq hcard, hlengthN,
-    hfeasible, hcomparatorDelay, by rw [← hlengthN]; exact halg, ?_⟩
+    hfeasible, hcomparatorDelay, run.misses, run.penalty, run.ordered, ?_⟩
   calc (2 * k + 1 : Cost) * comparator.totalCost run.input
       ≤ (2 * k + 1 : Cost) * ((run.state.budget + 1 : ℕ) : Cost) := by gcongr
     _ = (((2 * k + 1) * (run.state.budget + 1) : ℕ) : Cost) := by push_cast; ring
     _ ≤ ((2 * N + 2 * k + (2 * k + 1) : ℕ) : Cost) := by exact_mod_cast hnat
     _ = 2 * N + 2 * k + (2 * k + 1) := by push_cast; ring
+
+/-- **The quantitative form of the write-up's theorem.**  For every `N ≥ 1`
+there is an input of `N` requests on at most `k + 2` pages on which the
+algorithm pays at least `N`, while a feasible comparator that serves every
+request at no delay cost pays at most `(2N + 2k)/(2k+1) + 1`, stated without
+dividing as `(2k+1)·OPT ≤ 2N + 2k + (2k+1)`. -/
+theorem exists_input_quantitative {algorithm : Algorithm Page}
+    (online : algorithm.Online)
+    {k : ℕ} (hk : 1 ≤ k) (pages : Fin (k + 2) ↪ Page) {N : ℕ} (hN : 1 ≤ N) :
+    ∃ (input : Instance Page) (comparator : Schedule Page),
+      input.cacheSize = k ∧
+      input.pageUniverse.card ≤ k + 2 ∧
+      input.requests.length = N ∧
+      comparator.Feasible input ∧
+      (∀ request ∈ input.requests, comparator.requestCost request = 0) ∧
+      (N : Cost) ≤ (algorithm input).totalCost input ∧
+      (2 * k + 1 : Cost) * comparator.totalCost input ≤ 2 * N + 2 * k + (2 * k + 1) := by
+  obtain ⟨input, comparator, window, hsize, hcard, hlength, hfeasible, hdelay, hmisses,
+    hpenalty, hordered, hcost⟩ := exists_input_charged online hk pages hN
+  refine ⟨input, comparator, hsize, hcard, hlength, hfeasible, hdelay, ?_, hcost⟩
+  rw [← hlength]
+  exact length_le_totalCost _ (algorithm.feasible _) window hpenalty hmisses hordered
 
 /-- **The `k+1/2` lower bound** in the form `PagingWithDelay.lean` states it:
 for online deadline algorithms, against deadline algorithms. -/

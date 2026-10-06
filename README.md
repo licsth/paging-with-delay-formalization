@@ -6,6 +6,7 @@ Paging with delay:
 
 - FIFO with threshold `1` is nonclairvoyant, online and strictly `(2k+2)`-competitive, and this analysis is tight: no positive threshold makes FIFO better than `(2k+2)`-competitive, given at least `k+2` pages.
 - No online algorithm is better than `(2k+1)`-competitive, already on `k+1` pages; this lower bound is not original but due to [Krnetić, Melnyk, Wang and Wattenhofer (ISAAC 2020)](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.ISAAC.2020.61). On at most `k+1` pages it is matched: FIFO with threshold `(k+1)/k` is strictly `(2k+1)`-competitive.
+- No online threshold algorithm, with any replacement rule, is better than `(2k+3/2)`-competitive, given at least `k+2` pages.
 
 Paging with deadlines:
 
@@ -18,7 +19,7 @@ Lower bounds hold with arbitrary additive constants. Build with `lake build`.
 
 To audit the statements rather than the proofs, read:
 
-- [`PagingWithDelay.lean`](PagingWithDelay.lean): the seven theorem statements;
+- [`PagingWithDelay.lean`](PagingWithDelay.lean): the eight theorem statements;
 - [`Model.lean`](Model.lean): the definitions they use;
 - [`EventLoop.lean`](EventLoop.lean) and [`Algorithm.lean`](Algorithm.lean): the FIFO event loop and its packaging as an algorithm, to check that the algorithm named by the results is the intended one.
 
@@ -33,6 +34,8 @@ A `Schedule` is a list of fetch events starting from the initial cache at no cos
 An algorithm is _online_ (`Algorithm.Online`) when its schedule up to time `t` is determined by the requests that have arrived by `t`, and _nonclairvoyant_ (`Algorithm.Nonclairvoyant`) when it is determined by less: the delay those requests have accrued by `t`, rather than their delay curves. Nonclairvoyance implies onlineness (`Algorithm.Nonclairvoyant.online`) and is strictly stronger.
 
 `Algorithm.Competitive algorithm ratio inputs` asks for an additive constant `additive : ℕ → Cost` such that `ALG <= ratio k * cost(comparator) + additive k` for every comparator `Algorithm` and every input with cache size `k` satisfying `inputs` (all instances by default; some results restrict the page universe). `Algorithm.StrictlyCompetitive` is the same with additive constant `0`. Comparators range over all algorithms, online or not, so this is the bound against `OPT`; `Algorithm.StrictlyCompetitive.le_of_feasible` recovers it against every feasible schedule.
+
+A `ThresholdAlgorithm` has a positive threshold `δ`, which may depend on `k`, and fetches a page only when the delay accumulated by its pending requests equals `δ`: the requests served by each fetch pay delay exactly `δ` in total. The write-up's threshold algorithms, which fetch when this delay first reaches `δ`, are of this form; the class is slightly larger, since it also allows waiting while the accumulated delay stays at `δ`.
 
 ### Deadlines
 
@@ -59,6 +62,10 @@ The event loop in `EventLoop.lean` keeps the cache as the pages of the most rece
 ### Paging with delay: the `2k+1` lower bound
 
 `paging_with_delay_general_lower_bound`: given at least `k+1` pages, no online algorithm is `ratio`-competitive with `ratio k < 2k+1` at some `k >= 1`, already on inputs with `input.pageUniverse.card <= input.cacheSize + 1`, that is, the `k` initially cached pages and at most one more. This result is from Krnetić, Melnyk, Wang and Wattenhofer, [_The k-Server Problem with Delays on the Uniform Metric Space_](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.ISAAC.2020.61), ISAAC 2020, and is formalized here following the write-up. The adversarial input is built from the algorithm's own run: each phase requests a page the algorithm does not hold and ends when it is served. The algorithm is compared with the write-up's `k+1` static and `k` dynamic offline strategies by averaging. See [`Proofs/GeneralLowerBound/README.md`](Proofs/GeneralLowerBound/README.md).
+
+### Paging with delay: the `2k+3/2` lower bound for threshold algorithms
+
+`threshold_lower_bound`: given at least `k+2` pages, no online `ThresholdAlgorithm` is `ratio`-competitive with `ratio k < 2k+3/2` at some `k >= 1`. This is the write-up's corollary `cor:threshold-lower`. It is proved directly, without the write-up's simulation lemma and transfer proposition: large thresholds face the deadline adversary with scaled delay curves, small ones a round-robin adversary on `k+1` pages. See [`Proofs/ThresholdLowerBound/README.md`](Proofs/ThresholdLowerBound/README.md).
 
 ### Paging with delay: a matching upper bound on `k+1` pages
 
@@ -92,6 +99,7 @@ The adversary keeps an offline _certificate_ (a distinguished node, a set of che
 | `Proofs/KPlusOne/`              | Improved bound for `k+1` pages, same accounting                                                                                                                            |
 | `Proofs/LowerBound/`            | Tightness construction and comparator                                                                                                                                      |
 | `Proofs/GeneralLowerBound/`     | General `2k+1` lower bound for all algorithms                                                                                                                              |
+| `Proofs/ThresholdLowerBound/`   | `2k+3/2` lower bound for threshold algorithms                                                                                                                              |
 | `Proofs/DeadlineUpperBound/`    | `k+1` and `k`-on-`k+1`-pages bounds for deadline-triggered FIFO                                                                                                            |
 | `Proofs/DeadlineLowerBound/`    | `k+1/2` lower bound for paging with deadlines                                                                                                                              |
 | `Proofs/Analysis/`              | Reusable potential, rank, and cache-trace tools                                                                                                                            |
@@ -99,7 +107,7 @@ The adversary keeps an offline _certificate_ (a distinguished node, a set of che
 
 ## Formalization status
 
-The project builds without `sorry`, added axioms, `native_decide`, or `unsafe`. For the seven public results, `#print axioms` reports only `propext`, `Classical.choice`, and `Quot.sound`.
+The project builds without `sorry`, added axioms, `native_decide`, or `unsafe`. For the eight public results, `#print axioms` reports only `propext`, `Classical.choice`, and `Quot.sound`.
 
 The separate library `Checks` (built with `lake build Checks`, not by `lake build`) contains sanity checks on the statements. [`Checks/OnlineExamples.lean`](Checks/OnlineExamples.lean) shows that onlineness and nonclairvoyance are neither vacuous nor trivial, including an online but clairvoyant algorithm separating the two. [`Checks/StatementChecks.lean`](Checks/StatementChecks.lean) derives explicit forms of the public statements from their `Competitive` phrasing: bounds against every feasible comparator schedule, and for deadlines against every feasible schedule meeting all deadlines.
 
